@@ -112,6 +112,17 @@ async def submit_homework(
         raise HTTPException(status_code=403, detail="Only students can submit homework")
     
     try:
+        # Check if homework submission is enabled
+        feature = await db.feature_flags.find_one({"feature_name": "homework_submission"})
+        if not feature or not feature.get("is_enabled", False):
+            raise HTTPException(status_code=403, detail="Homework submission is currently disabled")
+        
+        # Check file upload permissions
+        if submission.attachments:
+            file_uploads_enabled = await db.feature_flags.find_one({"feature_name": "student_file_uploads"})
+            if not file_uploads_enabled or not file_uploads_enabled.get("is_enabled", False):
+                raise HTTPException(status_code=403, detail="File uploads are currently disabled")
+        
         # Get student ID
         student = await db.students.find_one({"user_id": str(current_user["_id"])})
         if not student:

@@ -156,6 +156,9 @@ async def initial_setup():
             {"feature_name": "crm", "is_enabled": True},
             {"feature_name": "parent_portal", "is_enabled": True},
             {"feature_name": "testing_module", "is_enabled": True},
+            {"feature_name": "homework_submission", "is_enabled": False},
+            {"feature_name": "student_file_uploads", "is_enabled": False},
+            {"feature_name": "student_image_uploads", "is_enabled": False},
         ]
         await db.feature_flags.insert_many(features)
         
@@ -644,6 +647,7 @@ from routes_payments import router as payments_router
 from routes_homework import router as homework_router
 from routes_tests import router as tests_router
 from routes_certificates import router as certificates_router
+from routes_leads import router as leads_router
 
 # Include all routers
 app.include_router(api_router)
@@ -656,6 +660,7 @@ api_router.include_router(payments_router)
 api_router.include_router(homework_router)
 api_router.include_router(tests_router)
 api_router.include_router(certificates_router)
+api_router.include_router(leads_router)
 
 app.add_middleware(
     CORSMiddleware,
