@@ -14,6 +14,12 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 
+// Import role-specific screens
+import ParentHomeScreen from './parent-home';
+import TeacherHomeScreen from './teacher-home';
+import SupportHomeScreen from './support-home';
+import StudentHomeScreen from './student-home';
+
 export default function DashboardHome() {
   const { user } = useAuth();
   const [stats, setStats] = useState<any>(null);
@@ -51,6 +57,32 @@ export default function DashboardHome() {
         <ActivityIndicator size="large" color={COLORS.gold} />
       </View>
     );
+  }
+
+  // Role-based home screen rendering
+  switch (user?.role) {
+    case 'parent':
+      return <ParentHomeScreen />;
+    case 'teacher':
+      return <TeacherHomeScreen />;
+    case 'support':
+      return <SupportHomeScreen />;
+    case 'student':
+      return <StudentHomeScreen />;
+    case 'super_admin':
+    case 'manager':
+      // Continue to admin dashboard below
+      break;
+    default:
+      // Default view for unknown roles
+      return (
+        <View style={styles.container}>
+          <View style={styles.studentHeader}>
+            <Text style={styles.welcomeText}>Welcome</Text>
+            <Text style={styles.subtitle}>{user?.full_name || 'Portal'}</Text>
+          </View>
+        </View>
+      );
   }
 
   // Admin/Manager Dashboard
@@ -353,5 +385,16 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginTop: SIZES.sm,
     textAlign: 'center',
+  },
+  studentHeader: {
+    paddingTop: 60,
+    paddingHorizontal: SIZES.lg,
+    paddingBottom: SIZES.xl,
+    backgroundColor: COLORS.marbleDark,
+  },
+  subtitle: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+    marginTop: SIZES.xs,
   },
 });

@@ -7,328 +7,439 @@ import { COLORS } from '../../src/constants/theme';
 export default function DashboardLayout() {
   const { user } = useAuth();
 
-  // Role-based tabs
-  const getTabsForRole = () => {
-    switch (user?.role) {
-      case 'super_admin':
-      case 'manager':
-        return (
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: COLORS.gold,
-              tabBarInactiveTintColor: COLORS.textTertiary,
-              tabBarStyle: {
-                backgroundColor: COLORS.backgroundCard,
-                borderTopColor: COLORS.marbleGray,
-                height: 60,
-                paddingBottom: 8,
-              },
-              tabBarLabelStyle: {
-                fontSize: 10,
-                fontWeight: '600',
-              },
-            }}
-          >
-            <Tabs.Screen
-              name="index"
-              options={{
-                title: 'Home',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="grid" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="students"
-              options={{
-                title: 'Students',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="people" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="payments"
-              options={{
-                title: 'Payments',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="card" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="journal"
-              options={{
-                title: 'Journal',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="journal" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="tests"
-              options={{
-                title: 'Tests',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="clipboard" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="certificates"
-              options={{
-                title: 'Certs',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="ribbon" size={size} color={color} />
-                ),
-              }}
-            />
-            {/* Hidden screens accessible via navigation */}
-            <Tabs.Screen name="groups" options={{ href: null }} />
-            <Tabs.Screen name="teachers" options={{ href: null }} />
-            <Tabs.Screen name="leads" options={{ href: null }} />
-            <Tabs.Screen name="attendance" options={{ href: null }} />
-            <Tabs.Screen name="homework" options={{ href: null }} />
-            <Tabs.Screen name="progress" options={{ href: null }} />
-            <Tabs.Screen name="profile" options={{ href: null }} />
-          </Tabs>
-        );
-
-      case 'teacher':
-        return (
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: COLORS.gold,
-              tabBarInactiveTintColor: COLORS.textTertiary,
-              tabBarStyle: {
-                backgroundColor: COLORS.backgroundCard,
-                borderTopColor: COLORS.marbleGray,
-                height: 60,
-                paddingBottom: 8,
-              },
-              tabBarLabelStyle: {
-                fontSize: 10,
-                fontWeight: '600',
-              },
-            }}
-          >
-            <Tabs.Screen
-              name="index"
-              options={{
-                title: 'Home',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="calendar" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="journal"
-              options={{
-                title: 'Journal',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="journal" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="homework"
-              options={{
-                title: 'Homework',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="book" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="tests"
-              options={{
-                title: 'Tests',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="clipboard" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="attendance"
-              options={{
-                title: 'Attendance',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="checkbox" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="progress"
-              options={{
-                title: 'Progress',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="analytics" size={size} color={color} />
-                ),
-              }}
-            />
-            {/* Hidden screens */}
-            <Tabs.Screen name="groups" options={{ href: null }} />
-            <Tabs.Screen name="students" options={{ href: null }} />
-            <Tabs.Screen name="teachers" options={{ href: null }} />
-            <Tabs.Screen name="leads" options={{ href: null }} />
-            <Tabs.Screen name="profile" options={{ href: null }} />
-          </Tabs>
-        );
-
-      case 'student':
-        return (
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: COLORS.gold,
-              tabBarInactiveTintColor: COLORS.textTertiary,
-              tabBarStyle: {
-                backgroundColor: COLORS.backgroundCard,
-                borderTopColor: COLORS.marbleGray,
-                height: 60,
-                paddingBottom: 8,
-              },
-            }}
-          >
-            <Tabs.Screen
-              name="index"
-              options={{
-                title: 'Home',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="home" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="profile"
-              options={{
-                title: 'Profile',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person" size={size} color={color} />
-                ),
-              }}
-            />
-          </Tabs>
-        );
-
-      case 'parent':
-        return (
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: COLORS.gold,
-              tabBarInactiveTintColor: COLORS.textTertiary,
-              tabBarStyle: {
-                backgroundColor: COLORS.backgroundCard,
-                borderTopColor: COLORS.marbleGray,
-                height: 60,
-                paddingBottom: 8,
-              },
-              tabBarLabelStyle: {
-                fontSize: 10,
-                fontWeight: '600',
-              },
-            }}
-          >
-            <Tabs.Screen
-              name="index"
-              options={{
-                title: 'Home',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="people" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="payments"
-              options={{
-                title: 'Payments',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="card" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="progress"
-              options={{
-                title: 'Progress',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="analytics" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="certificates"
-              options={{
-                title: 'Certs',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="ribbon" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="profile"
-              options={{
-                title: 'Profile',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person" size={size} color={color} />
-                ),
-              }}
-            />
-            {/* Hidden screens */}
-            <Tabs.Screen name="groups" options={{ href: null }} />
-            <Tabs.Screen name="students" options={{ href: null }} />
-            <Tabs.Screen name="teachers" options={{ href: null }} />
-            <Tabs.Screen name="leads" options={{ href: null }} />
-            <Tabs.Screen name="journal" options={{ href: null }} />
-            <Tabs.Screen name="attendance" options={{ href: null }} />
-            <Tabs.Screen name="homework" options={{ href: null }} />
-            <Tabs.Screen name="tests" options={{ href: null }} />
-          </Tabs>
-        );
-
-      case 'support':
-        return (
-          <Tabs
-            screenOptions={{
-              headerShown: false,
-              tabBarActiveTintColor: COLORS.gold,
-              tabBarInactiveTintColor: COLORS.textTertiary,
-              tabBarStyle: {
-                backgroundColor: COLORS.backgroundCard,
-                borderTopColor: COLORS.marbleGray,
-                height: 60,
-                paddingBottom: 8,
-              },
-            }}
-          >
-            <Tabs.Screen
-              name="index"
-              options={{
-                title: 'Bookings',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="calendar" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="profile"
-              options={{
-                title: 'Profile',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person" size={size} color={color} />
-                ),
-              }}
-            />
-          </Tabs>
-        );
-
-      default:
-        return null;
-    }
+  const tabScreenOptions = {
+    headerShown: false,
+    tabBarActiveTintColor: COLORS.gold,
+    tabBarInactiveTintColor: COLORS.textTertiary,
+    tabBarStyle: {
+      backgroundColor: COLORS.backgroundCard,
+      borderTopColor: COLORS.marbleGray,
+      height: 60,
+      paddingBottom: 8,
+    },
+    tabBarLabelStyle: {
+      fontSize: 10,
+      fontWeight: '600' as const,
+    },
   };
 
-  return getTabsForRole();
+  // Super Admin Tabs - Full access
+  if (user?.role === 'super_admin') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="students"
+          options={{
+            title: 'Students',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="people" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="payments"
+          options={{
+            title: 'Payments',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="journal"
+          options={{
+            title: 'Journal',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="journal" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="tests"
+          options={{
+            title: 'Tests',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="clipboard" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="certificates"
+          options={{
+            title: 'Certs',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="ribbon" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens accessible via navigation */}
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="leads" options={{ href: null }} />
+        <Tabs.Screen name="attendance" options={{ href: null }} />
+        <Tabs.Screen name="homework" options={{ href: null }} />
+        <Tabs.Screen name="progress" options={{ href: null }} />
+        <Tabs.Screen name="profile" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Manager Tabs - Students, Payments, News (No settings, feature flags, super admin functions)
+  if (user?.role === 'manager') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="grid" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="students"
+          options={{
+            title: 'Students',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="people" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="payments"
+          options={{
+            title: 'Payments',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="leads"
+          options={{
+            title: 'Leads',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="people-circle" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens accessible via navigation */}
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="attendance" options={{ href: null }} />
+        <Tabs.Screen name="journal" options={{ href: null }} />
+        <Tabs.Screen name="homework" options={{ href: null }} />
+        <Tabs.Screen name="tests" options={{ href: null }} />
+        <Tabs.Screen name="certificates" options={{ href: null }} />
+        <Tabs.Screen name="progress" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Teacher Tabs - Assigned groups, Journal, Homework, Tests, Attendance, Progress
+  // NO access to CRM, Payments, Settings, Analytics
+  if (user?.role === 'teacher') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="calendar" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="journal"
+          options={{
+            title: 'Journal',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="journal" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="homework"
+          options={{
+            title: 'Homework',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="book" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="tests"
+          options={{
+            title: 'Tests',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="clipboard" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="attendance"
+          options={{
+            title: 'Attendance',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="checkbox" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens */}
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="students" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="leads" options={{ href: null }} />
+        <Tabs.Screen name="payments" options={{ href: null }} />
+        <Tabs.Screen name="certificates" options={{ href: null }} />
+        <Tabs.Screen name="progress" options={{ href: null }} />
+        <Tabs.Screen name="profile" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Student Tabs - Own profile, attendance, homework, tests, certificates, progress
+  if (user?.role === 'student') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="home" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="homework"
+          options={{
+            title: 'Homework',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="book" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="tests"
+          options={{
+            title: 'Tests',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="clipboard" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="progress"
+          options={{
+            title: 'Progress',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="analytics" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens */}
+        <Tabs.Screen name="attendance" options={{ href: null }} />
+        <Tabs.Screen name="certificates" options={{ href: null }} />
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="students" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="leads" options={{ href: null }} />
+        <Tabs.Screen name="payments" options={{ href: null }} />
+        <Tabs.Screen name="journal" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Parent Tabs - Child's data (attendance, progress, payments, homework, tests, certificates)
+  if (user?.role === 'parent') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Home',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="home" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="progress"
+          options={{
+            title: 'Progress',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="analytics" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="payments"
+          options={{
+            title: 'Payments',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="card" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="certificates"
+          options={{
+            title: 'Certs',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="ribbon" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens - accessible via navigation from home */}
+        <Tabs.Screen name="homework" options={{ href: null }} />
+        <Tabs.Screen name="tests" options={{ href: null }} />
+        <Tabs.Screen name="attendance" options={{ href: null }} />
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="students" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="leads" options={{ href: null }} />
+        <Tabs.Screen name="journal" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Support Tabs - Assigned bookings, own schedule
+  if (user?.role === 'support') {
+    return (
+      <Tabs screenOptions={tabScreenOptions}>
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: 'Bookings',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="calendar" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person" size={size} color={color} />
+            ),
+          }}
+        />
+        {/* Hidden screens */}
+        <Tabs.Screen name="students" options={{ href: null }} />
+        <Tabs.Screen name="groups" options={{ href: null }} />
+        <Tabs.Screen name="teachers" options={{ href: null }} />
+        <Tabs.Screen name="leads" options={{ href: null }} />
+        <Tabs.Screen name="attendance" options={{ href: null }} />
+        <Tabs.Screen name="journal" options={{ href: null }} />
+        <Tabs.Screen name="homework" options={{ href: null }} />
+        <Tabs.Screen name="tests" options={{ href: null }} />
+        <Tabs.Screen name="payments" options={{ href: null }} />
+        <Tabs.Screen name="certificates" options={{ href: null }} />
+        <Tabs.Screen name="progress" options={{ href: null }} />
+        <Tabs.Screen name="parent-home" options={{ href: null }} />
+        <Tabs.Screen name="teacher-home" options={{ href: null }} />
+        <Tabs.Screen name="support-home" options={{ href: null }} />
+        <Tabs.Screen name="student-home" options={{ href: null }} />
+      </Tabs>
+    );
+  }
+
+  // Default fallback - minimal tabs
+  return (
+    <Tabs screenOptions={tabScreenOptions}>
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="home" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: 'Profile',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="person" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen name="students" options={{ href: null }} />
+      <Tabs.Screen name="groups" options={{ href: null }} />
+      <Tabs.Screen name="teachers" options={{ href: null }} />
+      <Tabs.Screen name="leads" options={{ href: null }} />
+      <Tabs.Screen name="attendance" options={{ href: null }} />
+      <Tabs.Screen name="journal" options={{ href: null }} />
+      <Tabs.Screen name="homework" options={{ href: null }} />
+      <Tabs.Screen name="tests" options={{ href: null }} />
+      <Tabs.Screen name="payments" options={{ href: null }} />
+      <Tabs.Screen name="certificates" options={{ href: null }} />
+      <Tabs.Screen name="progress" options={{ href: null }} />
+      <Tabs.Screen name="parent-home" options={{ href: null }} />
+      <Tabs.Screen name="teacher-home" options={{ href: null }} />
+      <Tabs.Screen name="support-home" options={{ href: null }} />
+      <Tabs.Screen name="student-home" options={{ href: null }} />
+    </Tabs>
+  );
 }
