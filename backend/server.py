@@ -49,6 +49,18 @@ logger = logging.getLogger(__name__)
 from scheduler import start_scheduler
 scheduler = None
 
+# Import route modules (MUST be after db is initialized)
+from routes_students import router as students_router
+from routes_teachers import router as teachers_router
+from routes_groups import router as groups_router
+from routes_attendance import router as attendance_router
+from routes_journal import router as journal_router
+from routes_payments import router as payments_router
+from routes_homework import router as homework_router
+from routes_tests import router as tests_router
+from routes_certificates import router as certificates_router
+from routes_leads import router as leads_router
+
 @app.on_event("startup")
 async def startup_event():
     global scheduler
@@ -636,18 +648,6 @@ async def get_dashboard_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Import route modules
-from routes_students import router as students_router
-from routes_teachers import router as teachers_router
-from routes_groups import router as groups_router
-from routes_attendance import router as attendance_router
-from routes_journal import router as journal_router
-from routes_payments import router as payments_router
-from routes_homework import router as homework_router
-from routes_tests import router as tests_router
-from routes_certificates import router as certificates_router
-from routes_leads import router as leads_router
 
 # Include all routers
 app.include_router(api_router)
