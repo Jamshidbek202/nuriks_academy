@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
+  Platform,
+  Modal,
+  Pressable,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,23 +18,30 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/login');
-          },
-        },
-      ]
-    );
+  const handleLogoutPress = () => {
+    // For web, use custom modal. For native, also use custom modal for consistency
+    setShowLogoutModal(true);
+  };
+
+  const confirmLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+      setShowLogoutModal(false);
+      // Use replace to prevent going back to protected pages
+      // Go directly to login page
+      router.replace('/login');
+    } catch (error) {
+      console.error('Logout error:', error);
+      setIsLoggingOut(false);
+    }
+  };
+
+  const cancelLogout = () => {
+    setShowLogoutModal(false);
   };
 
   return (
@@ -44,13 +53,13 @@ export default function ProfileScreen() {
         <View style={styles.profileHeader}>
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
-              {user?.full_name?.split(' ').map((n: string) => n[0]).join('')}
+              {user?.full_name?.split(' ').map((n: string) => n[0]).join('') || '?'}
             </Text>
           </View>
-          <Text style={styles.name}>{user?.full_name}</Text>
+          <Text style={styles.name}>{user?.full_name || 'User'}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {user?.role?.replace('_', ' ').toUpperCase()}
+              {user?.role?.replace('_', ' ').toUpperCase() || 'GUEST'}
             </Text>
           </View>
         </View>
@@ -91,24 +100,64 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Logout */}
+        {/* Logout Button */}
         <TouchableOpacity
           style={styles.logoutButton}
-          onPress={handleLogout}
+          onPress={handleLogoutPress}
           activeOpacity={0.7}
         >
           <Ionicons name="log-out" size={24} color={COLORS.error} />
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Logout Confirmation Modal */}
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={cancelLogout}
+      >
+        <Pressable style={styles.modalOverlay} onPress={cancelLogout}>
+          <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalIconContainer}>
+              <Ionicons name="log-out-outline" size={48} color={COLORS.error} />
+            </View>
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to logout?
+            </Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={cancelLogout}
+                disabled={isLoggingOut}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.confirmButton]}
+                onPress={confirmLogout}
+                disabled={isLoggingOut}
+              >
+                <Text style={styles.confirmButtonText}>
+                  {isLoggingOut ? 'Logging out...' : 'Logout'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
 
-const InfoRow = ({ icon, label, value }: any) => (
+const InfoRow = ({ icon, label, value }: { icon: string; label: string; value: string }) => (
   <View style={styles.infoRow}>
     <View style={styles.infoIcon}>
-      <Ionicons name={icon} size={20} color={COLORS.gold} />
+      <Ionicons name={icon as any} size={20} color={COLORS.gold} />
     </View>
     <View style={styles.infoContent}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -233,9 +282,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
-    padding: SIZES.md,
+    padding: SIZES.lg,
     marginTop: SIZES.lg,
-    borderWidth: 1,
+    borderWidth: 2,
     borderColor: COLORS.error,
   },
   logoutText: {
@@ -243,5 +292,70 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: COLORS.error,
     marginLeft: SIZES.sm,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SIZES.lg,
+  },
+  modalContent: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.xl,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+    ...SHADOWS.large,
+  },
+  modalIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: COLORS.error + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SIZES.md,
+  },
+  modalTitle: {
+    fontSize: SIZES.fontXl,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    marginBottom: SIZES.sm,
+  },
+  modalMessage: {
+    fontSize: SIZES.fontMd,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: SIZES.xl,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: SIZES.md,
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: COLORS.marbleGray,
+  },
+  cancelButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  confirmButton: {
+    backgroundColor: COLORS.error,
+  },
+  confirmButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
+    color: '#FFFFFF',
   },
 });
