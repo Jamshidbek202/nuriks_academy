@@ -1,0 +1,322 @@
+"""
+Routes for Testing Module
+Phase 3: Mid Tests, End of Course Tests, Grading, Progress Tracking
+"""
+from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from bson import ObjectId
+from typing import List, Optional
+from datetime import datetime
+from pydantic import BaseModel
+from auth import get_current_user
+
+router = APIRouter(prefix="/tests", tags=["Tests"])
+security = HTTPBearer()
+
+async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    from server import db
+    return await get_current_user(credentials, db)
+
+class TestCreate(BaseModel):
+    test_type: str  # "mid_test" or "end_of_course"
+    group_id: str
+    course_id: str
+    title: str
+    test_date: datetime
+    max_score: float
+
+class TestGrade(BaseModel):
+    test_id: str
+    student_id: str
+    score: float
+    notes: Optional[str] = None
+
+# ==================== CREATE TEST ====================
+
+@router.post("")
+async def create_test(
+    test_data: TestCreate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Create test (Teachers, Managers, Admins)"""
+    from server import db, serialize_doc, create_audit_log
+    
+    if current_user["role"] not in ["teacher", "manager", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    try:
+        # Get teacher ID
+        teacher_id = None
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if teacher:
+                teacher_id = str(teacher["_id"])
+        else:
+            # For managers/admins, get teacher from group
+            group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
+            if group:
+                teacher_id = group["teacher_id"]
+        
+        if not teacher_id:
+            raise HTTPException(status_code=400, detail="Teacher not found")
+        
+        test = {
+            "test_type": test_data.test_type,
+            "group_id": test_data.group_id,
+            "course_id": test_data.course_id,
+            "teacher_id": teacher_id,
+            "title": test_data.title,
+            "test_date": test_data.test_date,
+            "max_score": test_data.max_score,
+            "results": [],
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow()
+        }
+        
+        result = await db.tests.insert_one(test)
+        
+        await create_audit_log(
+            str(current_user["_id"]),
+            "create",
+            "test",
+            str(result.inserted_id),
+            {"title": test_data.title, "type": test_data.test_type},
+            request.client.host if request.client else None
+        )
+        
+        test["id"] = str(result.inserted_id)
+        return serialize_doc(test)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== GRADE TEST ====================
+
+@router.post("/grade")
+async def grade_test(
+    grade_data: TestGrade,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Grade test (Teachers, Managers, Admins)"""
+    from server import db, create_audit_log
+    
+    if current_user["role"] not in ["teacher", "manager", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    try:
+        # Get test to calculate percentage
+        test = await db.tests.find_one({"_id": ObjectId(grade_data.test_id)})
+        if not test:
+            raise HTTPException(status_code=404, detail="Test not found")
+        
+        percentage = (grade_data.score / test["max_score"]) * 100
+        
+        # Check if student already has a result
+        existing = next(
+            (r for r in test.get("results", []) if r["student_id"] == grade_data.student_id),
+            None
+        )
+        
+        result_data = {
+            "student_id": grade_data.student_id,
+            "score": grade_data.score,
+            "percentage": percentage,
+            "notes": grade_data.notes,
+            "graded_at": datetime.utcnow()
+        }
+        
+        if existing:
+            # Update existing result
+            await db.tests.update_one(
+                {
+                    "_id": ObjectId(grade_data.test_id),
+                    "results.student_id": grade_data.student_id
+                },
+                {"$set": {"results.$": result_data}}
+            )
+        else:
+            # Add new result
+            await db.tests.update_one(
+                {"_id": ObjectId(grade_data.test_id)},
+                {"$push": {"results": result_data}}
+            )
+        
+        await create_audit_log(
+            str(current_user["_id"]),
+            "grade",
+            "test",
+            grade_data.test_id,
+            {"student_id": grade_data.student_id, "score": grade_data.score},
+            request.client.host if request.client else None
+        )
+        
+        return {"message": "Test graded successfully", "percentage": percentage}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== GET TESTS ====================
+
+@router.get("/group/{group_id}")
+async def get_group_tests(
+    group_id: str,
+    test_type: Optional[str] = None,
+    skip: int = 0,
+    limit: int = 50,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Get tests for a group"""
+    from server import db, serialize_doc
+    
+    try:
+        query = {"group_id": group_id}
+        if test_type:
+            query["test_type"] = test_type
+        
+        tests = await db.tests.find(query).sort("test_date", -1).skip(skip).limit(limit).to_list(limit)
+        
+        return [serialize_doc(t) for t in tests]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/student/{student_id}")
+async def get_student_tests(
+    student_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Get test results for a student"""
+    from server import db, serialize_doc
+    
+    try:
+        # Check permissions
+        if current_user["role"] == "parent":
+            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+            if not parent or student_id not in parent.get("student_ids", []):
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user["role"] == "student":
+            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            if not student or str(student["user_id"]) != str(current_user["_id"]):
+                raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get student's groups
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        group_ids = student.get("group_ids", [])
+        
+        # Get all tests for student's groups
+        tests = await db.tests.find(
+            {"group_id": {"$in": group_ids}}
+        ).sort("test_date", -1).to_list(100)
+        
+        # Filter results for this student
+        result = []
+        for test in tests:
+            test_data = serialize_doc(test)
+            test_data["my_result"] = next(
+                (r for r in test.get("results", []) if r["student_id"] == student_id),
+                None
+            )
+            result.append(test_data)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== STUDENT PROGRESS ====================
+
+@router.get("/progress/{student_id}")
+async def get_student_progress(
+    student_id: str,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Get comprehensive student progress"""
+    from server import db
+    
+    try:
+        # Check permissions
+        if current_user["role"] == "parent":
+            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+            if not parent or student_id not in parent.get("student_ids", []):
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user["role"] == "student":
+            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            if not student or str(student["user_id"]) != str(current_user["_id"]):
+                raise HTTPException(status_code=403, detail="Access denied")
+        
+        # Get student's groups
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        
+        group_ids = student.get("group_ids", [])
+        
+        # Get attendance stats
+        total_attendance = await db.attendance.count_documents({"student_id": student_id})
+        present_count = await db.attendance.count_documents({"student_id": student_id, "status": "present"})
+        attendance_rate = (present_count / total_attendance * 100) if total_attendance > 0 else 0
+        
+        # Get test averages
+        tests = await db.tests.find({"group_id": {"$in": group_ids}}).to_list(100)
+        
+        mid_test_scores = []
+        end_test_scores = []
+        
+        for test in tests:
+            student_result = next(
+                (r for r in test.get("results", []) if r["student_id"] == student_id),
+                None
+            )
+            if student_result:
+                if test["test_type"] == "mid_test":
+                    mid_test_scores.append(student_result["percentage"])
+                elif test["test_type"] == "end_of_course":
+                    end_test_scores.append(student_result["percentage"])
+        
+        mid_test_avg = sum(mid_test_scores) / len(mid_test_scores) if mid_test_scores else 0
+        end_test_avg = sum(end_test_scores) / len(end_test_scores) if end_test_scores else 0
+        
+        # Get homework completion rate
+        homework_list = await db.homework.find({"group_id": {"$in": group_ids}}).to_list(100)
+        total_homework = len(homework_list)
+        submitted_homework = sum(
+            1 for hw in homework_list 
+            if any(s["student_id"] == student_id for s in hw.get("submissions", []))
+        )
+        homework_completion_rate = (submitted_homework / total_homework * 100) if total_homework > 0 else 0
+        
+        return {
+            "student_id": student_id,
+            "attendance": {
+                "total_lessons": total_attendance,
+                "present": present_count,
+                "attendance_rate": round(attendance_rate, 2)
+            },
+            "tests": {
+                "mid_test_average": round(mid_test_avg, 2),
+                "end_test_average": round(end_test_avg, 2),
+                "mid_tests_taken": len(mid_test_scores),
+                "end_tests_taken": len(end_test_scores)
+            },
+            "homework": {
+                "total_assigned": total_homework,
+                "submitted": submitted_homework,
+                "completion_rate": round(homework_completion_rate, 2)
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -45,7 +45,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Helper function to serialize MongoDB documents
+# Start payment reminder scheduler
+from scheduler import start_scheduler
+scheduler = None
+
+@app.on_event("startup")
+async def startup_event():
+    global scheduler
+    scheduler = start_scheduler(db)
+    logger.info("Application started successfully")
+
+@app.on_event("shutdown")
+async def shutdown_db_client():
+    if scheduler:
+        scheduler.shutdown()
+    client.close()
+    logger.info("Application shutdown complete")
 def serialize_doc(doc):
     """Convert MongoDB document to JSON-serializable dict"""
     if doc is None:
@@ -625,6 +640,10 @@ from routes_teachers import router as teachers_router
 from routes_groups import router as groups_router
 from routes_attendance import router as attendance_router
 from routes_journal import router as journal_router
+from routes_payments import router as payments_router
+from routes_homework import router as homework_router
+from routes_tests import router as tests_router
+from routes_certificates import router as certificates_router
 
 # Include all routers
 app.include_router(api_router)
@@ -633,6 +652,10 @@ api_router.include_router(teachers_router)
 api_router.include_router(groups_router)
 api_router.include_router(attendance_router)
 api_router.include_router(journal_router)
+api_router.include_router(payments_router)
+api_router.include_router(homework_router)
+api_router.include_router(tests_router)
+api_router.include_router(certificates_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -641,7 +664,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()
