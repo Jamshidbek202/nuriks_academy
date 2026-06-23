@@ -47,7 +47,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('grid') }} />
         <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: createTabIcon('people') }} />
         <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: createTabIcon('card') }} />
-        <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: createTabIcon('journal') }} />
+        <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: createTabIcon('chatbubbles') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
@@ -68,6 +68,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="journal" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -82,6 +83,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="leads" options={{ title: 'Leads', tabBarIcon: createTabIcon('people-circle') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
+        <Tabs.Screen name="chats" options={{ href: null }} />
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
         <Tabs.Screen name="attendance" options={{ href: null }} />
@@ -109,8 +111,8 @@ export default function DashboardLayout() {
     return (
       <Tabs screenOptions={tabScreenOptions}>
         <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('calendar') }} />
+        <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: createTabIcon('chatbubbles') }} />
         <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: createTabIcon('journal') }} />
-        <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: createTabIcon('book') }} />
         <Tabs.Screen name="attendance" options={{ title: 'Attendance', tabBarIcon: createTabIcon('checkbox') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
@@ -119,6 +121,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teachers" options={{ href: null }} />
         <Tabs.Screen name="leads" options={{ href: null }} />
         <Tabs.Screen name="payments" options={{ href: null }} />
+        <Tabs.Screen name="homework" options={{ href: null }} />
         <Tabs.Screen name="tests" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
@@ -141,9 +144,9 @@ export default function DashboardLayout() {
     return (
       <Tabs screenOptions={tabScreenOptions}>
         <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('home') }} />
+        <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: createTabIcon('chatbubbles') }} />
         <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: createTabIcon('book') }} />
         <Tabs.Screen name="tests" options={{ title: 'Tests', tabBarIcon: createTabIcon('clipboard') }} />
-        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: createTabIcon('analytics') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
@@ -154,6 +157,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="attendance" options={{ href: null }} />
         <Tabs.Screen name="journal" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
+        <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
         <Tabs.Screen name="analytics" options={{ href: null }} />
@@ -178,6 +182,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ title: 'Certs', tabBarIcon: createTabIcon('ribbon') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
+        <Tabs.Screen name="chats" options={{ href: null }} />
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
@@ -205,6 +210,7 @@ export default function DashboardLayout() {
     return (
       <Tabs screenOptions={tabScreenOptions}>
         <Tabs.Screen name="index" options={{ title: 'Bookings', tabBarIcon: createTabIcon('calendar') }} />
+        <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: createTabIcon('chatbubbles') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
@@ -238,6 +244,7 @@ export default function DashboardLayout() {
       <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('home') }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
       {/* Hidden screens */}
+      <Tabs.Screen name="chats" options={{ href: null }} />
       <Tabs.Screen name="groups" options={{ href: null }} />
       <Tabs.Screen name="students" options={{ href: null }} />
       <Tabs.Screen name="teachers" options={{ href: null }} />
