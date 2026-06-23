@@ -1,427 +1,471 @@
 """
-Backend Test for Lead to Student Conversion Flow
-Nurik's Academy CRM
+Backend API Testing for Teacher and Support Staff Management
+Tests all CRUD operations, deactivation, reactivation, and password reset
 """
 import requests
 import json
-from datetime import datetime
+from typing import Dict, Optional
 
-# Configuration
-BACKEND_URL = "https://school-ops-dashboard-2.preview.emergentagent.com/api"
+# Backend URL
+BASE_URL = "https://school-ops-dashboard-2.preview.emergentagent.com/api"
+
+# Test credentials
 ADMIN_LOGIN = "admin"
 ADMIN_PASSWORD = "Admin@2025"
 
-# Test data
-test_lead_phone = f"+99890123{datetime.now().strftime('%H%M%S')}"  # Unique phone for each test run
+# Global variables to store test data
+admin_token = None
+teacher_id = None
+teacher_login = None
+teacher_password = None
+staff_id = None
+staff_login = None
+staff_password = None
 
-def print_section(title):
-    """Print a formatted section header"""
-    print("\n" + "="*80)
-    print(f"  {title}")
-    print("="*80)
+def print_test(test_name: str):
+    """Print test header"""
+    print(f"\n{'='*80}")
+    print(f"TEST: {test_name}")
+    print(f"{'='*80}")
 
-def print_result(step, success, message, data=None):
+def print_result(success: bool, message: str, response: Optional[Dict] = None):
     """Print test result"""
     status = "✅ PASS" if success else "❌ FAIL"
-    print(f"\n{status} - {step}")
-    print(f"Message: {message}")
-    if data:
-        print(f"Data: {json.dumps(data, indent=2)}")
+    print(f"{status}: {message}")
+    if response:
+        print(f"Response: {json.dumps(response, indent=2)}")
 
-def test_lead_conversion_flow():
-    """Test the complete Lead to Student conversion flow"""
-    
-    print_section("LEAD TO STUDENT CONVERSION FLOW TEST")
-    print(f"Backend URL: {BACKEND_URL}")
-    print(f"Test Phone: {test_lead_phone}")
-    
-    # Store test data
-    access_token = None
-    lead_id = None
-    lead_mongo_id = None
-    student_id = None
-    student_login = None
-    parent_login = None
-    
-    # ==================== STEP 1: LOGIN AS SUPER ADMIN ====================
-    print_section("Step 1: Login as Super Admin")
+def login(login: str, password: str) -> Optional[str]:
+    """Login and return access token"""
     try:
         response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json={"login": ADMIN_LOGIN, "password": ADMIN_PASSWORD},
-            timeout=10
+            f"{BASE_URL}/auth/login",
+            json={"login": login, "password": password}
         )
-        
         if response.status_code == 200:
             data = response.json()
-            access_token = data.get("access_token")
-            user_role = data.get("user", {}).get("role")
-            
-            if access_token and user_role == "super_admin":
-                print_result(
-                    "Login",
-                    True,
-                    f"Successfully logged in as {user_role}",
-                    {"token_length": len(access_token), "role": user_role}
-                )
-            else:
-                print_result("Login", False, "Token or role missing in response", data)
-                return False
+            return data.get("access_token")
         else:
-            print_result("Login", False, f"HTTP {response.status_code}", response.text)
-            return False
+            print(f"Login failed: {response.status_code} - {response.text}")
+            return None
     except Exception as e:
-        print_result("Login", False, f"Exception: {str(e)}")
+        print(f"Login error: {str(e)}")
+        return None
+
+def test_admin_login():
+    """Test 1: Login as Super Admin"""
+    global admin_token
+    print_test("1. Login as Super Admin")
+    
+    admin_token = login(ADMIN_LOGIN, ADMIN_PASSWORD)
+    
+    if admin_token:
+        print_result(True, "Admin login successful", {"token_length": len(admin_token)})
+        return True
+    else:
+        print_result(False, "Admin login failed")
         return False
+
+def test_create_teacher():
+    """Test 2: Create a New Teacher"""
+    global teacher_id
+    print_test("2. Create a New Teacher")
     
-    # Headers for authenticated requests
-    headers = {"Authorization": f"Bearer {access_token}"}
-    
-    # ==================== STEP 2: CREATE A TEST LEAD ====================
-    print_section("Step 2: Create a Test Lead")
     try:
-        lead_data = {
-            "first_name": "TestLead",
-            "last_name": "Conversion",
-            "phone": test_lead_phone,
-            "age": 14,
-            "parent_name": "Parent TestLead",
-            "interested_course": "General English",
-            "source": "instagram",
-            "notes": "Test lead for conversion flow"
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        payload = {
+            "first_name": "New",
+            "last_name": "Teacher",
+            "phone": "+998909999888",
+            "email": "newteacher@test.com",
+            "specialization": ["Math"],
+            "courses": ["English Basics"]
         }
         
         response = requests.post(
-            f"{BACKEND_URL}/leads",
-            json=lead_data,
-            headers=headers,
-            timeout=10
+            f"{BASE_URL}/teachers",
+            json=payload,
+            headers=headers
         )
         
         if response.status_code == 200:
             data = response.json()
-            lead_mongo_id = data.get("id")
-            lead_id = data.get("lead_id")
-            status = data.get("status")
-            
-            if lead_mongo_id and lead_id and status == "new_lead":
-                print_result(
-                    "Create Lead",
-                    True,
-                    "Lead created successfully",
-                    {
-                        "lead_id": lead_id,
-                        "mongo_id": lead_mongo_id,
-                        "status": status,
-                        "name": f"{data.get('first_name')} {data.get('last_name')}"
-                    }
-                )
-            else:
-                print_result("Create Lead", False, "Missing required fields in response", data)
-                return False
+            teacher_id = data.get("id")
+            print_result(True, f"Teacher created successfully with ID: {teacher_id}", data)
+            return True
         else:
-            print_result("Create Lead", False, f"HTTP {response.status_code}", response.text)
+            print_result(False, f"Failed to create teacher: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print_result("Create Lead", False, f"Exception: {str(e)}")
+        print_result(False, f"Error creating teacher: {str(e)}")
         return False
+
+def test_get_teacher_status():
+    """Test 3: Get Teacher Status"""
+    global teacher_login
+    print_test("3. Get Teacher Status")
     
-    # ==================== STEP 3: CONVERT LEAD TO STUDENT ====================
-    print_section("Step 3: Convert Lead to Student")
     try:
-        response = requests.post(
-            f"{BACKEND_URL}/leads/{lead_mongo_id}/convert",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            student_id = data.get("student_id")
-            student_login = data.get("student_login")
-            student_password = data.get("student_password")
-            parent_login = data.get("parent_login")
-            parent_password = data.get("parent_password")
-            
-            # Verify all expected fields are present
-            if (student_id and student_login and student_password == "Student@2025" and
-                parent_login and parent_password == "Parent@2025"):
-                
-                # Verify student_login format (should be student_id in lowercase)
-                if student_login == student_id.lower():
-                    # Verify parent_login format (should be the phone number)
-                    if parent_login == test_lead_phone:
-                        print_result(
-                            "Convert Lead",
-                            True,
-                            "Lead converted successfully with correct credentials",
-                            {
-                                "student_id": student_id,
-                                "student_login": student_login,
-                                "student_password": student_password,
-                                "parent_login": parent_login,
-                                "parent_password": parent_password
-                            }
-                        )
-                    else:
-                        print_result(
-                            "Convert Lead",
-                            False,
-                            f"Parent login mismatch. Expected: {test_lead_phone}, Got: {parent_login}",
-                            data
-                        )
-                        return False
-                else:
-                    print_result(
-                        "Convert Lead",
-                        False,
-                        f"Student login format incorrect. Expected: {student_id.lower()}, Got: {student_login}",
-                        data
-                    )
-                    return False
-            else:
-                print_result("Convert Lead", False, "Missing or incorrect credentials in response", data)
-                return False
-        else:
-            print_result("Convert Lead", False, f"HTTP {response.status_code}", response.text)
-            return False
-    except Exception as e:
-        print_result("Convert Lead", False, f"Exception: {str(e)}")
-        return False
-    
-    # ==================== STEP 4: VERIFY STUDENT WAS CREATED ====================
-    print_section("Step 4: Verify Student Was Created")
-    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
         response = requests.get(
-            f"{BACKEND_URL}/students",
-            headers=headers,
-            timeout=10
+            f"{BASE_URL}/teachers/{teacher_id}/status",
+            headers=headers
         )
         
         if response.status_code == 200:
-            students = response.json()
+            data = response.json()
+            teacher_login = data.get("login")
+            is_active = data.get("is_active")
             
-            # Find the newly created student
-            found_student = None
-            for student in students:
-                if student.get("student_id") == student_id:
-                    found_student = student
-                    break
-            
-            if found_student:
-                print_result(
-                    "Verify Student",
-                    True,
-                    "Student found in students list",
-                    {
-                        "student_id": found_student.get("student_id"),
-                        "name": f"{found_student.get('first_name')} {found_student.get('last_name')}",
-                        "status": found_student.get("status")
-                    }
-                )
+            # Verify login format
+            expected_login = "teacher_+998909999888"
+            if teacher_login == expected_login and is_active == True:
+                print_result(True, f"Teacher status correct: login={teacher_login}, is_active={is_active}", data)
+                return True
             else:
-                print_result(
-                    "Verify Student",
-                    False,
-                    f"Student {student_id} not found in students list",
-                    {"total_students": len(students)}
-                )
+                print_result(False, f"Teacher status incorrect: Expected login={expected_login}, is_active=True, Got login={teacher_login}, is_active={is_active}", data)
                 return False
         else:
-            print_result("Verify Student", False, f"HTTP {response.status_code}", response.text)
+            print_result(False, f"Failed to get teacher status: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print_result("Verify Student", False, f"Exception: {str(e)}")
+        print_result(False, f"Error getting teacher status: {str(e)}")
         return False
+
+def test_deactivate_teacher():
+    """Test 4: Deactivate Teacher"""
+    print_test("4. Deactivate Teacher")
     
-    # ==================== STEP 5: VERIFY LEAD STATUS CHANGED ====================
-    print_section("Step 5: Verify Lead Status Changed to 'enrolled'")
     try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.patch(
+            f"{BASE_URL}/teachers/{teacher_id}/deactivate",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "deactivated" in data.get("message", "").lower():
+                print_result(True, "Teacher deactivated successfully", data)
+                return True
+            else:
+                print_result(False, f"Unexpected response message: {data.get('message')}", data)
+                return False
+        else:
+            print_result(False, f"Failed to deactivate teacher: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error deactivating teacher: {str(e)}")
+        return False
+
+def test_deactivated_teacher_login():
+    """Test 5: Test Deactivated Teacher Cannot Login"""
+    print_test("5. Test Deactivated Teacher Cannot Login")
+    
+    try:
+        response = requests.post(
+            f"{BASE_URL}/auth/login",
+            json={"login": teacher_login, "password": "Teacher@2025"}
+        )
+        
+        # Should fail with 401 or 403
+        if response.status_code in [401, 403]:
+            print_result(True, f"Deactivated teacher correctly denied login: {response.status_code}", {"status_code": response.status_code, "message": response.text})
+            return True
+        elif response.status_code == 200:
+            print_result(False, "Deactivated teacher was able to login (SECURITY ISSUE!)", response.json())
+            return False
+        else:
+            print_result(False, f"Unexpected status code: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error testing deactivated login: {str(e)}")
+        return False
+
+def test_reactivate_teacher():
+    """Test 6: Reactivate Teacher"""
+    print_test("6. Reactivate Teacher")
+    
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.patch(
+            f"{BASE_URL}/teachers/{teacher_id}/reactivate",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "reactivated" in data.get("message", "").lower():
+                print_result(True, "Teacher reactivated successfully", data)
+                return True
+            else:
+                print_result(False, f"Unexpected response message: {data.get('message')}", data)
+                return False
+        else:
+            print_result(False, f"Failed to reactivate teacher: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error reactivating teacher: {str(e)}")
+        return False
+
+def test_reset_teacher_password():
+    """Test 7: Reset Teacher Password"""
+    global teacher_password
+    print_test("7. Reset Teacher Password")
+    
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.post(
+            f"{BASE_URL}/teachers/{teacher_id}/reset-password",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            teacher_password = data.get("new_password")
+            returned_login = data.get("login")
+            
+            if teacher_password and returned_login:
+                print_result(True, f"Password reset successful: login={returned_login}, new_password={teacher_password}", data)
+                return True
+            else:
+                print_result(False, "Password reset response missing login or new_password", data)
+                return False
+        else:
+            print_result(False, f"Failed to reset password: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error resetting password: {str(e)}")
+        return False
+
+def test_teacher_login_new_password():
+    """Test 8: Test Login with New Password"""
+    print_test("8. Test Login with New Password")
+    
+    token = login(teacher_login, teacher_password)
+    
+    if token:
+        print_result(True, "Teacher login with new password successful", {"token_length": len(token)})
+        return True
+    else:
+        print_result(False, "Teacher login with new password failed")
+        return False
+
+def test_create_support_staff():
+    """Test 9: Create a New Support Staff"""
+    global staff_id, staff_login, staff_password
+    print_test("9. Create a New Support Staff")
+    
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        payload = {
+            "first_name": "New",
+            "last_name": "Support",
+            "phone": "+998908888777",
+            "email": "newsupport@test.com"
+        }
+        
+        response = requests.post(
+            f"{BASE_URL}/support-staff",
+            json=payload,
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            staff_id = data.get("id")
+            credentials = data.get("credentials", {})
+            staff_login = credentials.get("login")
+            staff_password = credentials.get("password")
+            
+            if staff_id and staff_login and staff_password:
+                print_result(True, f"Support staff created: ID={staff_id}, login={staff_login}, password={staff_password}", data)
+                return True
+            else:
+                print_result(False, "Support staff response missing id or credentials", data)
+                return False
+        else:
+            print_result(False, f"Failed to create support staff: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error creating support staff: {str(e)}")
+        return False
+
+def test_get_all_support_staff():
+    """Test 10: Get All Support Staff"""
+    print_test("10. Get All Support Staff")
+    
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
         response = requests.get(
-            f"{BACKEND_URL}/leads",
-            headers=headers,
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            leads = response.json()
-            
-            # Find the converted lead
-            found_lead = None
-            for lead in leads:
-                if lead.get("id") == lead_mongo_id:
-                    found_lead = lead
-                    break
-            
-            if found_lead:
-                lead_status = found_lead.get("status")
-                if lead_status == "enrolled":
-                    print_result(
-                        "Verify Lead Status",
-                        True,
-                        "Lead status correctly updated to 'enrolled'",
-                        {
-                            "lead_id": found_lead.get("lead_id"),
-                            "status": lead_status,
-                            "converted_to_student_id": found_lead.get("converted_to_student_id")
-                        }
-                    )
-                else:
-                    print_result(
-                        "Verify Lead Status",
-                        False,
-                        f"Lead status incorrect. Expected: 'enrolled', Got: '{lead_status}'",
-                        found_lead
-                    )
-                    return False
-            else:
-                print_result(
-                    "Verify Lead Status",
-                    False,
-                    f"Lead {lead_mongo_id} not found in leads list",
-                    {"total_leads": len(leads)}
-                )
-                return False
-        else:
-            print_result("Verify Lead Status", False, f"HTTP {response.status_code}", response.text)
-            return False
-    except Exception as e:
-        print_result("Verify Lead Status", False, f"Exception: {str(e)}")
-        return False
-    
-    # ==================== STEP 6: TEST LOGIN WITH STUDENT CREDENTIALS ====================
-    print_section("Step 6: Test Login with Student Credentials")
-    try:
-        response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json={"login": student_login, "password": "Student@2025"},
-            timeout=10
+            f"{BASE_URL}/support-staff",
+            headers=headers
         )
         
         if response.status_code == 200:
             data = response.json()
-            token = data.get("access_token")
-            user_role = data.get("user", {}).get("role")
+            # Check if our newly created support staff is in the list
+            found = any(s.get("id") == staff_id for s in data)
             
-            if token and user_role == "student":
-                print_result(
-                    "Student Login",
-                    True,
-                    "Student login successful",
-                    {
-                        "login": student_login,
-                        "role": user_role,
-                        "token_length": len(token)
-                    }
-                )
+            if found:
+                print_result(True, f"Support staff list retrieved successfully. Found new staff member in list. Total: {len(data)}", {"total_count": len(data)})
+                return True
             else:
-                print_result("Student Login", False, "Token or role incorrect", data)
+                print_result(False, f"New support staff not found in list", {"total_count": len(data)})
                 return False
         else:
-            print_result("Student Login", False, f"HTTP {response.status_code}", response.text)
+            print_result(False, f"Failed to get support staff list: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print_result("Student Login", False, f"Exception: {str(e)}")
+        print_result(False, f"Error getting support staff list: {str(e)}")
         return False
+
+def test_deactivate_support_staff():
+    """Test 11: Deactivate Support Staff"""
+    print_test("11. Deactivate Support Staff")
     
-    # ==================== STEP 7: TEST LOGIN WITH PARENT CREDENTIALS ====================
-    print_section("Step 7: Test Login with Parent Credentials")
     try:
-        response = requests.post(
-            f"{BACKEND_URL}/auth/login",
-            json={"login": parent_login, "password": "Parent@2025"},
-            timeout=10
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.patch(
+            f"{BASE_URL}/support-staff/{staff_id}/deactivate",
+            headers=headers
         )
         
         if response.status_code == 200:
             data = response.json()
-            token = data.get("access_token")
-            user_role = data.get("user", {}).get("role")
-            
-            if token and user_role == "parent":
-                print_result(
-                    "Parent Login",
-                    True,
-                    "Parent login successful",
-                    {
-                        "login": parent_login,
-                        "role": user_role,
-                        "token_length": len(token)
-                    }
-                )
-            else:
-                print_result("Parent Login", False, "Token or role incorrect", data)
-                return False
+            print_result(True, "Support staff deactivated successfully", data)
+            return True
         else:
-            print_result("Parent Login", False, f"HTTP {response.status_code}", response.text)
+            print_result(False, f"Failed to deactivate support staff: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print_result("Parent Login", False, f"Exception: {str(e)}")
+        print_result(False, f"Error deactivating support staff: {str(e)}")
         return False
+
+def test_deactivated_support_login():
+    """Test 12: Test Deactivated Support Cannot Login"""
+    print_test("12. Test Deactivated Support Cannot Login")
     
-    # ==================== STEP 8: TEST EDGE CASE - CONVERT SAME LEAD AGAIN ====================
-    print_section("Step 8: Edge Case - Try Converting Same Lead Again")
     try:
         response = requests.post(
-            f"{BACKEND_URL}/leads/{lead_mongo_id}/convert",
-            headers=headers,
-            timeout=10
+            f"{BASE_URL}/auth/login",
+            json={"login": staff_login, "password": staff_password}
         )
         
-        # Should fail with 400 error
-        if response.status_code == 400:
-            data = response.json()
-            error_detail = data.get("detail", "")
-            
-            if "already converted" in error_detail.lower():
-                print_result(
-                    "Duplicate Conversion Prevention",
-                    True,
-                    "Correctly prevented duplicate conversion",
-                    {"error": error_detail}
-                )
-            else:
-                print_result(
-                    "Duplicate Conversion Prevention",
-                    False,
-                    f"Wrong error message. Expected 'already converted', Got: '{error_detail}'",
-                    data
-                )
-                return False
+        # Should fail with 401 or 403
+        if response.status_code in [401, 403]:
+            print_result(True, f"Deactivated support correctly denied login: {response.status_code}", {"status_code": response.status_code})
+            return True
+        elif response.status_code == 200:
+            print_result(False, "Deactivated support was able to login (SECURITY ISSUE!)", response.json())
+            return False
         else:
-            print_result(
-                "Duplicate Conversion Prevention",
-                False,
-                f"Expected HTTP 400, Got HTTP {response.status_code}",
-                response.text
-            )
+            print_result(False, f"Unexpected status code: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        print_result("Duplicate Conversion Prevention", False, f"Exception: {str(e)}")
+        print_result(False, f"Error testing deactivated support login: {str(e)}")
         return False
+
+def test_reactivate_support_staff():
+    """Test 13: Reactivate Support Staff"""
+    print_test("13. Reactivate Support Staff")
     
-    # ==================== ALL TESTS PASSED ====================
-    print_section("TEST SUMMARY")
-    print("\n✅ ALL TESTS PASSED!")
-    print("\nTest Results:")
-    print("  ✅ Super Admin Login")
-    print("  ✅ Lead Creation")
-    print("  ✅ Lead to Student Conversion")
-    print("  ✅ Student Verification")
-    print("  ✅ Lead Status Update")
-    print("  ✅ Student Login")
-    print("  ✅ Parent Login")
-    print("  ✅ Duplicate Conversion Prevention")
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.patch(
+            f"{BASE_URL}/support-staff/{staff_id}/reactivate",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            print_result(True, "Support staff reactivated successfully", data)
+            return True
+        else:
+            print_result(False, f"Failed to reactivate support staff: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error reactivating support staff: {str(e)}")
+        return False
+
+def test_reset_support_password():
+    """Test 14: Reset Support Password"""
+    print_test("14. Reset Support Password")
+    
+    try:
+        headers = {"Authorization": f"Bearer {admin_token}"}
+        response = requests.post(
+            f"{BASE_URL}/support-staff/{staff_id}/reset-password",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            new_password = data.get("new_password")
+            returned_login = data.get("login")
+            
+            if new_password and returned_login:
+                print_result(True, f"Support password reset successful: login={returned_login}, new_password={new_password}", data)
+                return True
+            else:
+                print_result(False, "Password reset response missing login or new_password", data)
+                return False
+        else:
+            print_result(False, f"Failed to reset support password: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        print_result(False, f"Error resetting support password: {str(e)}")
+        return False
+
+def run_all_tests():
+    """Run all tests in sequence"""
     print("\n" + "="*80)
+    print("TEACHER AND SUPPORT STAFF MANAGEMENT API TESTING")
+    print("="*80)
     
-    return True
+    results = []
+    
+    # Teacher Tests
+    results.append(("Admin Login", test_admin_login()))
+    
+    if not results[-1][1]:
+        print("\n❌ CRITICAL: Admin login failed. Cannot proceed with tests.")
+        return
+    
+    results.append(("Create Teacher", test_create_teacher()))
+    results.append(("Get Teacher Status", test_get_teacher_status()))
+    results.append(("Deactivate Teacher", test_deactivate_teacher()))
+    results.append(("Deactivated Teacher Login Denied", test_deactivated_teacher_login()))
+    results.append(("Reactivate Teacher", test_reactivate_teacher()))
+    results.append(("Reset Teacher Password", test_reset_teacher_password()))
+    results.append(("Teacher Login with New Password", test_teacher_login_new_password()))
+    
+    # Support Staff Tests
+    results.append(("Create Support Staff", test_create_support_staff()))
+    results.append(("Get All Support Staff", test_get_all_support_staff()))
+    results.append(("Deactivate Support Staff", test_deactivate_support_staff()))
+    results.append(("Deactivated Support Login Denied", test_deactivated_support_login()))
+    results.append(("Reactivate Support Staff", test_reactivate_support_staff()))
+    results.append(("Reset Support Password", test_reset_support_password()))
+    
+    # Summary
+    print("\n" + "="*80)
+    print("TEST SUMMARY")
+    print("="*80)
+    
+    passed = sum(1 for _, result in results if result)
+    total = len(results)
+    
+    for test_name, result in results:
+        status = "✅ PASS" if result else "❌ FAIL"
+        print(f"{status}: {test_name}")
+    
+    print(f"\n{'='*80}")
+    print(f"TOTAL: {passed}/{total} tests passed ({passed*100//total}%)")
+    print(f"{'='*80}\n")
+    
+    return passed == total
 
 if __name__ == "__main__":
-    try:
-        success = test_lead_conversion_flow()
-        exit(0 if success else 1)
-    except Exception as e:
-        print(f"\n❌ CRITICAL ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        exit(1)
+    success = run_all_tests()
+    exit(0 if success else 1)

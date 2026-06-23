@@ -6,10 +6,10 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -18,6 +18,33 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import * as Clipboard from 'expo-clipboard';
+
+// Cross-platform alert helper
+const showAlert = (title: string, message: string, onOk?: () => void) => {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+    if (onOk) onOk();
+  } else {
+    const { Alert } = require('react-native');
+    Alert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
+  }
+};
+
+// Cross-platform confirm helper
+const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`${title}\n\n${message}`)) {
+      onConfirm();
+    }
+  } else {
+    const { Alert } = require('react-native');
+    Alert.alert(title, message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Confirm', onPress: onConfirm, style: 'destructive' }
+    ]);
+  }
+};
 
 interface Teacher {
   id: string;
@@ -32,6 +59,7 @@ interface Teacher {
   group_ids: string[];
   branch_id?: string;
   is_active?: boolean;
+  login?: string;
 }
 
 interface Course {
@@ -52,11 +80,14 @@ export default function TeachersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [credentialModalVisible, setCredentialModalVisible] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
+  const [credentials, setCredentials] = useState<{ login: string; password: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -76,10 +107,21 @@ export default function TeachersScreen() {
   const loadTeachers = async () => {
     try {
       const response = await api.get('/teachers');
-      setTeachers(response.data);
+      // Fetch status for each teacher
+      const teachersWithStatus = await Promise.all(
+        response.data.map(async (teacher: Teacher) => {
+          try {
+            const statusRes = await api.get(`/teachers/${teacher.id}/status`);
+            return { ...teacher, is_active: statusRes.data.is_active, login: statusRes.data.login };
+          } catch {
+            return teacher;
+          }
+        })
+      );
+      setTeachers(teachersWithStatus);
     } catch (error) {
       console.error('Error loading teachers:', error);
-      Alert.alert('Error', 'Failed to load teachers');
+      showAlert('Error', 'Failed to load teachers');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -106,35 +148,116 @@ export default function TeachersScreen() {
 
   const handleCreateTeacher = async () => {
     if (!formData.first_name || !formData.last_name || !formData.phone) {
-      Alert.alert('Error', 'Please fill in required fields (Name & Phone)');
+      showAlert('Error', 'Please fill in required fields (Name & Phone)');
       return;
     }
 
+    setActionLoading(true);
     try {
       await api.post('/teachers', formData);
-      Alert.alert('Success', 'Teacher created successfully\nDefault login: teacher_[phone]\nDefault password: Teacher@2025');
       setModalVisible(false);
       resetForm();
+      
+      // Show credentials
+      setCredentials({
+        login: `teacher_${formData.phone}`,
+        password: 'Teacher@2025'
+      });
+      setCredentialModalVisible(true);
+      
       loadTeachers();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create teacher');
+      showAlert('Error', error.response?.data?.detail || 'Failed to create teacher');
+    } finally {
+      setActionLoading(false);
     }
   };
 
   const handleUpdateTeacher = async () => {
     if (!selectedTeacher) return;
 
+    setActionLoading(true);
     try {
       await api.put(`/teachers/${selectedTeacher.id}`, formData);
-      Alert.alert('Success', 'Teacher updated successfully');
+      showAlert('Success', 'Teacher updated successfully');
       setModalVisible(false);
       setSelectedTeacher(null);
       setIsEditing(false);
       resetForm();
       loadTeachers();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to update teacher');
+      showAlert('Error', error.response?.data?.detail || 'Failed to update teacher');
+    } finally {
+      setActionLoading(false);
     }
+  };
+
+  const handleDeactivateTeacher = (teacher: Teacher) => {
+    showConfirm(
+      'Deactivate Teacher',
+      `Are you sure you want to deactivate ${teacher.first_name} ${teacher.last_name}?\n\nThey will no longer be able to log in.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.patch(`/teachers/${teacher.id}/deactivate`);
+          showAlert('Success', 'Teacher deactivated');
+          setDetailModalVisible(false);
+          loadTeachers();
+        } catch (error: any) {
+          showAlert('Error', error.response?.data?.detail || 'Failed to deactivate');
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    );
+  };
+
+  const handleReactivateTeacher = (teacher: Teacher) => {
+    showConfirm(
+      'Reactivate Teacher',
+      `Reactivate ${teacher.first_name} ${teacher.last_name}?`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.patch(`/teachers/${teacher.id}/reactivate`);
+          showAlert('Success', 'Teacher reactivated');
+          setDetailModalVisible(false);
+          loadTeachers();
+        } catch (error: any) {
+          showAlert('Error', error.response?.data?.detail || 'Failed to reactivate');
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    );
+  };
+
+  const handleResetPassword = (teacher: Teacher) => {
+    showConfirm(
+      'Reset Password',
+      `Reset password for ${teacher.first_name} ${teacher.last_name}?\n\nA new password will be generated.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          const response = await api.post(`/teachers/${teacher.id}/reset-password`);
+          setDetailModalVisible(false);
+          setCredentials({
+            login: response.data.login,
+            password: response.data.new_password
+          });
+          setCredentialModalVisible(true);
+        } catch (error: any) {
+          showAlert('Error', error.response?.data?.detail || 'Failed to reset password');
+        } finally {
+          setActionLoading(false);
+        }
+      }
+    );
+  };
+
+  const copyToClipboard = async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    showAlert('Copied', 'Copied to clipboard');
   };
 
   const openEditModal = (teacher: Teacher) => {
@@ -372,15 +495,106 @@ export default function TeachersScreen() {
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Status</Text>
-                  <View style={[styles.statusBadgeLarge, { backgroundColor: COLORS.success + '20' }]}>
-                    <View style={[styles.statusDotLarge, { backgroundColor: COLORS.success }]} />
-                    <Text style={[styles.statusTextLarge, { color: COLORS.success }]}>Active</Text>
+                  <View style={[styles.statusBadgeLarge, { backgroundColor: (selectedTeacher.is_active !== false ? COLORS.success : COLORS.error) + '20' }]}>
+                    <View style={[styles.statusDotLarge, { backgroundColor: selectedTeacher.is_active !== false ? COLORS.success : COLORS.error }]} />
+                    <Text style={[styles.statusTextLarge, { color: selectedTeacher.is_active !== false ? COLORS.success : COLORS.error }]}>
+                      {selectedTeacher.is_active !== false ? 'Active' : 'Inactive'}
+                    </Text>
                   </View>
                 </View>
 
-                <Button title="Edit Teacher" onPress={() => openEditModal(selectedTeacher)} style={{ marginTop: SIZES.lg }} />
+                {/* Action Buttons */}
+                <View style={styles.actionButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => openEditModal(selectedTeacher)}
+                  >
+                    <Ionicons name="create" size={24} color={COLORS.info} />
+                    <Text style={[styles.actionButtonText, { color: COLORS.info }]}>Edit</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => handleResetPassword(selectedTeacher)}
+                    disabled={actionLoading}
+                  >
+                    <Ionicons name="key" size={24} color={COLORS.warning} />
+                    <Text style={[styles.actionButtonText, { color: COLORS.warning }]}>Reset Password</Text>
+                  </TouchableOpacity>
+
+                  {selectedTeacher.is_active !== false ? (
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => handleDeactivateTeacher(selectedTeacher)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="close-circle" size={24} color={COLORS.error} />
+                      <Text style={[styles.actionButtonText, { color: COLORS.error }]}>Deactivate</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.actionButton}
+                      onPress={() => handleReactivateTeacher(selectedTeacher)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
+                      <Text style={[styles.actionButtonText, { color: COLORS.success }]}>Reactivate</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Credentials Modal */}
+      <Modal
+        visible={credentialModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setCredentialModalVisible(false)}
+      >
+        <View style={styles.credentialModalOverlay}>
+          <View style={styles.credentialModal}>
+            <View style={styles.credentialHeader}>
+              <Ionicons name="checkmark-circle" size={50} color={COLORS.success} />
+              <Text style={styles.credentialTitle}>Credentials Generated</Text>
+            </View>
+
+            {credentials && (
+              <View style={styles.credentialBox}>
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialLabel}>Login:</Text>
+                  <Text style={styles.credentialValue}>{credentials.login}</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(credentials.login)}>
+                    <Ionicons name="copy" size={20} color={COLORS.gold} />
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialLabel}>Password:</Text>
+                  <Text style={styles.credentialValue}>{credentials.password}</Text>
+                  <TouchableOpacity onPress={() => copyToClipboard(credentials.password)}>
+                    <Ionicons name="copy" size={20} color={COLORS.gold} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <Text style={styles.credentialNote}>
+              Please save these credentials securely. The password cannot be recovered later.
+            </Text>
+
+            <TouchableOpacity
+              style={styles.credentialButton}
+              onPress={() => {
+                setCredentialModalVisible(false);
+                setCredentials(null);
+              }}
+            >
+              <Text style={styles.credentialButtonText}>Done</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -770,5 +984,91 @@ const styles = StyleSheet.create({
   courseChipTextSelected: {
     color: COLORS.marbleDark,
     fontWeight: '600',
+  },
+  // Action buttons row
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: SIZES.xl,
+    paddingTop: SIZES.lg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.marbleGray,
+  },
+  actionButton: {
+    alignItems: 'center',
+    padding: SIZES.md,
+  },
+  actionButtonText: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '600',
+    marginTop: SIZES.xs,
+  },
+  // Credential modal styles
+  credentialModalOverlay: {
+    flex: 1,
+    backgroundColor: COLORS.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SIZES.lg,
+  },
+  credentialModal: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.xl,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    ...SHADOWS.large,
+  },
+  credentialHeader: {
+    alignItems: 'center',
+    marginBottom: SIZES.lg,
+  },
+  credentialTitle: {
+    fontSize: SIZES.fontXl,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    marginTop: SIZES.md,
+  },
+  credentialBox: {
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.lg,
+    width: '100%',
+    marginBottom: SIZES.md,
+  },
+  credentialRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: SIZES.sm,
+    gap: SIZES.sm,
+  },
+  credentialLabel: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+    width: 80,
+  },
+  credentialValue: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+    flex: 1,
+  },
+  credentialNote: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textTertiary,
+    textAlign: 'center',
+    marginBottom: SIZES.lg,
+  },
+  credentialButton: {
+    backgroundColor: COLORS.gold,
+    borderRadius: SIZES.radiusMd,
+    paddingVertical: SIZES.md,
+    paddingHorizontal: SIZES.xl * 2,
+  },
+  credentialButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: 'bold',
+    color: COLORS.marbleDark,
   },
 });

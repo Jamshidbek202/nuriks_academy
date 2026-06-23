@@ -102,7 +102,7 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Test the Chat System API for Nurik's Academy CRM"
+user_problem_statement: "Test the Teacher and Support Staff Management APIs for Nurik's Academy CRM"
 
 backend:
   - task: "Super Admin Authentication"
@@ -332,6 +332,126 @@ backend:
       - working: true
         agent: "testing"
         comment: "Manager role correctly cannot access chat. GET /api/chat/contacts returns empty array for manager users."
+  
+  - task: "Teacher Management - Create Teacher"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_teachers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/teachers successfully creates teacher with correct user account. Returns teacher ID and all required fields. Login format is 'teacher_{phone}' and default password is 'Teacher@2025'."
+  
+  - task: "Teacher Management - Get Teacher Status"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_teachers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/teachers/{teacher_id}/status returns correct teacher status with login format 'teacher_+998909999888' and is_active=true."
+  
+  - task: "Teacher Management - Deactivate Teacher"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_teachers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "PATCH /api/teachers/{teacher_id}/deactivate successfully deactivates teacher. Deactivated teachers cannot login (returns 403 Forbidden)."
+  
+  - task: "Teacher Management - Reactivate Teacher"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_teachers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "PATCH /api/teachers/{teacher_id}/reactivate successfully reactivates teacher account."
+  
+  - task: "Teacher Management - Reset Password"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_teachers.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/teachers/{teacher_id}/reset-password generates new password in format 'Teacher@XXXX' (4 random digits). Returns login and new_password. Teacher can login with new password successfully."
+  
+  - task: "Support Staff Management - Create Support Staff"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_support_staff.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/support-staff successfully creates support staff with credentials. Returns staff ID and credentials object with login='support_{phone}' and password='Support@2025'."
+  
+  - task: "Support Staff Management - Get All Support Staff"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_support_staff.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/support-staff returns list of all support staff with is_active status and login information."
+  
+  - task: "Support Staff Management - Deactivate Support Staff"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_support_staff.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "PATCH /api/support-staff/{staff_id}/deactivate successfully deactivates support staff. Deactivated support staff cannot login (returns 403 Forbidden)."
+  
+  - task: "Support Staff Management - Reactivate Support Staff"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_support_staff.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "PATCH /api/support-staff/{staff_id}/reactivate successfully reactivates support staff account."
+  
+  - task: "Support Staff Management - Reset Password"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_support_staff.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/support-staff/{staff_id}/reset-password generates new password in format 'Support@XXXX' (4 random digits). Returns login and new_password."
 
 frontend:
   - task: "Frontend Testing"
@@ -349,12 +469,12 @@ frontend:
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Chat System API testing completed successfully"
+    - "Teacher and Support Staff Management API testing completed successfully"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -364,3 +484,5 @@ agent_communication:
     message: "Completed comprehensive testing of Lead to Student conversion flow. All 8 test scenarios passed successfully: (1) Super Admin Login, (2) Lead Creation, (3) Lead to Student Conversion with correct credential generation, (4) Student Verification in database, (5) Lead Status Update to 'enrolled', (6) Student Login with generated credentials, (7) Parent Login with phone number, (8) Duplicate Conversion Prevention. No issues found. Backend API is fully functional for the Lead to Student conversion workflow."
   - agent: "testing"
     message: "Completed comprehensive testing of Chat System API. All 11 test scenarios passed successfully: (1) Student Login, (2) Support Login, (3) Get Available Chat Contacts, (4) Start Conversation with Support, (5) Send Message, (6) Get Conversations with unread count, (7) Get Messages and mark as read, (8) Send Reply, (9) Get Unread Count, (10) Parent Access Control (correctly denied), (11) Manager Access Control (correctly denied). Fixed one minor bug in routes_chat.py where message['_id'] was not set correctly before serialization. All chat features working correctly including message status tracking, unread counts, and role-based access control."
+  - agent: "testing"
+    message: "Completed comprehensive testing of Teacher and Support Staff Management APIs. All 14 test scenarios passed successfully: (1) Admin Login, (2) Create Teacher with correct login format 'teacher_{phone}', (3) Get Teacher Status, (4) Deactivate Teacher, (5) Deactivated Teacher Login Denied (403 Forbidden), (6) Reactivate Teacher, (7) Reset Teacher Password with new format 'Teacher@XXXX', (8) Teacher Login with New Password, (9) Create Support Staff with credentials, (10) Get All Support Staff, (11) Deactivate Support Staff, (12) Deactivated Support Login Denied (403 Forbidden), (13) Reactivate Support Staff, (14) Reset Support Password with format 'Support@XXXX'. All CRUD operations, deactivation/reactivation, and password reset features working correctly. Security controls verified - deactivated users cannot login."

@@ -58,6 +58,7 @@ from routes_support import router as support_router
 from routes_support import support_staff_router
 from routes_admin import router as admin_router
 from routes_chat import router as chat_router
+from routes_support_staff import router as support_staff_router
 
 # Include all routers
 api_router.include_router(students_router)
