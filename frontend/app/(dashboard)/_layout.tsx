@@ -23,7 +23,7 @@ export default function DashboardLayout() {
     },
   };
 
-  // Super Admin Tabs - Full access
+  // Super Admin Tabs - Full access + Profile with Logout
   if (user?.role === 'super_admin') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -64,31 +64,23 @@ export default function DashboardLayout() {
           }}
         />
         <Tabs.Screen
-          name="tests"
+          name="profile"
           options={{
-            title: 'Tests',
+            title: 'Profile',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="clipboard" size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
-          name="certificates"
-          options={{
-            title: 'Certs',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="ribbon" size={size} color={color} />
+              <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
         />
         {/* Hidden screens accessible via navigation */}
+        <Tabs.Screen name="tests" options={{ href: null }} />
+        <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
         <Tabs.Screen name="leads" options={{ href: null }} />
         <Tabs.Screen name="attendance" options={{ href: null }} />
         <Tabs.Screen name="homework" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="profile" options={{ href: null }} />
         <Tabs.Screen name="parent-home" options={{ href: null }} />
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
@@ -97,7 +89,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Manager Tabs - Students, Payments, News (No settings, feature flags, super admin functions)
+  // Manager Tabs - Students, Payments, Leads, Profile with Logout
   if (user?.role === 'manager') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -142,7 +134,7 @@ export default function DashboardLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person" size={size} color={color} />
+              <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
         />
@@ -163,8 +155,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Teacher Tabs - Assigned groups, Journal, Homework, Tests, Attendance, Progress
-  // NO access to CRM, Payments, Settings, Analytics
+  // Teacher Tabs - Journal, Homework, Tests, Attendance, Profile with Logout
   if (user?.role === 'teacher') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -196,15 +187,6 @@ export default function DashboardLayout() {
           }}
         />
         <Tabs.Screen
-          name="tests"
-          options={{
-            title: 'Tests',
-            tabBarIcon: ({ color, size }) => (
-              <Ionicons name="clipboard" size={size} color={color} />
-            ),
-          }}
-        />
-        <Tabs.Screen
           name="attendance"
           options={{
             title: 'Attendance',
@@ -213,7 +195,17 @@ export default function DashboardLayout() {
             ),
           }}
         />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: 'Profile',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="person-circle" size={size} color={color} />
+            ),
+          }}
+        />
         {/* Hidden screens */}
+        <Tabs.Screen name="tests" options={{ href: null }} />
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
@@ -221,7 +213,6 @@ export default function DashboardLayout() {
         <Tabs.Screen name="payments" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="profile" options={{ href: null }} />
         <Tabs.Screen name="parent-home" options={{ href: null }} />
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
@@ -230,7 +221,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Student Tabs - Own profile, attendance, homework, tests, certificates, progress
+  // Student Tabs - Home, Homework, Tests, Progress, Profile with Logout
   if (user?.role === 'student') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -275,7 +266,7 @@ export default function DashboardLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person" size={size} color={color} />
+              <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
         />
@@ -296,7 +287,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Parent Tabs - Child's data (attendance, progress, payments, homework, tests, certificates)
+  // Parent Tabs - Home, Progress, Payments, Certs, Profile with Logout
   if (user?.role === 'parent') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -341,7 +332,7 @@ export default function DashboardLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person" size={size} color={color} />
+              <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
         />
@@ -362,7 +353,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Support Tabs - Assigned bookings, own schedule
+  // Support Tabs - Bookings, Profile with Logout
   if (user?.role === 'support') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
@@ -380,7 +371,7 @@ export default function DashboardLayout() {
           options={{
             title: 'Profile',
             tabBarIcon: ({ color, size }) => (
-              <Ionicons name="person" size={size} color={color} />
+              <Ionicons name="person-circle" size={size} color={color} />
             ),
           }}
         />
@@ -404,7 +395,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Default fallback - minimal tabs
+  // Default fallback - minimal tabs with Profile
   return (
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen
@@ -421,7 +412,7 @@ export default function DashboardLayout() {
         options={{
           title: 'Profile',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person" size={size} color={color} />
+            <Ionicons name="person-circle" size={size} color={color} />
           ),
         }}
       />
