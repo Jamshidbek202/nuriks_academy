@@ -49,11 +49,11 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
-              name="groups"
+              name="payments"
               options={{
-                title: 'Groups',
+                title: 'Payments',
                 tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="people-circle" size={size} color={color} />
+                  <Ionicons name="card" size={size} color={color} />
                 ),
               }}
             />
@@ -76,45 +76,22 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
-              name="progress"
+              name="certificates"
               options={{
-                title: 'Progress',
+                title: 'Certs',
                 tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="analytics" size={size} color={color} />
+                  <Ionicons name="ribbon" size={size} color={color} />
                 ),
               }}
             />
             {/* Hidden screens accessible via navigation */}
-            <Tabs.Screen
-              name="teachers"
-              options={{
-                href: null,
-              }}
-            />
-            <Tabs.Screen
-              name="leads"
-              options={{
-                href: null,
-              }}
-            />
-            <Tabs.Screen
-              name="attendance"
-              options={{
-                href: null,
-              }}
-            />
-            <Tabs.Screen
-              name="homework"
-              options={{
-                href: null,
-              }}
-            />
-            <Tabs.Screen
-              name="profile"
-              options={{
-                href: null,
-              }}
-            />
+            <Tabs.Screen name="groups" options={{ href: null }} />
+            <Tabs.Screen name="teachers" options={{ href: null }} />
+            <Tabs.Screen name="leads" options={{ href: null }} />
+            <Tabs.Screen name="attendance" options={{ href: null }} />
+            <Tabs.Screen name="homework" options={{ href: null }} />
+            <Tabs.Screen name="progress" options={{ href: null }} />
+            <Tabs.Screen name="profile" options={{ href: null }} />
           </Tabs>
         );
 
@@ -265,20 +242,11 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
-              name="homework"
+              name="payments"
               options={{
-                title: 'Homework',
+                title: 'Payments',
                 tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="book" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="tests"
-              options={{
-                title: 'Tests',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="clipboard" size={size} color={color} />
+                  <Ionicons name="card" size={size} color={color} />
                 ),
               }}
             />
@@ -288,6 +256,15 @@ export default function DashboardLayout() {
                 title: 'Progress',
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="analytics" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="certificates"
+              options={{
+                title: 'Certs',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="ribbon" size={size} color={color} />
                 ),
               }}
             />
@@ -307,6 +284,8 @@ export default function DashboardLayout() {
             <Tabs.Screen name="leads" options={{ href: null }} />
             <Tabs.Screen name="journal" options={{ href: null }} />
             <Tabs.Screen name="attendance" options={{ href: null }} />
+            <Tabs.Screen name="homework" options={{ href: null }} />
+            <Tabs.Screen name="tests" options={{ href: null }} />
           </Tabs>
         );
 
