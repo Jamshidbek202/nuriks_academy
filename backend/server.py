@@ -24,10 +24,8 @@ from auth import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'nurik_academy')]
+# Import database utilities
+from database import db, serialize_doc, create_audit_log
 
 # Security
 security = HTTPBearer()
@@ -49,21 +47,36 @@ logger = logging.getLogger(__name__)
 from scheduler import start_scheduler
 scheduler = None
 
-# Import route modules (MUST be after db is initialized)
-from routes_students import router as students_router
-from routes_teachers import router as teachers_router
-from routes_groups import router as groups_router
-from routes_attendance import router as attendance_router
-from routes_journal import router as journal_router
-from routes_payments import router as payments_router
-from routes_homework import router as homework_router
-from routes_tests import router as tests_router
-from routes_certificates import router as certificates_router
-from routes_leads import router as leads_router
+# Import client for shutdown
+from database import client
 
 @app.on_event("startup")
 async def startup_event():
     global scheduler
+    # Import route modules here to avoid circular imports
+    from routes_students import router as students_router
+    from routes_teachers import router as teachers_router
+    from routes_groups import router as groups_router
+    from routes_attendance import router as attendance_router
+    from routes_journal import router as journal_router
+    from routes_payments import router as payments_router
+    from routes_homework import router as homework_router
+    from routes_tests import router as tests_router
+    from routes_certificates import router as certificates_router
+    from routes_leads import router as leads_router
+    
+    # Include all routers
+    api_router.include_router(students_router)
+    api_router.include_router(teachers_router)
+    api_router.include_router(groups_router)
+    api_router.include_router(attendance_router)
+    api_router.include_router(journal_router)
+    api_router.include_router(payments_router)
+    api_router.include_router(homework_router)
+    api_router.include_router(tests_router)
+    api_router.include_router(certificates_router)
+    api_router.include_router(leads_router)
+    
     scheduler = start_scheduler(db)
     logger.info("Application started successfully")
 
@@ -73,35 +86,6 @@ async def shutdown_db_client():
         scheduler.shutdown()
     client.close()
     logger.info("Application shutdown complete")
-def serialize_doc(doc):
-    """Convert MongoDB document to JSON-serializable dict"""
-    if doc is None:
-        return None
-    doc['id'] = str(doc['_id'])
-    del doc['_id']
-    # Convert ObjectId fields to strings
-    for key, value in doc.items():
-        if isinstance(value, ObjectId):
-            doc[key] = str(value)
-        elif isinstance(value, list):
-            doc[key] = [str(v) if isinstance(v, ObjectId) else v for v in value]
-        elif isinstance(value, datetime):
-            doc[key] = value.isoformat()
-    return doc
-
-# Audit log helper
-async def create_audit_log(user_id: str, action: str, resource_type: str, resource_id: str = None, changes: dict = None, ip: str = None):
-    """Create an audit log entry"""
-    audit_log = {
-        "user_id": user_id,
-        "action": action,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "changes": changes,
-        "ip_address": ip,
-        "timestamp": datetime.utcnow()
-    }
-    await db.audit_logs.insert_one(audit_log)
 
 # ==================== INITIALIZATION ====================
 
@@ -649,18 +633,8 @@ async def get_dashboard_stats(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include all routers
+# Include main router
 app.include_router(api_router)
-api_router.include_router(students_router)
-api_router.include_router(teachers_router)
-api_router.include_router(groups_router)
-api_router.include_router(attendance_router)
-api_router.include_router(journal_router)
-api_router.include_router(payments_router)
-api_router.include_router(homework_router)
-api_router.include_router(tests_router)
-api_router.include_router(certificates_router)
-api_router.include_router(leads_router)
 
 app.add_middleware(
     CORSMiddleware,

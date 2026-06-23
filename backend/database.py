@@ -28,7 +28,7 @@ def serialize_doc(doc):
             doc[key] = value.isoformat()
     return doc
 
-async def create_audit_log(db_instance, user_id: str, action: str, resource_type: str, resource_id: str = None, changes: dict = None, ip: str = None):
+async def create_audit_log(user_id: str, action: str, resource_type: str, resource_id: str = None, changes: dict = None, ip: str = None):
     """Create an audit log entry"""
     audit_log = {
         "user_id": user_id,
@@ -39,4 +39,4 @@ async def create_audit_log(db_instance, user_id: str, action: str, resource_type
         "ip_address": ip,
         "timestamp": datetime.utcnow()
     }
-    await db_instance.audit_logs.insert_one(audit_log)
+    await db.audit_logs.insert_one(audit_log)
