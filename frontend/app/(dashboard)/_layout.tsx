@@ -4,6 +4,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS } from '../../src/constants/theme';
 
+// Common hidden screens for all roles
+const HIDDEN_SCREENS = [
+  'groups', 'teachers', 'leads', 'attendance', 'journal', 'homework', 
+  'tests', 'payments', 'certificates', 'progress', 'students',
+  'settings', 'feature-flags', 'analytics', 'news', 'audit-logs', 'backups',
+  'parent-home', 'teacher-home', 'support-home', 'student-home'
+];
+
+const HiddenScreens = ({ exclude = [] }: { exclude?: string[] }) => (
+  <>
+    {HIDDEN_SCREENS.filter(s => !exclude.includes(s)).map(screen => (
+      <Tabs.Screen key={screen} name={screen} options={{ href: null }} />
+    ))}
+  </>
+);
+
 export default function DashboardLayout() {
   const { user } = useAuth();
 
@@ -72,19 +88,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens accessible via navigation */}
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens exclude={['students', 'payments', 'journal']} />
       </Tabs>
     );
   }
@@ -138,19 +142,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens accessible via navigation */}
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens exclude={['students', 'payments', 'leads']} />
       </Tabs>
     );
   }
@@ -204,19 +196,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens */}
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens exclude={['journal', 'homework', 'attendance']} />
       </Tabs>
     );
   }
@@ -270,19 +250,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens */}
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens exclude={['homework', 'tests', 'progress']} />
       </Tabs>
     );
   }
@@ -336,19 +304,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens - accessible via navigation from home */}
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens exclude={['progress', 'payments', 'certificates']} />
       </Tabs>
     );
   }
@@ -375,22 +331,7 @@ export default function DashboardLayout() {
             ),
           }}
         />
-        {/* Hidden screens */}
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
+        <HiddenScreens />
       </Tabs>
     );
   }
@@ -416,21 +357,7 @@ export default function DashboardLayout() {
           ),
         }}
       />
-      <Tabs.Screen name="students" options={{ href: null }} />
-      <Tabs.Screen name="groups" options={{ href: null }} />
-      <Tabs.Screen name="teachers" options={{ href: null }} />
-      <Tabs.Screen name="leads" options={{ href: null }} />
-      <Tabs.Screen name="attendance" options={{ href: null }} />
-      <Tabs.Screen name="journal" options={{ href: null }} />
-      <Tabs.Screen name="homework" options={{ href: null }} />
-      <Tabs.Screen name="tests" options={{ href: null }} />
-      <Tabs.Screen name="payments" options={{ href: null }} />
-      <Tabs.Screen name="certificates" options={{ href: null }} />
-      <Tabs.Screen name="progress" options={{ href: null }} />
-      <Tabs.Screen name="parent-home" options={{ href: null }} />
-      <Tabs.Screen name="teacher-home" options={{ href: null }} />
-      <Tabs.Screen name="support-home" options={{ href: null }} />
-      <Tabs.Screen name="student-home" options={{ href: null }} />
+      <HiddenScreens />
     </Tabs>
   );
 }

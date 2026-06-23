@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -22,6 +23,7 @@ import StudentHomeScreen from './student-home';
 
 export default function DashboardHome() {
   const { user } = useAuth();
+  const router = useRouter();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -165,6 +167,21 @@ export default function DashboardHome() {
               <StatusRow label="Archived" value={stats?.students?.archived || 0} color={COLORS.textTertiary} />
             </View>
           </View>
+
+          {/* Admin Quick Actions (Super Admin Only) */}
+          {user?.role === 'super_admin' && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Admin Tools</Text>
+              <View style={styles.adminGrid}>
+                <AdminCard icon="settings" label="Settings" onPress={() => router.push('/(dashboard)/settings')} />
+                <AdminCard icon="toggle" label="Feature Flags" onPress={() => router.push('/(dashboard)/feature-flags')} />
+                <AdminCard icon="analytics" label="Analytics" onPress={() => router.push('/(dashboard)/analytics')} />
+                <AdminCard icon="newspaper" label="News" onPress={() => router.push('/(dashboard)/news')} />
+                <AdminCard icon="document-text" label="Audit Logs" onPress={() => router.push('/(dashboard)/audit-logs')} />
+                <AdminCard icon="cloud-upload" label="Backups" onPress={() => router.push('/(dashboard)/backups')} />
+              </View>
+            </View>
+          )}
         </ScrollView>
       </View>
     );
@@ -218,6 +235,15 @@ const StatusRow = ({ label, value, color }: any) => (
     <Text style={styles.statusLabel}>{label}</Text>
     <Text style={styles.statusValue}>{value}</Text>
   </View>
+);
+
+const AdminCard = ({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) => (
+  <TouchableOpacity style={styles.adminCard} onPress={onPress}>
+    <View style={styles.adminIconContainer}>
+      <Ionicons name={icon as any} size={24} color={COLORS.gold} />
+    </View>
+    <Text style={styles.adminLabel}>{label}</Text>
+  </TouchableOpacity>
 );
 
 const styles = StyleSheet.create({
@@ -396,5 +422,33 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
     marginTop: SIZES.xs,
+  },
+  adminGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginHorizontal: -SIZES.xs,
+  },
+  adminCard: {
+    width: '31%',
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    margin: SIZES.xs,
+    alignItems: 'center',
+    ...SHADOWS.small,
+  },
+  adminIconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: COLORS.gold + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SIZES.sm,
+  },
+  adminLabel: {
+    fontSize: SIZES.fontXs,
+    color: COLORS.textPrimary,
+    textAlign: 'center',
   },
 });

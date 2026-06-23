@@ -56,6 +56,7 @@ from routes_certificates import router as certificates_router
 from routes_leads import router as leads_router
 from routes_support import router as support_router
 from routes_support import support_staff_router
+from routes_admin import router as admin_router
 
 # Include all routers
 api_router.include_router(students_router)
@@ -70,6 +71,7 @@ api_router.include_router(certificates_router)
 api_router.include_router(leads_router)
 api_router.include_router(support_router)
 api_router.include_router(support_staff_router)
+api_router.include_router(admin_router)
 
 logger.info("All route modules loaded and registered")
 
