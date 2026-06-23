@@ -525,6 +525,30 @@ frontend:
       - working: true
         agent: "testing"
         comment: "Add Support Staff modal opens correctly when clicking the + button. Modal displays all required form fields: First Name, Last Name, Phone, Email, and Create Staff button. Modal can be closed properly."
+  
+  - task: "Teacher Detail Modal - Deactivate Button"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/(dashboard)/teachers.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Deactivate button in Teacher Detail Modal is fully functional. When clicked: (1) Confirmation dialog appears with message 'Deactivate Teacher - Are you sure you want to deactivate [Name]? They will no longer be able to log in.', (2) API call is triggered: PATCH /api/teachers/{id}/deactivate, (3) Success alert appears: 'Teacher deactivated', (4) Modal closes and teacher list refreshes. Tested on iPhone 14 viewport (390x844). All functionality working correctly."
+  
+  - task: "Teacher Detail Modal - Reset Password Button"
+    implemented: true
+    working: true
+    file: "/app/frontend/app/(dashboard)/teachers.tsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "Reset Password button in Teacher Detail Modal is fully functional. When clicked: (1) Confirmation dialog appears with message 'Reset Password - Reset password for [Name]? A new password will be generated.', (2) API call is triggered: POST /api/teachers/{id}/reset-password, (3) Credentials modal appears showing new login and password (format: Teacher@XXXX with 4 random digits), (4) User can copy credentials to clipboard. Tested with teacher 'John Smith' - new password generated: Teacher@9379. All functionality working correctly on iPhone 14 viewport (390x844)."
 
 metadata:
   created_by: "testing_agent"
@@ -534,7 +558,7 @@ metadata:
 
 test_plan:
   current_focus:
-    - "Staff Management UI testing completed successfully"
+    - "Teacher Deactivate and Reset Password buttons tested and working"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -550,3 +574,5 @@ agent_communication:
     message: "COMPREHENSIVE QA TEST COMPLETED - All 22 tests passed (100%). Tested complete Teacher and Support Staff Management workflow including: PART 1 (Teacher Management - 9 tests): Create, Get Status, Edit, Login Before Deactivation, Deactivate, Login After Deactivation (correctly denied with 403), Reactivate, Reset Password, Login with New Password. PART 2 (Support Staff Management - 10 tests): Create with credentials, Get List, Get by ID, Edit, Login Before Deactivation, Deactivate, Login After Deactivation (correctly denied with 403), Reactivate, Reset Password, Login with New Password. PART 3 (Database Verification - 3 tests): Verify Teacher in Database, Verify Support in Database, Verify User Status. All security controls working correctly - deactivated users cannot login. All CRUD operations functional. Password reset generates new passwords correctly. All data persists correctly in database."
   - agent: "testing"
     message: "STAFF MANAGEMENT UI TESTING COMPLETED - All 6 frontend tests passed (100%). Tested complete Staff Management UI workflow on mobile viewport (iPhone 14: 390x844): (1) Admin Login - Successfully logged in with admin/Admin@2025 and redirected to dashboard, (2) Dashboard Display - Shows correct stats (4 Total Students, 4 Active Students, 4 Teachers, 3 Support Staff) and Staff Management section, (3) Teachers Screen - Displays list of 4 teachers with search, + button, and teacher details (name, phone, groups, courses), (4) Add Teacher Modal - Opens correctly with all form fields (First Name, Last Name, Phone, Email, Assigned Courses, Create Teacher button), (5) Support Staff Screen - Displays list of 3 support staff with search, Active Only filter, + button, and staff details (name, phone, login, active status), (6) Add Support Staff Modal - Opens correctly with all form fields (First Name, Last Name, Phone, Email, Create Staff button). All navigation, modals, and UI elements working correctly. Mobile-responsive design verified."
+  - agent: "testing"
+    message: "TEACHER DEACTIVATE & RESET PASSWORD BUTTONS TESTING COMPLETED - Both buttons fully functional on iPhone 14 viewport (390x844). RESET PASSWORD BUTTON: (1) Confirmation dialog appears with proper message, (2) API call triggered: POST /api/teachers/{id}/reset-password, (3) Credentials modal displays new login and password (format: Teacher@XXXX), (4) Copy to clipboard functionality works. Tested with teacher 'John Smith' - new password generated: Teacher@9379. DEACTIVATE BUTTON: (1) Confirmation dialog appears with warning message, (2) API call triggered: PATCH /api/teachers/{id}/deactivate, (3) Success alert displays 'Teacher deactivated', (4) Modal closes and list refreshes. Both features working as expected with proper user feedback and API integration."
