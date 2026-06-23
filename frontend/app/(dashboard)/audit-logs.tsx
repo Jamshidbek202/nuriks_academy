@@ -15,18 +15,19 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 
 interface AuditLog {
   id: string;
-  user_id: string;
+  user_id?: string;
   user_name?: string;
   user_role?: string;
-  action: string;
-  entity_type: string;
-  entity_id: string;
-  changes?: any;
+  user_login?: string;
+  action?: string;
+  entity_type?: string;
+  entity_id?: string;
+  changes?: Record<string, unknown>;
   ip_address?: string;
-  timestamp: string;
+  timestamp?: string;
 }
 
-const ACTION_ICONS: { [key: string]: string } = {
+const ACTION_ICONS: Record<string, string> = {
   login: 'log-in',
   logout: 'log-out',
   create: 'add-circle',
@@ -37,7 +38,7 @@ const ACTION_ICONS: { [key: string]: string } = {
   complete: 'checkmark-done-circle',
 };
 
-const ACTION_COLORS: { [key: string]: string } = {
+const ACTION_COLORS: Record<string, string> = {
   login: COLORS.success,
   logout: COLORS.info,
   create: COLORS.gold,
@@ -79,23 +80,50 @@ export default function AuditLogsScreen() {
         api.get('/admin/audit-logs', { params }),
         api.get('/admin/audit-logs/login-history')
       ]);
-      setLogs(logsRes.data);
-      setLoginHistory(loginRes.data);
+      setLogs(logsRes.data || []);
+      setLoginHistory(loginRes.data || []);
     } catch (error) {
       console.error('Error loading audit logs:', error);
+      setLogs([]);
+      setLoginHistory([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const formatDate = (dateString?: string): string => {
+    if (!dateString) return 'Unknown date';
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return 'Invalid date';
+    }
   };
 
-  const formatEntityType = (type: string) => {
-    return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+  const formatEntityType = (type?: string): string => {
+    if (!type) return 'Unknown';
+    try {
+      return type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    } catch {
+      return type;
+    }
+  };
+
+  const getActionIcon = (action?: string): string => {
+    if (!action) return 'ellipse';
+    return ACTION_ICONS[action] || 'ellipse';
+  };
+
+  const getActionColor = (action?: string): string => {
+    if (!action) return COLORS.info;
+    return ACTION_COLORS[action] || COLORS.info;
+  };
+
+  const truncateId = (id?: string): string => {
+    if (!id) return 'N/A';
+    return id.length > 8 ? `${id.substring(0, 8)}...` : id;
   };
 
   if (user?.role !== 'super_admin') {
@@ -153,24 +181,24 @@ export default function AuditLogsScreen() {
         }
       >
         {displayLogs.length > 0 ? (
-          displayLogs.map((log) => (
-            <View key={log.id} style={styles.logCard}>
-              <View style={[styles.logIcon, { backgroundColor: (ACTION_COLORS[log.action] || COLORS.info) + '20' }]}>
-                <Ionicons name={(ACTION_ICONS[log.action] || 'ellipse') as any} size={20} color={ACTION_COLORS[log.action] || COLORS.info} />
+          displayLogs.map((log, index) => (
+            <View key={log.id || `log-${index}`} style={styles.logCard}>
+              <View style={[styles.logIcon, { backgroundColor: getActionColor(log.action) + '20' }]}>
+                <Ionicons name={getActionIcon(log.action) as any} size={20} color={getActionColor(log.action)} />
               </View>
               <View style={styles.logContent}>
                 <View style={styles.logHeader}>
-                  <Text style={styles.logAction}>{log.action.toUpperCase()}</Text>
+                  <Text style={styles.logAction}>{(log.action || 'UNKNOWN').toUpperCase()}</Text>
                   <Text style={styles.logTime}>{formatDate(log.timestamp)}</Text>
                 </View>
-                <Text style={styles.logUser}>{log.user_name || 'Unknown User'}</Text>
+                <Text style={styles.logUser}>{log.user_name || log.user_login || 'Unknown User'}</Text>
                 {log.user_role && (
                   <View style={styles.roleBadge}>
                     <Text style={styles.roleText}>{log.user_role}</Text>
                   </View>
                 )}
-                {activeTab !== 'login' && (
-                  <Text style={styles.logEntity}>{formatEntityType(log.entity_type)}: {log.entity_id.substring(0, 8)}...</Text>
+                {activeTab !== 'login' && log.entity_type && (
+                  <Text style={styles.logEntity}>{formatEntityType(log.entity_type)}: {truncateId(log.entity_id)}</Text>
                 )}
                 {log.ip_address && (
                   <Text style={styles.logIp}>IP: {log.ip_address}</Text>
@@ -182,6 +210,7 @@ export default function AuditLogsScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="document-text-outline" size={64} color={COLORS.textTertiary} />
             <Text style={styles.emptyText}>No logs found</Text>
+            <Text style={styles.emptySubtext}>Activity will appear here as users interact with the system</Text>
           </View>
         )}
         <View style={{ height: 100 }} />
@@ -223,4 +252,5 @@ const styles = StyleSheet.create({
   logIp: { fontSize: SIZES.fontXs, color: COLORS.textTertiary, marginTop: 2 },
   emptyState: { alignItems: 'center', paddingVertical: SIZES.xxl },
   emptyText: { fontSize: SIZES.fontLg, color: COLORS.textSecondary, marginTop: SIZES.md },
+  emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs, textAlign: 'center', paddingHorizontal: SIZES.lg },
 });

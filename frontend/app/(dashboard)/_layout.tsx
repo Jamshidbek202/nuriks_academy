@@ -1,11 +1,21 @@
 import React from 'react';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS } from '../../src/constants/theme';
 
 export default function DashboardLayout() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
+
+  // Show loading while auth is being restored
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={COLORS.gold} />
+      </View>
+    );
+  }
 
   const tabScreenOptions = {
     headerShown: false,
@@ -23,15 +33,22 @@ export default function DashboardLayout() {
     },
   };
 
+  // Helper function to create tab icon
+  const createTabIcon = (iconName: string) => {
+    return ({ color, size }: { color: string; size: number }) => (
+      <Ionicons name={iconName as any} size={size} color={color} />
+    );
+  };
+
   // Super Admin Tabs
   if (user?.role === 'super_admin') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} /> }} />
-        <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} /> }} />
-        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: ({ color, size }) => <Ionicons name="card" size={size} color={color} /> }} />
-        <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: ({ color, size }) => <Ionicons name="journal" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('grid') }} />
+        <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: createTabIcon('people') }} />
+        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: createTabIcon('card') }} />
+        <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: createTabIcon('journal') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
@@ -59,11 +76,11 @@ export default function DashboardLayout() {
   if (user?.role === 'manager') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="grid" size={size} color={color} /> }} />
-        <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: ({ color, size }) => <Ionicons name="people" size={size} color={color} /> }} />
-        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: ({ color, size }) => <Ionicons name="card" size={size} color={color} /> }} />
-        <Tabs.Screen name="leads" options={{ title: 'Leads', tabBarIcon: ({ color, size }) => <Ionicons name="people-circle" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('grid') }} />
+        <Tabs.Screen name="students" options={{ title: 'Students', tabBarIcon: createTabIcon('people') }} />
+        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: createTabIcon('card') }} />
+        <Tabs.Screen name="leads" options={{ title: 'Leads', tabBarIcon: createTabIcon('people-circle') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="teachers" options={{ href: null }} />
@@ -91,11 +108,11 @@ export default function DashboardLayout() {
   if (user?.role === 'teacher') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} /> }} />
-        <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: ({ color, size }) => <Ionicons name="journal" size={size} color={color} /> }} />
-        <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: ({ color, size }) => <Ionicons name="book" size={size} color={color} /> }} />
-        <Tabs.Screen name="attendance" options={{ title: 'Attendance', tabBarIcon: ({ color, size }) => <Ionicons name="checkbox" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('calendar') }} />
+        <Tabs.Screen name="journal" options={{ title: 'Journal', tabBarIcon: createTabIcon('journal') }} />
+        <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: createTabIcon('book') }} />
+        <Tabs.Screen name="attendance" options={{ title: 'Attendance', tabBarIcon: createTabIcon('checkbox') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
@@ -123,11 +140,11 @@ export default function DashboardLayout() {
   if (user?.role === 'student') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
-        <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: ({ color, size }) => <Ionicons name="book" size={size} color={color} /> }} />
-        <Tabs.Screen name="tests" options={{ title: 'Tests', tabBarIcon: ({ color, size }) => <Ionicons name="clipboard" size={size} color={color} /> }} />
-        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: ({ color, size }) => <Ionicons name="analytics" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('home') }} />
+        <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: createTabIcon('book') }} />
+        <Tabs.Screen name="tests" options={{ title: 'Tests', tabBarIcon: createTabIcon('clipboard') }} />
+        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: createTabIcon('analytics') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
@@ -155,11 +172,11 @@ export default function DashboardLayout() {
   if (user?.role === 'parent') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
-        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: ({ color, size }) => <Ionicons name="analytics" size={size} color={color} /> }} />
-        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: ({ color, size }) => <Ionicons name="card" size={size} color={color} /> }} />
-        <Tabs.Screen name="certificates" options={{ title: 'Certs', tabBarIcon: ({ color, size }) => <Ionicons name="ribbon" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('home') }} />
+        <Tabs.Screen name="progress" options={{ title: 'Progress', tabBarIcon: createTabIcon('analytics') }} />
+        <Tabs.Screen name="payments" options={{ title: 'Payments', tabBarIcon: createTabIcon('card') }} />
+        <Tabs.Screen name="certificates" options={{ title: 'Certs', tabBarIcon: createTabIcon('ribbon') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
@@ -187,8 +204,8 @@ export default function DashboardLayout() {
   if (user?.role === 'support') {
     return (
       <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: 'Bookings', tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} /> }} />
-        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+        <Tabs.Screen name="index" options={{ title: 'Bookings', tabBarIcon: createTabIcon('calendar') }} />
+        <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="groups" options={{ href: null }} />
         <Tabs.Screen name="students" options={{ href: null }} />
@@ -215,11 +232,11 @@ export default function DashboardLayout() {
     );
   }
 
-  // Default fallback
+  // Default fallback (no user or unknown role)
   return (
     <Tabs screenOptions={tabScreenOptions}>
-      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: ({ color, size }) => <Ionicons name="home" size={size} color={color} /> }} />
-      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: ({ color, size }) => <Ionicons name="person-circle" size={size} color={color} /> }} />
+      <Tabs.Screen name="index" options={{ title: 'Home', tabBarIcon: createTabIcon('home') }} />
+      <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
       {/* Hidden screens */}
       <Tabs.Screen name="groups" options={{ href: null }} />
       <Tabs.Screen name="students" options={{ href: null }} />
@@ -245,3 +262,12 @@ export default function DashboardLayout() {
     </Tabs>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: COLORS.background,
+  },
+});
