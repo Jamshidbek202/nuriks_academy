@@ -171,6 +171,19 @@ export default function DashboardHome() {
           {/* Admin Quick Actions (Super Admin Only) */}
           {user?.role === 'super_admin' && (
             <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Staff Management</Text>
+              <View style={styles.adminGrid}>
+                <AdminCard icon="school" label="Teachers" onPress={() => router.push('/(dashboard)/teachers')} />
+                <AdminCard icon="headset" label="Support Staff" onPress={() => router.push('/(dashboard)/staff-management')} />
+                <AdminCard icon="people" label="Groups" onPress={() => router.push('/(dashboard)/groups')} />
+                <AdminCard icon="people-circle" label="Leads / CRM" onPress={() => router.push('/(dashboard)/leads')} />
+              </View>
+            </View>
+          )}
+
+          {/* Admin Tools (Super Admin Only) */}
+          {user?.role === 'super_admin' && (
+            <View style={styles.section}>
               <Text style={styles.sectionTitle}>Admin Tools</Text>
               <View style={styles.adminGrid}>
                 <AdminCard icon="settings" label="Settings" onPress={() => router.push('/(dashboard)/settings')} />
