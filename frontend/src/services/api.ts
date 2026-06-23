@@ -1,0 +1,39 @@
+import axios from 'axios';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8001';
+
+export const api = axios.create({
+  baseURL: `${API_URL}/api`,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  timeout: 30000,
+});
+
+// Request interceptor for debugging
+api.interceptors.request.use(
+  (config) => {
+    console.log('API Request:', config.method?.toUpperCase(), config.url);
+    return config;
+  },
+  (error) => {
+    console.error('API Request Error:', error);
+    return Promise.reject(error);
+  }
+);
+
+// Response interceptor for error handling
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response) {
+      console.error('API Error:', error.response.status, error.response.data);
+    } else if (error.request) {
+      console.error('Network Error:', error.message);
+    }
+    return Promise.reject(error);
+  }
+);
+
+export default api;

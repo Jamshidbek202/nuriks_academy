@@ -1,5 +1,6 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -27,6 +28,9 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'nurik_academy')]
+
+# Security
+security = HTTPBearer()
 
 # Create the main app without a prefix
 app = FastAPI(title="Nurik's Academy API", version="1.0.0")
@@ -261,8 +265,12 @@ async def login(credentials: UserLogin, request: Request):
         logger.error(f"Login error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+async def get_current_user_dependency(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Dependency to get current user"""
+    return await get_current_user(credentials, db)
+
 @api_router.get("/auth/me")
-async def get_me(current_user: dict = Depends(lambda creds: get_current_user(creds, db))):
+async def get_me(current_user: dict = Depends(get_current_user_dependency)):
     """Get current user info"""
     user_data = serialize_doc(current_user.copy())
     if "password_hash" in user_data:
@@ -274,7 +282,7 @@ async def get_me(current_user: dict = Depends(lambda creds: get_current_user(cre
 # ==================== 2FA ====================
 
 @api_router.post("/auth/2fa/setup", response_model=TwoFactorSetup)
-async def setup_2fa(current_user: dict = Depends(lambda creds: get_current_user(creds, db))):
+async def setup_2fa(current_user: dict = Depends(get_current_user_dependency)):
     """Setup 2FA for user"""
     try:
         # Only super admin can enable 2FA
@@ -300,7 +308,7 @@ async def setup_2fa(current_user: dict = Depends(lambda creds: get_current_user(
 @api_router.post("/auth/2fa/verify")
 async def verify_2fa(
     verification: TwoFactorVerify,
-    current_user: dict = Depends(lambda creds: get_current_user(creds, db))
+    current_user: dict = Depends(get_current_user_dependency)
 ):
     """Verify and enable 2FA"""
     try:
@@ -340,7 +348,7 @@ async def verify_2fa(
 @api_router.post("/auth/2fa/disable")
 async def disable_2fa(
     verification: TwoFactorVerify,
-    current_user: dict = Depends(lambda creds: get_current_user(creds, db))
+    current_user: dict = Depends(get_current_user_dependency)
 ):
     """Disable 2FA"""
     try:
@@ -373,8 +381,258 @@ async def disable_2fa(
         logger.error(f"2FA disable error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Include the router in the main app
+# ==================== COURSES ====================
+
+@api_router.get("/courses")
+async def get_courses(
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Get all courses"""
+    try:
+        courses = await db.courses.find({"is_active": True}).to_list(100)
+        return [serialize_doc(c) for c in courses]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== SUPPORT STAFF ====================
+
+@api_router.post("/support")
+async def create_support_staff(
+    data: dict,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Create support staff"""
+    if current_user["role"] not in ["super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    
+    try:
+        # Create user
+        user = {
+            "login": f"support_{data['phone']}",
+            "password_hash": get_password_hash("Support@2025"),
+            "email": data.get("email"),
+            "phone": data["phone"],
+            "full_name": f"{data['first_name']} {data['last_name']}",
+            "role": "support",
+            "is_active": True,
+            "two_factor_enabled": False,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "branch_id": data.get("branch_id")
+        }
+        user_result = await db.users.insert_one(user)
+        
+        # Create support profile
+        support = {
+            "user_id": str(user_result.inserted_id),
+            "first_name": data["first_name"],
+            "last_name": data["last_name"],
+            "phone": data["phone"],
+            "email": data.get("email"),
+            "photo": data.get("photo"),
+            "available_hours": data.get("available_hours", {}),
+            "branch_id": data.get("branch_id"),
+            "created_at": datetime.utcnow()
+        }
+        result = await db.support_staff.insert_one(support)
+        
+        await create_audit_log(
+            str(current_user["_id"]),
+            "create",
+            "support",
+            str(result.inserted_id),
+            {"name": f"{data['first_name']} {data['last_name']}"},
+            request.client.host if request.client else None
+        )
+        
+        support["id"] = str(result.inserted_id)
+        return serialize_doc(support)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/support")
+async def get_support_staff(
+    branch_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Get all support staff"""
+    try:
+        query = {}
+        if branch_id:
+            query["branch_id"] = branch_id
+        elif current_user["role"] != "super_admin":
+            query["branch_id"] = current_user.get("branch_id")
+        
+        support_staff = await db.support_staff.find(query).to_list(100)
+        return [serialize_doc(s) for s in support_staff]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== SYSTEM SETTINGS ====================
+
+@api_router.get("/settings")
+async def get_system_settings(
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Get system settings"""
+    try:
+        settings = await db.system_settings.find_one()
+        if settings:
+            return serialize_doc(settings)
+        return {"academy_name": "Nurik's Academy"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/settings")
+async def update_system_settings(
+    settings_data: dict,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Update system settings (Super Admin only)"""
+    if current_user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can update settings")
+    
+    try:
+        settings_data["updated_at"] = datetime.utcnow()
+        settings_data["updated_by"] = str(current_user["_id"])
+        
+        await db.system_settings.update_one(
+            {},
+            {"$set": settings_data},
+            upsert=True
+        )
+        
+        await create_audit_log(
+            str(current_user["_id"]),
+            "update",
+            "system_settings",
+            None,
+            settings_data,
+            request.client.host if request.client else None
+        )
+        
+        return {"message": "Settings updated successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== FEATURE FLAGS ====================
+
+@api_router.get("/features")
+async def get_feature_flags(
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Get feature flags"""
+    try:
+        features = await db.feature_flags.find().to_list(100)
+        return [serialize_doc(f) for f in features]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.put("/features/{feature_name}")
+async def toggle_feature(
+    feature_name: str,
+    enabled: bool,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Toggle feature flag (Super Admin only)"""
+    if current_user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can toggle features")
+    
+    try:
+        await db.feature_flags.update_one(
+            {"feature_name": feature_name},
+            {"$set": {"is_enabled": enabled, "updated_at": datetime.utcnow(), "updated_by": str(current_user["_id"])}},
+            upsert=True
+        )
+        
+        await create_audit_log(
+            str(current_user["_id"]),
+            "toggle_feature",
+            "feature_flag",
+            feature_name,
+            {"is_enabled": enabled},
+            request.client.host if request.client else None
+        )
+        
+        return {"message": f"Feature '{feature_name}' {'enabled' if enabled else 'disabled'}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== DASHBOARD ====================
+
+@api_router.get("/dashboard")
+async def get_dashboard_stats(
+    current_user: dict = Depends(get_current_user_dependency)
+):
+    """Get dashboard statistics"""
+    try:
+        branch_query = {}
+        if current_user["role"] != "super_admin":
+            branch_query["branch_id"] = current_user.get("branch_id")
+        
+        # Student counts
+        total_students = await db.students.count_documents(branch_query)
+        active_students = await db.students.count_documents({**branch_query, "status": "active"})
+        frozen_students = await db.students.count_documents({**branch_query, "status": "frozen"})
+        graduated_students = await db.students.count_documents({**branch_query, "status": "graduated"})
+        archived_students = await db.students.count_documents({**branch_query, "status": "archived"})
+        
+        # Teacher count
+        total_teachers = await db.teachers.count_documents(branch_query)
+        
+        # Support count
+        total_support = await db.support_staff.count_documents(branch_query)
+        
+        # Today's lessons
+        today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end = datetime.utcnow().replace(hour=23, minute=59, second=59, microsecond=999999)
+        today_lessons = await db.schedules.count_documents({
+            **branch_query,
+            "date": {"$gte": today_start, "$lte": today_end},
+            "status": "scheduled"
+        })
+        
+        # Today's support bookings
+        today_bookings = await db.support_bookings.count_documents({
+            "booking_date": {"$gte": today_start, "$lte": today_end},
+            "status": "scheduled"
+        })
+        
+        return {
+            "students": {
+                "total": total_students,
+                "active": active_students,
+                "frozen": frozen_students,
+                "graduated": graduated_students,
+                "archived": archived_students
+            },
+            "teachers": total_teachers,
+            "support_staff": total_support,
+            "today": {
+                "lessons": today_lessons,
+                "support_bookings": today_bookings
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# Import route modules
+from routes_students import router as students_router
+from routes_teachers import router as teachers_router
+from routes_groups import router as groups_router
+from routes_attendance import router as attendance_router
+from routes_journal import router as journal_router
+
+# Include all routers
 app.include_router(api_router)
+api_router.include_router(students_router)
+api_router.include_router(teachers_router)
+api_router.include_router(groups_router)
+api_router.include_router(attendance_router)
+api_router.include_router(journal_router)
 
 app.add_middleware(
     CORSMiddleware,
