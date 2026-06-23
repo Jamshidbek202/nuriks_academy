@@ -25,7 +25,7 @@ export default function DashboardLayout() {
                 paddingBottom: 8,
               },
               tabBarLabelStyle: {
-                fontSize: 12,
+                fontSize: 10,
                 fontWeight: '600',
               },
             }}
@@ -33,7 +33,7 @@ export default function DashboardLayout() {
             <Tabs.Screen
               name="index"
               options={{
-                title: 'Dashboard',
+                title: 'Home',
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="grid" size={size} color={color} />
                 ),
@@ -49,24 +49,6 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
-              name="leads"
-              options={{
-                title: 'CRM',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person-add" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
-              name="teachers"
-              options={{
-                title: 'Teachers',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="school" size={size} color={color} />
-                ),
-              }}
-            />
-            <Tabs.Screen
               name="groups"
               options={{
                 title: 'Groups',
@@ -76,21 +58,61 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
+              name="journal"
+              options={{
+                title: 'Journal',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="journal" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="tests"
+              options={{
+                title: 'Tests',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="clipboard" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="progress"
+              options={{
+                title: 'Progress',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="analytics" size={size} color={color} />
+                ),
+              }}
+            />
+            {/* Hidden screens accessible via navigation */}
+            <Tabs.Screen
+              name="teachers"
+              options={{
+                href: null,
+              }}
+            />
+            <Tabs.Screen
+              name="leads"
+              options={{
+                href: null,
+              }}
+            />
+            <Tabs.Screen
               name="attendance"
               options={{
-                title: 'Attendance',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="checkbox" size={size} color={color} />
-                ),
+                href: null,
+              }}
+            />
+            <Tabs.Screen
+              name="homework"
+              options={{
+                href: null,
               }}
             />
             <Tabs.Screen
               name="profile"
               options={{
-                title: 'Profile',
-                tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person" size={size} color={color} />
-                ),
+                href: null,
               }}
             />
           </Tabs>
@@ -109,23 +131,45 @@ export default function DashboardLayout() {
                 height: 60,
                 paddingBottom: 8,
               },
+              tabBarLabelStyle: {
+                fontSize: 10,
+                fontWeight: '600',
+              },
             }}
           >
             <Tabs.Screen
               name="index"
               options={{
-                title: 'My Classes',
+                title: 'Home',
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="calendar" size={size} color={color} />
                 ),
               }}
             />
             <Tabs.Screen
-              name="groups"
+              name="journal"
               options={{
-                title: 'Groups',
+                title: 'Journal',
                 tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="people-circle" size={size} color={color} />
+                  <Ionicons name="journal" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="homework"
+              options={{
+                title: 'Homework',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="book" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="tests"
+              options={{
+                title: 'Tests',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="clipboard" size={size} color={color} />
                 ),
               }}
             />
@@ -139,14 +183,20 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
-              name="profile"
+              name="progress"
               options={{
-                title: 'Profile',
+                title: 'Progress',
                 tabBarIcon: ({ color, size }) => (
-                  <Ionicons name="person" size={size} color={color} />
+                  <Ionicons name="analytics" size={size} color={color} />
                 ),
               }}
             />
+            {/* Hidden screens */}
+            <Tabs.Screen name="groups" options={{ href: null }} />
+            <Tabs.Screen name="students" options={{ href: null }} />
+            <Tabs.Screen name="teachers" options={{ href: null }} />
+            <Tabs.Screen name="leads" options={{ href: null }} />
+            <Tabs.Screen name="profile" options={{ href: null }} />
           </Tabs>
         );
 
@@ -199,14 +249,45 @@ export default function DashboardLayout() {
                 height: 60,
                 paddingBottom: 8,
               },
+              tabBarLabelStyle: {
+                fontSize: 10,
+                fontWeight: '600',
+              },
             }}
           >
             <Tabs.Screen
               name="index"
               options={{
-                title: 'My Children',
+                title: 'Home',
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="people" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="homework"
+              options={{
+                title: 'Homework',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="book" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="tests"
+              options={{
+                title: 'Tests',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="clipboard" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="progress"
+              options={{
+                title: 'Progress',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="analytics" size={size} color={color} />
                 ),
               }}
             />
@@ -219,6 +300,13 @@ export default function DashboardLayout() {
                 ),
               }}
             />
+            {/* Hidden screens */}
+            <Tabs.Screen name="groups" options={{ href: null }} />
+            <Tabs.Screen name="students" options={{ href: null }} />
+            <Tabs.Screen name="teachers" options={{ href: null }} />
+            <Tabs.Screen name="leads" options={{ href: null }} />
+            <Tabs.Screen name="journal" options={{ href: null }} />
+            <Tabs.Screen name="attendance" options={{ href: null }} />
           </Tabs>
         );
 
