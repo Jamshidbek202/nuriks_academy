@@ -49,6 +49,15 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
+              name="leads"
+              options={{
+                title: 'CRM',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="person-add" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
               name="teachers"
               options={{
                 title: 'Teachers',
