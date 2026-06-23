@@ -246,17 +246,26 @@ async def convert_lead_to_student(
         
         # Create parent if parent_name exists
         parent_id = None
+        parent_login = None
         if lead.get("parent_name"):
+            # Normalize phone number for login (remove special characters except +)
+            parent_phone = lead["phone"].replace(" ", "").replace("-", "")
+            parent_login = parent_phone  # Login = phone number directly
+            
             # Check if parent already exists
             existing_parent = await db.parents.find_one({"phone": lead["phone"]})
             
             if existing_parent:
                 parent_id = str(existing_parent["_id"])
+                # Get existing parent login
+                existing_parent_user = await db.users.find_one({"_id": ObjectId(existing_parent.get("user_id"))})
+                if existing_parent_user:
+                    parent_login = existing_parent_user.get("login", parent_login)
             else:
                 # Create parent user
                 parent_names = lead["parent_name"].split()
                 parent_user = {
-                    "login": f"parent_{lead['phone']}",
+                    "login": parent_login,  # Login = phone number
                     "password_hash": get_password_hash("Parent@2025"),
                     "email": None,
                     "phone": lead["phone"],
@@ -359,8 +368,11 @@ async def convert_lead_to_student(
         return {
             "message": "Lead converted to student successfully",
             "student_id": student_id,
+            "student_login": student_id.lower(),
+            "student_password": "Student@2025",
             "student_db_id": str(student_result.inserted_id),
-            "default_password": "Student@2025"
+            "parent_login": parent_login,
+            "parent_password": "Parent@2025" if parent_login else None
         }
         
     except HTTPException:

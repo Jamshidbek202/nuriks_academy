@@ -6,7 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
+  Platform,
   ActivityIndicator,
   RefreshControl,
   Modal,
@@ -16,6 +16,17 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+
+// Cross-platform alert helper
+const showAlert = (title: string, message: string, onOk?: () => void) => {
+  if (Platform.OS === 'web') {
+    window.alert(`${title}\n\n${message}`);
+    if (onOk) onOk();
+  } else {
+    const { Alert } = require('react-native');
+    Alert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
+  }
+};
 
 const LEAD_SOURCES = [
   'instagram', 'telegram', 'facebook', 'tiktok',
@@ -41,6 +52,15 @@ export default function LeadsScreen() {
   const [selectedLead, setSelectedLead] = useState(null);
   const [courses, setCourses] = useState([]);
   
+  // Convert confirmation modal state
+  const [confirmModalVisible, setConfirmModalVisible] = useState(false);
+  const [leadToConvert, setLeadToConvert] = useState<any>(null);
+  const [converting, setConverting] = useState(false);
+  
+  // Success modal state
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [conversionResult, setConversionResult] = useState<any>(null);
+  
   // Form state
   const [formData, setFormData] = useState({
     first_name: '',
@@ -64,7 +84,7 @@ export default function LeadsScreen() {
       setLeads(response.data);
     } catch (error) {
       console.error('Error loading leads:', error);
-      Alert.alert('Error', 'Failed to load leads');
+      showAlert('Error', 'Failed to load leads');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -82,7 +102,7 @@ export default function LeadsScreen() {
 
   const handleCreateLead = async () => {
     if (!formData.first_name || !formData.last_name || !formData.phone) {
-      Alert.alert('Error', 'Please fill in required fields');
+      showAlert('Error', 'Please fill in required fields');
       return;
     }
 
@@ -91,38 +111,38 @@ export default function LeadsScreen() {
         ...formData,
         age: formData.age ? parseInt(formData.age) : null,
       });
-      Alert.alert('Success', 'Lead created successfully');
+      showAlert('Success', 'Lead created successfully');
       setModalVisible(false);
       resetForm();
       loadLeads();
     } catch (error) {
-      Alert.alert('Error', 'Failed to create lead');
+      showAlert('Error', 'Failed to create lead');
     }
   };
 
+  // Show confirmation modal for conversion
   const handleConvertToStudent = (lead: any) => {
-    Alert.alert(
-      'Convert Lead to Student',
-      `Convert ${lead.first_name} ${lead.last_name} to a student?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Convert',
-          onPress: async () => {
-            try {
-              const response = await api.post(`/leads/${lead.id}/convert`);
-              Alert.alert(
-                'Success',
-                `Lead converted! Student ID: ${response.data.student_id}\nDefault Password: ${response.data.default_password}`,
-                [{ text: 'OK', onPress: loadLeads }]
-              );
-            } catch (error: any) {
-              Alert.alert('Error', error.response?.data?.detail || 'Failed to convert lead');
-            }
-          },
-        },
-      ]
-    );
+    setLeadToConvert(lead);
+    setConfirmModalVisible(true);
+  };
+
+  // Perform actual conversion
+  const performConversion = async () => {
+    if (!leadToConvert) return;
+    
+    setConverting(true);
+    try {
+      const response = await api.post(`/leads/${leadToConvert.id}/convert`);
+      setConfirmModalVisible(false);
+      setConversionResult(response.data);
+      setSuccessModalVisible(true);
+      loadLeads();
+    } catch (error: any) {
+      setConfirmModalVisible(false);
+      showAlert('Error', error.response?.data?.detail || 'Failed to convert lead');
+    } finally {
+      setConverting(false);
+    }
   };
 
   const handleUpdateStatus = async (leadId: string, newStatus: string) => {
@@ -130,7 +150,7 @@ export default function LeadsScreen() {
       await api.put(`/leads/${leadId}`, { status: newStatus });
       loadLeads();
     } catch (error) {
-      Alert.alert('Error', 'Failed to update status');
+      showAlert('Error', 'Failed to update status');
     }
   };
 
@@ -355,6 +375,111 @@ export default function LeadsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Convert Confirmation Modal */}
+      <Modal
+        visible={confirmModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setConfirmModalVisible(false)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <View style={styles.confirmModalContent}>
+            <View style={styles.confirmIconContainer}>
+              <Ionicons name="swap-horizontal-outline" size={40} color={COLORS.gold} />
+            </View>
+            <Text style={styles.confirmTitle}>Convert Lead to Student</Text>
+            <Text style={styles.confirmMessage}>
+              Convert <Text style={styles.confirmHighlight}>{leadToConvert?.first_name} {leadToConvert?.last_name}</Text> to a student?
+            </Text>
+            <Text style={styles.confirmDetails}>
+              This will create:{'\n'}
+              • Student account with auto-generated ID{'\n'}
+              • Parent account (if parent name provided)
+            </Text>
+            <View style={styles.confirmButtons}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setConfirmModalVisible(false)}
+                disabled={converting}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.confirmButton, converting && styles.buttonDisabled]}
+                onPress={performConversion}
+                disabled={converting}
+              >
+                {converting ? (
+                  <ActivityIndicator size="small" color={COLORS.marbleDark} />
+                ) : (
+                  <Text style={styles.confirmButtonText}>Convert</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Conversion Success Modal */}
+      <Modal
+        visible={successModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setSuccessModalVisible(false)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <View style={styles.successModalContent}>
+            <View style={styles.successIconContainer}>
+              <Ionicons name="checkmark-circle" size={60} color={COLORS.success} />
+            </View>
+            <Text style={styles.successTitle}>Lead Converted Successfully!</Text>
+            
+            {conversionResult && (
+              <View style={styles.credentialsContainer}>
+                <Text style={styles.credentialsLabel}>Student Credentials</Text>
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialKey}>Student ID:</Text>
+                  <Text style={styles.credentialValue}>{conversionResult.student_id}</Text>
+                </View>
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialKey}>Login:</Text>
+                  <Text style={styles.credentialValue}>{conversionResult.student_login}</Text>
+                </View>
+                <View style={styles.credentialRow}>
+                  <Text style={styles.credentialKey}>Password:</Text>
+                  <Text style={styles.credentialValue}>{conversionResult.student_password}</Text>
+                </View>
+                
+                {conversionResult.parent_login && (
+                  <>
+                    <Text style={[styles.credentialsLabel, { marginTop: SIZES.md }]}>Parent Credentials</Text>
+                    <View style={styles.credentialRow}>
+                      <Text style={styles.credentialKey}>Login:</Text>
+                      <Text style={styles.credentialValue}>{conversionResult.parent_login}</Text>
+                    </View>
+                    <View style={styles.credentialRow}>
+                      <Text style={styles.credentialKey}>Password:</Text>
+                      <Text style={styles.credentialValue}>{conversionResult.parent_password}</Text>
+                    </View>
+                  </>
+                )}
+              </View>
+            )}
+            
+            <TouchableOpacity
+              style={styles.successButton}
+              onPress={() => {
+                setSuccessModalVisible(false);
+                setConversionResult(null);
+                setLeadToConvert(null);
+              }}
+            >
+              <Text style={styles.successButtonText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -543,5 +668,157 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontLg,
     fontWeight: 'bold',
     color: COLORS.marbleDark,
+  },
+  // Confirmation Modal styles
+  confirmModalOverlay: {
+    flex: 1,
+    backgroundColor: COLORS.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: SIZES.lg,
+  },
+  confirmModalContent: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.xl,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    ...SHADOWS.large,
+  },
+  confirmIconContainer: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: COLORS.gold + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: SIZES.md,
+  },
+  confirmTitle: {
+    fontSize: SIZES.fontXl,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+    textAlign: 'center',
+    marginBottom: SIZES.sm,
+  },
+  confirmMessage: {
+    fontSize: SIZES.fontMd,
+    color: COLORS.textSecondary,
+    textAlign: 'center',
+    marginBottom: SIZES.md,
+  },
+  confirmHighlight: {
+    fontWeight: 'bold',
+    color: COLORS.gold,
+  },
+  confirmDetails: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textTertiary,
+    textAlign: 'left',
+    alignSelf: 'stretch',
+    backgroundColor: COLORS.backgroundLight,
+    padding: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    marginBottom: SIZES.lg,
+    lineHeight: 22,
+  },
+  confirmButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: SIZES.md,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+  },
+  cancelButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
+    color: COLORS.textSecondary,
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: COLORS.gold,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: 'bold',
+    color: COLORS.marbleDark,
+  },
+  buttonDisabled: {
+    opacity: 0.7,
+  },
+  // Success Modal styles
+  successModalContent: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.xl,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    ...SHADOWS.large,
+  },
+  successIconContainer: {
+    marginBottom: SIZES.md,
+  },
+  successTitle: {
+    fontSize: SIZES.fontXl,
+    fontWeight: 'bold',
+    color: COLORS.success,
+    textAlign: 'center',
+    marginBottom: SIZES.lg,
+  },
+  credentialsContainer: {
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.lg,
+    width: '100%',
+    marginBottom: SIZES.lg,
+  },
+  credentialsLabel: {
+    fontSize: SIZES.fontSm,
+    fontWeight: 'bold',
+    color: COLORS.gold,
+    marginBottom: SIZES.sm,
+    textTransform: 'uppercase',
+  },
+  credentialRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: SIZES.xs,
+  },
+  credentialKey: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+  },
+  credentialValue: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
+    color: COLORS.textPrimary,
+  },
+  successButton: {
+    backgroundColor: COLORS.success,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    alignItems: 'center',
+    width: '100%',
+  },
+  successButtonText: {
+    fontSize: SIZES.fontMd,
+    fontWeight: 'bold',
+    color: COLORS.white,
   },
 });
