@@ -65,7 +65,6 @@ export default function DashboardLayout() {
         <Tabs.Screen name="audit-logs" options={{ href: null }} />
         <Tabs.Screen name="backups" options={{ href: null }} />
         <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
         <Tabs.Screen name="parent-home" options={{ href: null }} />
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
