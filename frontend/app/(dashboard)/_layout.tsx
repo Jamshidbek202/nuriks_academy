@@ -76,6 +76,15 @@ export default function DashboardLayout() {
               }}
             />
             <Tabs.Screen
+              name="attendance"
+              options={{
+                title: 'Attendance',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="checkbox" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
               name="profile"
               options={{
                 title: 'Profile',
@@ -117,6 +126,15 @@ export default function DashboardLayout() {
                 title: 'Groups',
                 tabBarIcon: ({ color, size }) => (
                   <Ionicons name="people-circle" size={size} color={color} />
+                ),
+              }}
+            />
+            <Tabs.Screen
+              name="attendance"
+              options={{
+                title: 'Attendance',
+                tabBarIcon: ({ color, size }) => (
+                  <Ionicons name="checkbox" size={size} color={color} />
                 ),
               }}
             />

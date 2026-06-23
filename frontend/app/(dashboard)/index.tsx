@@ -109,7 +109,7 @@ export default function DashboardHome() {
 
           {/* Today's Summary */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today's Schedule</Text>
+            <Text style={styles.sectionTitle}>Today&apos;s Schedule</Text>
             <View style={styles.todayCard}>
               <View style={styles.todayRow}>
                 <Ionicons name="calendar" size={24} color={COLORS.gold} />
@@ -160,7 +160,7 @@ export default function DashboardHome() {
       <ScrollView style={styles.content}>
         <View style={styles.welcomeCard}>
           <Ionicons name="school" size={48} color={COLORS.gold} />
-          <Text style={styles.welcomeText}>Welcome to Nurik's Academy</Text>
+          <Text style={styles.welcomeText}>Welcome to Nurik&apos;s Academy</Text>
           <Text style={styles.welcomeSubtext}>
             Your portal for academic excellence
           </Text>
