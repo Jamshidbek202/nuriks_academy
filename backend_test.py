@@ -5,6 +5,7 @@ Tests all Teacher and Support Staff Management APIs as per review request
 import requests
 import json
 from typing import Dict, Optional
+import time
 
 # Backend URL
 BASE_URL = "https://school-ops-dashboard-2.preview.emergentagent.com/api"
@@ -12,6 +13,11 @@ BASE_URL = "https://school-ops-dashboard-2.preview.emergentagent.com/api"
 # Admin Credentials
 ADMIN_LOGIN = "admin"
 ADMIN_PASSWORD = "Admin@2025"
+
+# Generate unique phone numbers using timestamp to avoid conflicts
+TIMESTAMP = str(int(time.time()))[-6:]  # Last 6 digits of timestamp
+TEACHER_PHONE = f"+99890{TIMESTAMP}1"
+SUPPORT_PHONE = f"+99890{TIMESTAMP}2"
 
 # Global variables to store test data
 admin_token = None
@@ -67,8 +73,8 @@ def test_1_1_create_teacher():
         payload = {
             "first_name": "QA",
             "last_name": "TeacherTest",
-            "phone": "+998901111222",
-            "email": "qa.teacher@test.com",
+            "phone": TEACHER_PHONE,
+            "email": f"qa.teacher.{TIMESTAMP}@test.com",
             "specialization": ["English"]
         }
         
@@ -115,7 +121,7 @@ def test_1_2_get_teacher_status():
             teacher_login = data.get("login")
             is_active = data.get("is_active")
             
-            expected_login = "teacher_+998901111222"
+            expected_login = f"teacher_{TEACHER_PHONE}"
             if teacher_login == expected_login and is_active == True:
                 print_result(True, f"Teacher status correct: login={teacher_login}, is_active={is_active}", data)
                 test_results.append(("Test 1.2: Get Teacher Status", True))
@@ -142,8 +148,8 @@ def test_1_3_edit_teacher():
         payload = {
             "first_name": "QA_Updated",
             "last_name": "TeacherTest",
-            "phone": "+998901111222",
-            "email": "qa.updated@test.com",
+            "phone": TEACHER_PHONE,
+            "email": f"qa.updated.{TIMESTAMP}@test.com",
             "specialization": ["English", "Math"]
         }
         
@@ -156,7 +162,7 @@ def test_1_3_edit_teacher():
         if response.status_code == 200:
             data = response.json()
             # Verify updated data
-            if data.get("first_name") == "QA_Updated" and data.get("email") == "qa.updated@test.com":
+            if data.get("first_name") == "QA_Updated" and data.get("email") == f"qa.updated.{TIMESTAMP}@test.com":
                 print_result(True, "Teacher updated successfully", data)
                 test_results.append(("Test 1.3: Edit Teacher", True))
                 return True
@@ -342,8 +348,8 @@ def test_2_1_create_support_staff():
         payload = {
             "first_name": "QA",
             "last_name": "SupportTest",
-            "phone": "+998902222333",
-            "email": "qa.support@test.com"
+            "phone": SUPPORT_PHONE,
+            "email": f"qa.support.{TIMESTAMP}@test.com"
         }
         
         response = requests.post(
@@ -451,8 +457,8 @@ def test_2_4_edit_support_staff():
         payload = {
             "first_name": "QA_Updated",
             "last_name": "SupportTest",
-            "phone": "+998902222333",
-            "email": "qa.updated.support@test.com"
+            "phone": SUPPORT_PHONE,
+            "email": f"qa.updated.support.{TIMESTAMP}@test.com"
         }
         
         response = requests.put(
@@ -464,7 +470,7 @@ def test_2_4_edit_support_staff():
         if response.status_code == 200:
             data = response.json()
             # Verify updated data
-            if data.get("first_name") == "QA_Updated" and data.get("email") == "qa.updated.support@test.com":
+            if data.get("first_name") == "QA_Updated" and data.get("email") == f"qa.updated.support.{TIMESTAMP}@test.com":
                 print_result(True, "Support staff updated successfully", data)
                 test_results.append(("Test 2.4: Edit Support Staff", True))
                 return True

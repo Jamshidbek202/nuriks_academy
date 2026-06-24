@@ -21,7 +21,9 @@
         "NSCameraUsageDescription": "Take photos for profile and chat",
         "NSPhotoLibraryUsageDescription": "Share photos in chat messages",
         "NSMicrophoneUsageDescription": "Record audio for voice messages",
-        "UIBackgroundModes": ["remote-notification"]
+        "UIBackgroundModes": [
+          "remote-notification"
+        ]
       }
     },
     "android": {
@@ -77,7 +79,8 @@
         {
           "iCloudContainerEnvironment": "Production"
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true

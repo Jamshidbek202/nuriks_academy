@@ -118,12 +118,10 @@ export default function LoginScreen() {
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Demo Credentials */}
-            <View style={styles.demoContainer}>
-              <Text style={styles.demoText}>Demo Credentials:</Text>
-              <Text style={styles.demoCredentials}>Login: admin</Text>
-              <Text style={styles.demoCredentials}>Password: Admin@2025</Text>
-            </View>
+            {/* Forgot Password Link */}
+            <TouchableOpacity style={styles.forgotPasswordContainer}>
+              <Text style={styles.forgotPasswordText}>Forgot your password?</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </LinearGradient>
@@ -227,23 +225,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: COLORS.background,
   },
-  demoContainer: {
+  forgotPasswordContainer: {
     marginTop: SIZES.lg,
-    padding: SIZES.md,
-    backgroundColor: COLORS.backgroundLight,
-    borderRadius: SIZES.radiusMd,
-    borderLeftWidth: 3,
-    borderLeftColor: COLORS.gold,
+    alignItems: 'center',
   },
-  demoText: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.gold,
-    fontWeight: '600',
-    marginBottom: SIZES.xs,
-  },
-  demoCredentials: {
+  forgotPasswordText: {
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
-    fontFamily: 'monospace',
   },
 });
