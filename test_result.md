@@ -102,7 +102,7 @@
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
 
-user_problem_statement: "Test the Teacher and Support Staff Management APIs for Nurik's Academy CRM"
+user_problem_statement: "Test Push Notifications API for Nurik's Academy"
 
 backend:
   - task: "Super Admin Authentication"
@@ -452,6 +452,90 @@ backend:
       - working: true
         agent: "testing"
         comment: "POST /api/support-staff/{staff_id}/reset-password generates new password in format 'Support@XXXX' (4 random digits). Returns login and new_password."
+  
+  - task: "Push Notifications - Register Token"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/notifications/register-token successfully registers push token. Returns token_id. Tested with ExponentPushToken format and device_type 'ios'."
+  
+  - task: "Push Notifications - Get Preferences"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/notifications/preferences returns all notification preferences with default values (all true). All 6 expected fields present: payment_reminders, homework_notifications, test_notifications, lesson_reminders, news_announcements, admin_broadcasts."
+  
+  - task: "Push Notifications - Update Preferences"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "PUT /api/notifications/preferences successfully updates user notification preferences. Tested with mixed true/false values. Returns success message."
+  
+  - task: "Push Notifications - Send Test Notification"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/notifications/test successfully sends test notification to current user. Returns tokens_count and result. Expo API integration working (returns error for invalid test token as expected)."
+  
+  - task: "Push Notifications - Send Admin Notification"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/notifications/send successfully sends notification to target roles. Returns sent_count. Tested with target_roles=['student']. Admin-only access verified."
+  
+  - task: "Push Notifications - Get History"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "GET /api/notifications/history successfully retrieves notification history. Returns list of sent notifications. Admin-only access verified."
+  
+  - task: "Push Notifications - Admin Broadcast"
+    implemented: true
+    working: true
+    file: "/app/backend/routes_notifications.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "POST /api/notifications/broadcast successfully broadcasts notification to all users. Returns sent_count. Super Admin-only access verified. Background task queuing working correctly."
 
 frontend:
   - task: "Admin Login"
@@ -553,12 +637,12 @@ frontend:
 metadata:
   created_by: "testing_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Teacher Deactivate and Reset Password buttons tested and working"
+    - "Push Notifications API - All endpoints tested and working"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -582,3 +666,5 @@ agent_communication:
     message: "PRODUCTION READINESS AUDIT - PART 2 COMPLETED (iPhone 14: 390x844). Tested all 8 role-based portals and admin features. RESULTS: 7 WORKING, 0 PARTIALLY WORKING, 1 NOT WORKING. ✅ WORKING: (10) Student Portal - Login successful (na-000001/Student@2025), dashboard displays 'Welcome, Student', sections visible: Homework, Tests, Progress, Book Support. Student profile card shows NA-000001, 100% attendance, Quick Actions grid functional. (11) Support Portal - Login successful (support_+998902223344/Support@2025), dashboard displays 'Welcome, Support', bookings functionality visible with Pending/Today/All tabs, shows 1 booking scheduled. (12) Parent Portal - Login successful (parent_+998901234567/Parent@2025), dashboard displays 'Welcome, Parent', child progress and attendance sections visible, Quick Actions grid present. (13) Chats - Accessible from student portal, Messages screen loads with Chats/Contacts tabs, shows 2 conversations (Sarah Support, John Smith), contacts list displays 5 contacts. (14) News Module - Admin can access, News Management screen loads, create functionality visible with + button, empty state shows 'No news articles'. (15) Feature Flags - Admin can access, Feature Flags screen loads with toggle switches, all 7 feature flags visible (Homework Submission, File Uploads, Chat System, etc.), Status Summary shows enabled/disabled counts. (16) Analytics - Admin can access, Analytics Dashboard loads with Student Statistics (5 total, 5 active), Revenue, Attendance Rate, Test Statistics, Support Sessions, Lead Conversion sections all visible. ❌ NOT WORKING: (9) Teacher Portal - Login failed for teacher_+998901112233/Teacher@2025, remains on login page after credentials entered. All other portals and features fully functional."
   - agent: "testing"
     message: "PRODUCTION READINESS AUDIT - PART 3 ATTEMPTED (iPhone 14: 390x844). CRITICAL BLOCKING ISSUE FOUND: Login authentication is failing for ALL user roles during UI testing. Backend logs show 401 Unauthorized responses. Attempted to test 8 modules but unable to proceed due to login failures: (17) Teacher Portal - Login fails with teacher_+998901112233/Teacher@2025, page does not navigate away from login screen. (18) Attendance Module - Cannot test, teacher login required. (19) Homework Module - Cannot test, student login (na-000001/Student@2025) fails. (20) Tests Module - Cannot test, student login required. (21) Certificates Module - Cannot test, parent login (parent_+998901234567/Parent@2025) fails. (22) Audit Logs - Cannot test, admin login required. (23) Backups - Cannot test, admin login required. (24) Settings - Cannot test, admin login required. ROOT CAUSE: Login form submission is not triggering navigation. Backend API returns 401 Unauthorized for multiple login attempts. This is a CRITICAL issue that blocks all UI testing for Part 3. NOTE: Backend API tests in previous sessions showed these credentials work correctly via direct API calls, suggesting the issue is in the frontend login form submission or authentication flow."
+  - agent: "testing"
+    message: "PUSH NOTIFICATIONS API TESTING COMPLETED - All 7 tests passed (100%). Tested complete Push Notifications workflow: (1) Register Push Token - POST /api/notifications/register-token successfully registers ExponentPushToken with device_type, returns token_id. (2) Get Notification Preferences - GET /api/notifications/preferences returns all 6 preference fields with default values (all true). (3) Update Notification Preferences - PUT /api/notifications/preferences successfully updates user preferences with mixed true/false values. (4) Send Test Notification - POST /api/notifications/test sends test notification to current user, Expo API integration working (returns expected error for invalid test token). (5) Send Admin Notification - POST /api/notifications/send successfully sends notification to target roles (tested with target_roles=['student']), returns sent_count, admin-only access verified. (6) Get Notification History - GET /api/notifications/history retrieves list of sent notifications, admin-only access verified. (7) Admin Broadcast - POST /api/notifications/broadcast successfully broadcasts to all users, returns sent_count, super admin-only access verified, background task queuing working. All endpoints functional, role-based access control working correctly, Expo Push API integration confirmed. Backend logs show successful HTTP requests to Expo API (https://exp.host/--/api/v2/push/send)."
