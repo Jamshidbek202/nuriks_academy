@@ -87,15 +87,15 @@
     },
     "extra": {
       "eas": {
-        "projectId": "nuriksacademy"
+        "projectId": "YOUR_EAS_PROJECT_ID"
       }
     },
-    "owner": "nuriksacademy",
+    "owner": "YOUR_EXPO_USERNAME",
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/nuriksacademy"
+      "url": "https://u.expo.dev/YOUR_EAS_PROJECT_ID"
     }
   }
 }

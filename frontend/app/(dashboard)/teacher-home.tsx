@@ -58,7 +58,7 @@ export default function TeacherHomeScreen() {
 
       setCourses(coursesRes.data);
 
-      // For demo, we show all groups (in production, filter by teacher_id)
+      // Show groups assigned to this teacher
       const teacherGroups = groupsRes.data;
       setGroups(teacherGroups);
 

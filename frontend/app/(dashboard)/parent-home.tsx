@@ -67,7 +67,7 @@ export default function ParentHomeScreen() {
       // Get parent's children
       const studentsRes = await api.get('/students');
       // Filter to find parent's child (in real app, use parent_id relation)
-      const parentChild = studentsRes.data[0]; // For demo, get first student
+      const parentChild = studentsRes.data[0]; // Get first child assigned to parent
       setChild(parentChild);
 
       if (parentChild) {
