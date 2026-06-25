@@ -397,10 +397,23 @@ async def create_news(
             request.client.host if request.client else None
         )
         
-        # TODO: Send push notification if send_notification is True
+        # Send push notification if send_notification is True
         if news_data.send_notification and news_data.is_published:
-            # Placeholder for push notification logic
-            pass
+            try:
+                from notification_helpers import notify_news_posted
+                # Map target_audience to roles
+                role_mapping = {
+                    "all": ["student", "parent", "teacher", "support", "manager", "super_admin"],
+                    "students": ["student"],
+                    "parents": ["parent"],
+                    "teachers": ["teacher"],
+                    "staff": ["teacher", "support", "manager"]
+                }
+                target_roles = role_mapping.get(news_data.target_audience, role_mapping["all"])
+                await notify_news_posted(db, news_data.title, target_roles)
+            except Exception as e:
+                import logging
+                logging.error(f"Error sending news notifications: {e}")
         
         news["id"] = str(result.inserted_id)
         return serialize_doc(news)

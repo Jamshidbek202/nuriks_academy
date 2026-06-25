@@ -89,6 +89,26 @@ async def create_homework(
             request.client.host if request.client else None
         )
         
+        # Send notifications to students in the group
+        try:
+            group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
+            if group:
+                student_ids = group.get("student_ids", [])
+                if student_ids:
+                    from notification_helpers import notify_homework_assigned
+                    due_date_str = homework_data.due_date.strftime("%B %d, %Y")
+                    await notify_homework_assigned(
+                        db,
+                        student_ids=student_ids,
+                        homework_title=homework_data.title,
+                        due_date=due_date_str,
+                        group_name=group.get("name", "")
+                    )
+        except Exception as e:
+            # Log but don't fail the request
+            import logging
+            logging.error(f"Error sending homework notifications: {e}")
+        
         homework["id"] = str(result.inserted_id)
         return serialize_doc(homework)
         

@@ -85,6 +85,25 @@ async def create_test(
             request.client.host if request.client else None
         )
         
+        # Send notifications to students in the group
+        try:
+            group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
+            if group:
+                student_ids = group.get("student_ids", [])
+                if student_ids:
+                    from notification_helpers import notify_test_scheduled
+                    test_date_str = test_data.test_date.strftime("%B %d, %Y at %I:%M %p")
+                    await notify_test_scheduled(
+                        db,
+                        student_ids=student_ids,
+                        test_title=test_data.title,
+                        test_date=test_date_str,
+                        test_type=test_data.test_type
+                    )
+        except Exception as e:
+            import logging
+            logging.error(f"Error sending test notifications: {e}")
+        
         test["id"] = str(result.inserted_id)
         return serialize_doc(test)
         
