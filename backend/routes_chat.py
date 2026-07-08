@@ -21,7 +21,11 @@ security = HTTPBearer()
 logger = logging.getLogger(__name__)
 
 # File upload configuration
-UPLOAD_DIR = "/app/backend/uploads/chat"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.environ.get(
+    "CHAT_UPLOAD_DIR",
+    os.path.join(BASE_DIR, "uploads", "chat"),
+)
 MAX_IMAGE_SIZE = 10 * 1024 * 1024  # 10 MB
 MAX_DOC_SIZE = 20 * 1024 * 1024    # 20 MB
 ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/jpg', 'image/png']
