@@ -1,22 +1,15 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { api } from '../services/api';
-import { 
-  registerForPushNotifications, 
+import { Session } from '@supabase/supabase-js';
+import { supabase, type SupabaseUserProfile } from '../services/supabase';
+import {
+  registerForPushNotifications,
   registerPushToken,
-  unregisterPushToken 
+  unregisterPushToken,
 } from '../services/notifications';
 
-interface User {
-  id: string;
-  login: string;
-  full_name: string;
-  role: string;
-  email?: string;
-  phone?: string;
-  branch_id?: string;
-}
+interface User extends SupabaseUserProfile {}
 
 interface AuthContextType {
   user: User | null;
@@ -38,6 +31,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     loadStoredAuth();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      await hydrateSession(session);
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
 
   // Register push token when user is authenticated
@@ -75,14 +76,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadStoredAuth = async () => {
     try {
-      const storedToken = await AsyncStorage.getItem('token');
       const storedUser = await AsyncStorage.getItem('user');
       const storedPushToken = await AsyncStorage.getItem('pushToken');
-      
-      if (storedToken && storedUser) {
-        setToken(storedToken);
+
+      const { data } = await supabase.auth.getSession();
+      await hydrateSession(data.session);
+
+      if (storedUser && !data.session) {
         setUser(JSON.parse(storedUser));
-        api.defaults.headers.common['Authorization'] = `Bearer ${storedToken}`;
       }
       
       if (storedPushToken) {
@@ -95,41 +96,80 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const hydrateSession = async (session: Session | null) => {
+    if (!session?.access_token) {
+      setToken(null);
+      setUser(null);
+      return;
+    }
+
+    setToken(session.access_token);
+
+    const { data: profile, error } = await supabase
+      .from('profiles')
+      .select('id, login, full_name, role, email, phone, branch_id')
+      .eq('id', session.user.id)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Error loading profile:', error);
+      return;
+    }
+
+    if (profile) {
+      const normalizedUser = profile as User;
+      setUser(normalizedUser);
+      await AsyncStorage.setItem('user', JSON.stringify(normalizedUser));
+    }
+  };
+
   const login = async (loginInput: string, password: string) => {
     try {
-      const response = await api.post('/auth/login', { login: loginInput, password });
-      const { access_token, user: userData } = response.data;
-      
-      setToken(access_token);
-      setUser(userData);
-      
-      await AsyncStorage.setItem('token', access_token);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
-      
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
-      // Push notifications will be set up by the useEffect
+      let email = loginInput;
+
+      if (!loginInput.includes('@')) {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('login', loginInput)
+          .maybeSingle();
+
+        if (error || !profile?.email) {
+          throw new Error('Unknown login');
+        }
+
+        email = profile.email;
+      }
+
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await hydrateSession(data.session);
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'Login failed');
+      throw new Error(error.message || 'Login failed');
     }
   };
 
   const logout = async () => {
     try {
-      // Unregister push token from backend
       if (pushToken) {
         await unregisterPushToken(pushToken);
       }
       
-      await AsyncStorage.removeItem('token');
       await AsyncStorage.removeItem('user');
       await AsyncStorage.removeItem('pushToken');
+
+      await supabase.auth.signOut();
       
       setToken(null);
       setUser(null);
       setPushToken(null);
-      
-      delete api.defaults.headers.common['Authorization'];
     } catch (error) {
       console.error('Error logging out:', error);
     }
@@ -137,9 +177,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshUser = async () => {
     try {
-      const response = await api.get('/auth/me');
-      setUser(response.data);
-      await AsyncStorage.setItem('user', JSON.stringify(response.data));
+      const { data } = await supabase.auth.getSession();
+      await hydrateSession(data.session);
     } catch (error) {
       console.error('Error refreshing user:', error);
     }

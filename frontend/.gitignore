@@ -34,6 +34,17 @@ yarn-error.*
 # local env files
 .env*.local
 
+# Secrets - ignore ALL .env files anywhere
+.env
+.env.*
+**/.env
+!.env.example
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # typescript
 *.tsbuildinfo
 

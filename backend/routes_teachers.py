@@ -97,6 +97,26 @@ async def get_teachers(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.get("/me", response_model=Teacher)
+async def get_my_teacher_profile(
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Get current teacher profile"""
+    from server import db, serialize_doc
+
+    if current_user.get("role") != "teacher":
+        raise HTTPException(status_code=403, detail="Teacher access required")
+
+    try:
+        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher profile not found")
+        return serialize_doc(teacher)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/{teacher_id}", response_model=Teacher)
 async def get_teacher(
     teacher_id: str,

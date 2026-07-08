@@ -85,16 +85,14 @@
       "typedRoutes": true
     },
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
+        "projectId": "a932cbfe-bd36-4844-99c6-0a19e2cedba0"
       }
     },
-    "owner": "YOUR_EXPO_USERNAME",
+    "owner": "conquisstatore",
     "runtimeVersion": {
       "policy": "appVersion"
-    },
-    "updates": {
-      "url": "https://u.expo.dev/YOUR_EAS_PROJECT_ID"
     }
   }
 }

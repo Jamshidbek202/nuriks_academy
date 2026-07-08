@@ -4,6 +4,18 @@
 .idea/
 .vscode/
 
+# Secrets - NEVER commit
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+backend/venv/
+
 # Dependencies
 node_modules/
 /node_modules

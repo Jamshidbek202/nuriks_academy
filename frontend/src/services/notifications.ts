@@ -6,7 +6,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import { api } from './api';
+import { supabase } from './supabase';
 
 // Configure notification handler
 Notifications.setNotificationHandler({
@@ -103,10 +103,21 @@ export async function registerForPushNotifications(): Promise<string | null> {
  */
 export async function registerPushToken(token: string, deviceType?: string): Promise<boolean> {
   try {
-    await api.post('/notifications/register-token', {
-      token,
-      device_type: deviceType || Platform.OS,
-    });
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+
+    const { error } = await supabase.from('push_tokens').upsert(
+      {
+        user_id: userId,
+        token,
+        device_type: deviceType || Platform.OS,
+      },
+      { onConflict: 'token' }
+    );
+
+    if (error) {
+      throw error;
+    }
     console.log('Push token registered with backend');
     return true;
   } catch (error) {
@@ -120,9 +131,10 @@ export async function registerPushToken(token: string, deviceType?: string): Pro
  */
 export async function unregisterPushToken(token: string): Promise<boolean> {
   try {
-    await api.delete('/notifications/unregister-token', {
-      params: { token },
-    });
+    const { error } = await supabase.from('push_tokens').delete().eq('token', token);
+    if (error) {
+      throw error;
+    }
     return true;
   } catch (error) {
     console.error('Error unregistering push token:', error);
@@ -135,8 +147,35 @@ export async function unregisterPushToken(token: string): Promise<boolean> {
  */
 export async function getNotificationPreferences(): Promise<NotificationPreferences> {
   try {
-    const response = await api.get('/notifications/preferences');
-    return response.data;
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+
+    if (!userId) {
+      throw new Error('Not authenticated');
+    }
+
+    const { data, error } = await supabase
+      .from('notification_preferences')
+      .select('payment_reminders, homework_notifications, test_notifications, lesson_reminders, news_announcements, admin_broadcasts')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) {
+      throw error;
+    }
+
+    if (data) {
+      return data as NotificationPreferences;
+    }
+
+    return {
+      payment_reminders: true,
+      homework_notifications: true,
+      test_notifications: true,
+      lesson_reminders: true,
+      news_announcements: true,
+      admin_broadcasts: true,
+    };
   } catch (error) {
     console.error('Error getting notification preferences:', error);
     return {
@@ -157,7 +196,21 @@ export async function updateNotificationPreferences(
   prefs: NotificationPreferences
 ): Promise<boolean> {
   try {
-    await api.put('/notifications/preferences', prefs);
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData.user?.id;
+
+    if (!userId) {
+      throw new Error('Not authenticated');
+    }
+
+    const { error } = await supabase.from('notification_preferences').upsert({
+      user_id: userId,
+      ...prefs,
+    });
+
+    if (error) {
+      throw error;
+    }
     return true;
   } catch (error) {
     console.error('Error updating notification preferences:', error);
@@ -170,8 +223,11 @@ export async function updateNotificationPreferences(
  */
 export async function sendTestNotification(): Promise<boolean> {
   try {
-    const response = await api.post('/notifications/test');
-    return response.data.success !== false;
+    const { error } = await supabase.rpc('send_test_notification');
+    if (error) {
+      throw error;
+    }
+    return true;
   } catch (error) {
     console.error('Error sending test notification:', error);
     return false;
