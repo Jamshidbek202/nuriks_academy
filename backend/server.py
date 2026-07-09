@@ -55,7 +55,7 @@ from routes_tests import router as tests_router
 from routes_certificates import router as certificates_router
 from routes_leads import router as leads_router
 from routes_support import router as support_router
-from routes_support import support_staff_router
+from routes_support import support_staff_router as support_booking_staff_router
 from routes_admin import router as admin_router
 from routes_chat import router as chat_router
 from routes_support_staff import router as support_staff_router
@@ -73,6 +73,7 @@ api_router.include_router(tests_router)
 api_router.include_router(certificates_router)
 api_router.include_router(leads_router)
 api_router.include_router(support_router)
+api_router.include_router(support_booking_staff_router)
 api_router.include_router(support_staff_router)
 api_router.include_router(admin_router)
 api_router.include_router(chat_router)
@@ -418,81 +419,6 @@ async def get_courses(
     try:
         courses = await db.courses.find({"is_active": True}).to_list(100)
         return [serialize_doc(c) for c in courses]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-# ==================== SUPPORT STAFF ====================
-
-@api_router.post("/support")
-async def create_support_staff(
-    data: dict,
-    request: Request,
-    current_user: dict = Depends(get_current_user_dependency)
-):
-    """Create support staff"""
-    if current_user["role"] not in ["super_admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
-    try:
-        # Create user
-        user = {
-            "login": f"support_{data['phone']}",
-            "password_hash": get_password_hash("Support@2025"),
-            "email": data.get("email"),
-            "phone": data["phone"],
-            "full_name": f"{data['first_name']} {data['last_name']}",
-            "role": "support",
-            "is_active": True,
-            "two_factor_enabled": False,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "branch_id": data.get("branch_id")
-        }
-        user_result = await db.users.insert_one(user)
-        
-        # Create support profile
-        support = {
-            "user_id": str(user_result.inserted_id),
-            "first_name": data["first_name"],
-            "last_name": data["last_name"],
-            "phone": data["phone"],
-            "email": data.get("email"),
-            "photo": data.get("photo"),
-            "available_hours": data.get("available_hours", {}),
-            "branch_id": data.get("branch_id"),
-            "created_at": datetime.utcnow()
-        }
-        result = await db.support_staff.insert_one(support)
-        
-        await create_audit_log(
-            str(current_user["_id"]),
-            "create",
-            "support",
-            str(result.inserted_id),
-            {"name": f"{data['first_name']} {data['last_name']}"},
-            request.client.host if request.client else None
-        )
-        
-        support["id"] = str(result.inserted_id)
-        return serialize_doc(support)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@api_router.get("/support")
-async def get_support_staff(
-    branch_id: Optional[str] = None,
-    current_user: dict = Depends(get_current_user_dependency)
-):
-    """Get all support staff"""
-    try:
-        query = {}
-        if branch_id:
-            query["branch_id"] = branch_id
-        elif current_user["role"] != "super_admin":
-            query["branch_id"] = current_user.get("branch_id")
-        
-        support_staff = await db.support_staff.find(query).to_list(100)
-        return [serialize_doc(s) for s in support_staff]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

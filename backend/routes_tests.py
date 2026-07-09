@@ -52,6 +52,8 @@ async def create_test(
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
                 teacher_id = str(teacher["_id"])
+                if test_data.group_id not in teacher.get("group_ids", []):
+                    raise HTTPException(status_code=403, detail="You can only create tests for your own groups")
         else:
             # For managers/admins, get teacher from group
             group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
@@ -194,6 +196,37 @@ async def get_group_tests(
     from server import db, serialize_doc
     
     try:
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if not teacher or group_id not in teacher.get("group_ids", []):
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user["role"] == "student":
+            student = await db.students.find_one({"user_id": str(current_user["_id"])})
+            group = await db.groups.find_one({"_id": ObjectId(group_id)})
+            if (
+                not student
+                or not group
+                or (
+                    group_id not in student.get("group_ids", [])
+                    and str(student["_id"]) not in group.get("student_ids", [])
+                )
+            ):
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user["role"] == "parent":
+            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+            if not parent:
+                raise HTTPException(status_code=403, detail="Access denied")
+
+            children = await db.students.find(
+                {"_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", [])]}}
+            ).to_list(100)
+            group = await db.groups.find_one({"_id": ObjectId(group_id)})
+            if not group or not any(
+                group_id in child.get("group_ids", []) or str(child["_id"]) in group.get("student_ids", [])
+                for child in children
+            ):
+                raise HTTPException(status_code=403, detail="Access denied")
+
         query = {"group_id": group_id}
         if test_type:
             query["test_type"] = test_type

@@ -113,16 +113,11 @@ export default function StudentHomeScreen() {
 
       if (studentProfile) {
         // Load groups
-        if (studentProfile.group_ids && studentProfile.group_ids.length > 0) {
-          try {
-            const groupsRes = await api.get('/groups');
-            const myGroups = groupsRes.data.filter((g: Group) => 
-              studentProfile.group_ids.includes(g.id)
-            );
-            setGroups(myGroups);
-          } catch (e) {
-            setGroups([]);
-          }
+        try {
+          const groupsRes = await api.get('/groups');
+          setGroups(groupsRes.data);
+        } catch (e) {
+          setGroups([]);
         }
 
         // Load attendance stats

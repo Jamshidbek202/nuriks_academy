@@ -161,14 +161,15 @@ async def get_students(
     try:
         query = {}
         
-        # Filter by status
         if status:
             query["status"] = status
+        else:
+            query["status"] = {"$ne": StudentStatus.ARCHIVED}
         
         # Filter by branch
         if branch_id:
             query["branch_id"] = branch_id
-        elif current_user["role"] != "super_admin":
+        elif current_user["role"] not in ["super_admin", "parent", "student"]:
             # Non-super admins see only their branch
             query["branch_id"] = current_user.get("branch_id")
         
@@ -183,6 +184,8 @@ async def get_students(
                 query["_id"] = {"$in": [ObjectId(sid) for sid in parent.get("student_ids", [])]}
             else:
                 return []
+        elif current_user["role"] == "student":
+            query["user_id"] = str(current_user["_id"])
         
         students = await db.students.find(query).skip(skip).limit(limit).to_list(limit)
         return [serialize_doc(s) for s in students]
@@ -287,11 +290,11 @@ async def delete_student(
     request: Request,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Delete/Archive student (Super Admin only)"""
+    """Delete/Archive student (Manager or Super Admin only)"""
     from server import db, create_audit_log
     
-    if current_user["role"] != "super_admin":
-        raise HTTPException(status_code=403, detail="Only Super Admin can delete students")
+    if current_user["role"] not in ["super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Only Manager or Super Admin can delete students")
     
     try:
         # Soft delete - change status to archived

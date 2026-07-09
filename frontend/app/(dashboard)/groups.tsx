@@ -64,7 +64,7 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 
 export default function GroupsScreen() {
   const { user } = useAuth();
-  const canCreateGroup = ['super_admin', 'manager', 'teacher'].includes(user?.role || '');
+  const canCreateGroup = ['super_admin', 'manager'].includes(user?.role || '');
   const canEditGroup = ['super_admin', 'manager'].includes(user?.role || '');
   const canManageGroupStudents = ['super_admin', 'manager'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);

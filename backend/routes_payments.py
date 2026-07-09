@@ -17,6 +17,17 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from server import db
     return await get_current_user(credentials, db)
 
+async def get_next_payment_id(db):
+    from auth import generate_unique_id
+
+    result = await db.counters.find_one_and_update(
+        {"_id": "payment_id"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True
+    )
+    return generate_unique_id("PAY", result["seq"])
+
 # ==================== PAYMENT MODELS ====================
 
 class CashPaymentCreate(BaseModel):
@@ -64,19 +75,13 @@ async def create_cash_payment(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Record cash payment (Manager or Super Admin only)"""
-    from server import db, serialize_doc, create_audit_log, generate_unique_id
+    from server import db, serialize_doc, create_audit_log
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        # Get next payment ID
-        result = await db.counters.find_one_and_update(
-            {"_id": "payment_id"},
-            {"$inc": {"seq": 1}},
-            return_document=True
-        )
-        payment_id = generate_unique_id("PAY", result["seq"])
+        payment_id = await get_next_payment_id(db)
         
         # Create payment record
         payment = {
@@ -129,14 +134,7 @@ async def init_click_payment(
         click_merchant_id = os.getenv("CLICK_MERCHANT_ID", "demo")
         click_service_id = os.getenv("CLICK_SERVICE_ID", "demo")
         
-        # Get next payment ID
-        result = await db.counters.find_one_and_update(
-            {"_id": "payment_id"},
-            {"$inc": {"seq": 1}},
-            return_document=True
-        )
-        from auth import generate_unique_id
-        payment_id = generate_unique_id("PAY", result["seq"])
+        payment_id = await get_next_payment_id(db)
         
         # Create pending payment record
         payment = {
@@ -237,14 +235,7 @@ async def init_payme_payment(
         # Get Payme credentials
         payme_merchant_id = os.getenv("PAYME_MERCHANT_ID", "demo")
         
-        # Get next payment ID
-        result = await db.counters.find_one_and_update(
-            {"_id": "payment_id"},
-            {"$inc": {"seq": 1}},
-            return_document=True
-        )
-        from auth import generate_unique_id
-        payment_id = generate_unique_id("PAY", result["seq"])
+        payment_id = await get_next_payment_id(db)
         
         # Create pending payment record
         payment = {
@@ -413,10 +404,10 @@ async def get_payment_history(
     limit: int = 100,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Get all payment history (Admin/Manager only)"""
+    """Get payment history based on user role."""
     from server import db, serialize_doc
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in ["super_admin", "manager", "parent", "student"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -434,8 +425,18 @@ async def get_payment_history(
         if payment_status:
             query["payment_status"] = payment_status
         
-        if current_user["role"] != "super_admin":
+        if current_user["role"] == "manager":
             query["branch_id"] = current_user.get("branch_id")
+        elif current_user["role"] == "parent":
+            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+            if not parent or not parent.get("student_ids"):
+                return []
+            query["student_id"] = {"$in": parent["student_ids"]}
+        elif current_user["role"] == "student":
+            student = await db.students.find_one({"user_id": str(current_user["_id"])})
+            if not student:
+                return []
+            query["student_id"] = str(student["_id"])
         
         payments = await db.payments.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
         

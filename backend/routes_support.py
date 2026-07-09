@@ -35,6 +35,7 @@ async def get_next_booking_id(db):
     result = await db.counters.find_one_and_update(
         {"_id": "booking_id"},
         {"$inc": {"seq": 1}},
+        upsert=True,
         return_document=True
     )
     return generate_unique_id("BK", result["seq"])
@@ -460,12 +461,27 @@ async def update_session_notes(
 async def get_support_staff(
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Get all support staff (for booking selection)"""
+    """Get active support staff for booking selection."""
     from server import db, serialize_doc
+
+    if current_user["role"] not in ["student", "parent", "super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        support_staff = await db.support_staff.find({"user_id": {"$exists": True}}).to_list(100)
-        return [serialize_doc(s) for s in support_staff]
+        support_staff = await db.support_staff.find({}).to_list(100)
+        active_staff = []
+
+        for staff in support_staff:
+            user_id = staff.get("user_id")
+            user = await db.users.find_one({"_id": ObjectId(user_id)}) if user_id else None
+            if user and not user.get("is_active", True):
+                continue
+
+            staff_data = serialize_doc(staff)
+            staff_data["is_active"] = user.get("is_active", True) if user else True
+            active_staff.append(staff_data)
+
+        return active_staff
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

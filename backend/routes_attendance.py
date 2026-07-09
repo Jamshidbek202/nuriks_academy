@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from models import Attendance, AttendanceBase, AttendanceStatus
 from auth import get_current_user
 
@@ -45,11 +45,14 @@ async def mark_attendance(
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
         
-        # Check if attendance already exists for this student on this date
+        attendance_day = attendance_data.date.replace(hour=0, minute=0, second=0, microsecond=0)
+        next_day = attendance_day + timedelta(days=1)
+
+        # Check if attendance already exists for this student on this calendar date
         existing = await db.attendance.find_one({
             "student_id": attendance_data.student_id,
             "group_id": attendance_data.group_id,
-            "date": attendance_data.date
+            "date": {"$gte": attendance_day, "$lt": next_day}
         })
         
         if existing:
@@ -69,7 +72,7 @@ async def mark_attendance(
                 "student_id": attendance_data.student_id,
                 "group_id": attendance_data.group_id,
                 "teacher_id": teacher_id,
-                "date": attendance_data.date,
+                "date": attendance_day,
                 "status": attendance_data.status,
                 "notes": attendance_data.notes,
                 "marked_by": str(current_user["_id"]),
