@@ -149,7 +149,7 @@ export default function TestsScreen() {
     }
 
     try {
-      await api.post('/tests', {
+      const response = await api.post('/tests', {
         test_type: formData.test_type,
         group_id: selectedGroup.id,
         course_id: selectedGroup.course_id,
@@ -157,10 +157,11 @@ export default function TestsScreen() {
         test_date: formData.test_date + 'T00:00:00',
         max_score: parseFloat(formData.max_score) || 100,
       });
+      setTests((current) => [response.data, ...current]);
       Alert.alert('Success', 'Test created successfully');
       setModalVisible(false);
       resetForm();
-      loadTests();
+      await loadTests();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
     }
@@ -279,6 +280,7 @@ export default function TestsScreen() {
                 setSelectedGroup(group || null);
               }}
               style={styles.picker}
+              itemStyle={styles.pickerItem}
               dropdownIconColor={COLORS.gold}
             >
               <Picker.Item label="Select group" value="" />
@@ -510,6 +512,7 @@ export default function TestsScreen() {
                   selectedValue={formData.test_type}
                   onValueChange={(value) => setFormData({ ...formData, test_type: value })}
                   style={styles.picker}
+                  itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
                   <Picker.Item label="Mid Test" value="mid_test" />
@@ -555,11 +558,12 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
-  filters: { padding: SIZES.md },
+  filters: { padding: SIZES.md, maxWidth: 720, width: '100%' },
   filterItem: { marginBottom: SIZES.sm },
   filterLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
-  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden' },
-  picker: { color: COLORS.textPrimary },
+  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
+  picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
+  pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
   testTypeButtons: { flexDirection: 'row', gap: SIZES.sm },
   typeButton: { flex: 1, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, alignItems: 'center', borderWidth: 1, borderColor: COLORS.marbleGray },
   typeButtonActive: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },

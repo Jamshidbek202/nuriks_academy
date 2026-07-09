@@ -270,6 +270,7 @@ export default function AttendanceScreen() {
               setSelectedGroup(group || null);
             }}
             style={styles.picker}
+            itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
             <Picker.Item label="Select a group" value="" />
@@ -618,6 +619,8 @@ const styles = StyleSheet.create({
   },
   groupSelector: {
     padding: SIZES.md,
+    maxWidth: 720,
+    width: '100%',
   },
   selectorLabel: {
     fontSize: SIZES.fontSm,
@@ -631,9 +634,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.marbleGray,
     overflow: 'hidden',
+    height: 48,
+    justifyContent: 'center',
   },
   picker: {
+    width: '100%',
+    height: 48,
     color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundCard,
+  },
+  pickerItem: {
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundCard,
   },
   dateNavigator: {
     flexDirection: 'row',

@@ -97,7 +97,11 @@ async def get_groups(
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
-                query["_id"] = {"$in": [ObjectId(gid) for gid in teacher.get("group_ids", [])]}
+                teacher_group_ids = [ObjectId(gid) for gid in teacher.get("group_ids", [])]
+                query["$or"] = [
+                    {"_id": {"$in": teacher_group_ids}},
+                    {"teacher_id": str(teacher["_id"])}
+                ]
             else:
                 return []
         elif current_user["role"] == "student":

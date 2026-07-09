@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -98,7 +99,37 @@ export default function StudentsScreen() {
     }
   };
 
+  const deleteStudent = async (student: any) => {
+    const previousStudents = students;
+    setStudents((currentStudents) =>
+      currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
+    );
+
+    try {
+      await api.delete(`/students/${student.id}`);
+      if (selectedStudent?.id === student.id) {
+        setModalVisible(false);
+        resetForm();
+      }
+      await loadStudents();
+      Alert.alert('Success', 'Student archived successfully');
+    } catch (error: any) {
+      setStudents(previousStudents);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete student');
+    }
+  };
+
   const handleDeleteStudent = (student: any) => {
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        `Are you sure you want to archive ${student.first_name} ${student.last_name}?`
+      );
+      if (confirmed) {
+        deleteStudent(student);
+      }
+      return;
+    }
+
     Alert.alert(
       'Delete Student',
       `Are you sure you want to archive ${student.first_name} ${student.last_name}?`,
@@ -107,18 +138,7 @@ export default function StudentsScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              await api.delete(`/students/${student.id}`);
-              setStudents((currentStudents) =>
-                currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
-              );
-              Alert.alert('Success', 'Student archived successfully');
-              await loadStudents();
-            } catch (error) {
-              Alert.alert('Error', 'Failed to delete student');
-            }
-          },
+          onPress: () => deleteStudent(student),
         },
       ]
     );

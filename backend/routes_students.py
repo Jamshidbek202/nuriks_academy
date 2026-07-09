@@ -303,7 +303,7 @@ async def delete_student(
             {"$set": {"status": "archived", "updated_at": datetime.utcnow()}}
         )
         
-        if result.modified_count == 0:
+        if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Student not found")
         
         await create_audit_log(

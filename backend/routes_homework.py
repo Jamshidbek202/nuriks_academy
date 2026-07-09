@@ -56,7 +56,14 @@ async def create_homework(
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
                 teacher_id = str(teacher["_id"])
-                if homework_data.group_id not in teacher.get("group_ids", []):
+                group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
+                if (
+                    not group
+                    or (
+                        homework_data.group_id not in teacher.get("group_ids", [])
+                        and group.get("teacher_id") != teacher_id
+                    )
+                ):
                     raise HTTPException(status_code=403, detail="You can only create homework for your own groups")
         else:
             # For managers/admins, get teacher from group
@@ -267,7 +274,15 @@ async def get_group_homework(
     try:
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if not teacher or group_id not in teacher.get("group_ids", []):
+            group = await db.groups.find_one({"_id": ObjectId(group_id)})
+            if (
+                not teacher
+                or not group
+                or (
+                    group_id not in teacher.get("group_ids", [])
+                    and group.get("teacher_id") != str(teacher["_id"])
+                )
+            ):
                 raise HTTPException(status_code=403, detail="Access denied")
         elif current_user["role"] == "student":
             student = await db.students.find_one({"user_id": str(current_user["_id"])})
@@ -329,11 +344,13 @@ async def get_student_homework(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        group_ids = student.get("group_ids", [])
+        group_ids = set(student.get("group_ids", []))
+        groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
+        group_ids.update(str(group["_id"]) for group in groups_by_membership)
         
         # Get all homework for student's groups
         homework_list = await db.homework.find(
-            {"group_id": {"$in": group_ids}}
+            {"group_id": {"$in": list(group_ids)}}
         ).sort("due_date", -1).to_list(100)
         
         # Filter submissions for this student

@@ -264,6 +264,7 @@ export default function JournalScreen() {
               setSelectedGroup(group || null);
             }}
             style={styles.picker}
+            itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
             <Picker.Item label="Select a group" value="" />
@@ -493,10 +494,11 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
-  groupSelector: { padding: SIZES.md },
+  groupSelector: { padding: SIZES.md, maxWidth: 720, width: '100%' },
   selectorLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
-  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden' },
-  picker: { color: COLORS.textPrimary },
+  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
+  picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
+  pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
   entriesList: { flex: 1, paddingHorizontal: SIZES.md },
   entryCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
   entryHeader: { flexDirection: 'row', alignItems: 'center' },

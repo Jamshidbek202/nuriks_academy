@@ -86,6 +86,16 @@ export default function HomeworkScreen() {
     }
   }, [selectedGroup]);
 
+  useEffect(() => {
+    if (!selectedGroup) return;
+
+    const refreshTimer = setInterval(() => {
+      loadHomework();
+    }, 15000);
+
+    return () => clearInterval(refreshTimer);
+  }, [selectedGroup?.id]);
+
   const loadGroups = async () => {
     try {
       const response = await api.get('/groups');
@@ -128,17 +138,18 @@ export default function HomeworkScreen() {
     }
 
     try {
-      await api.post('/homework', {
+      const response = await api.post('/homework', {
         group_id: selectedGroup.id,
         title: formData.title,
         description: formData.description,
         due_date: formData.due_date + 'T23:59:59',
         attachments: formData.attachments,
       });
+      setHomeworkList((current) => [response.data, ...current]);
       Alert.alert('Success', 'Homework created successfully');
       setModalVisible(false);
       resetForm();
-      loadHomework();
+      await loadHomework();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create homework');
     }
@@ -246,6 +257,7 @@ export default function HomeworkScreen() {
               setSelectedGroup(group || null);
             }}
             style={styles.picker}
+            itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
             <Picker.Item label="Select a group" value="" />
@@ -477,10 +489,11 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
-  groupSelector: { padding: SIZES.md },
+  groupSelector: { padding: SIZES.md, maxWidth: 720, width: '100%' },
   selectorLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
-  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden' },
-  picker: { color: COLORS.textPrimary },
+  pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
+  picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
+  pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
   homeworkList: { flex: 1, paddingHorizontal: SIZES.md },
   homeworkCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
   homeworkHeader: { flexDirection: 'row', alignItems: 'flex-start' },

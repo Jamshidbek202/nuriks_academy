@@ -52,7 +52,14 @@ async def create_test(
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
                 teacher_id = str(teacher["_id"])
-                if test_data.group_id not in teacher.get("group_ids", []):
+                group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
+                if (
+                    not group
+                    or (
+                        test_data.group_id not in teacher.get("group_ids", [])
+                        and group.get("teacher_id") != teacher_id
+                    )
+                ):
                     raise HTTPException(status_code=403, detail="You can only create tests for your own groups")
         else:
             # For managers/admins, get teacher from group
@@ -198,7 +205,15 @@ async def get_group_tests(
     try:
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if not teacher or group_id not in teacher.get("group_ids", []):
+            group = await db.groups.find_one({"_id": ObjectId(group_id)})
+            if (
+                not teacher
+                or not group
+                or (
+                    group_id not in teacher.get("group_ids", [])
+                    and group.get("teacher_id") != str(teacher["_id"])
+                )
+            ):
                 raise HTTPException(status_code=403, detail="Access denied")
         elif current_user["role"] == "student":
             student = await db.students.find_one({"user_id": str(current_user["_id"])})
@@ -235,6 +250,8 @@ async def get_group_tests(
         
         return [serialize_doc(t) for t in tests]
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -262,11 +279,13 @@ async def get_student_tests(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        group_ids = student.get("group_ids", [])
+        group_ids = set(student.get("group_ids", []))
+        groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
+        group_ids.update(str(group["_id"]) for group in groups_by_membership)
         
         # Get all tests for student's groups
         tests = await db.tests.find(
-            {"group_id": {"$in": group_ids}}
+            {"group_id": {"$in": list(group_ids)}}
         ).sort("test_date", -1).to_list(100)
         
         # Filter results for this student
@@ -312,7 +331,9 @@ async def get_student_progress(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        group_ids = student.get("group_ids", [])
+        group_ids = set(student.get("group_ids", []))
+        groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
+        group_ids.update(str(group["_id"]) for group in groups_by_membership)
         
         # Get attendance stats
         total_attendance = await db.attendance.count_documents({"student_id": student_id})
@@ -320,7 +341,7 @@ async def get_student_progress(
         attendance_rate = (present_count / total_attendance * 100) if total_attendance > 0 else 0
         
         # Get test averages
-        tests = await db.tests.find({"group_id": {"$in": group_ids}}).to_list(100)
+        tests = await db.tests.find({"group_id": {"$in": list(group_ids)}}).to_list(100)
         
         mid_test_scores = []
         end_test_scores = []
@@ -340,7 +361,7 @@ async def get_student_progress(
         end_test_avg = sum(end_test_scores) / len(end_test_scores) if end_test_scores else 0
         
         # Get homework completion rate
-        homework_list = await db.homework.find({"group_id": {"$in": group_ids}}).to_list(100)
+        homework_list = await db.homework.find({"group_id": {"$in": list(group_ids)}}).to_list(100)
         total_homework = len(homework_list)
         submitted_homework = sum(
             1 for hw in homework_list 

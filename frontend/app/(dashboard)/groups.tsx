@@ -668,6 +668,7 @@ export default function GroupsScreen() {
                   selectedValue={formData.course_id}
                   onValueChange={(value) => setFormData({ ...formData, course_id: value, level: '' })}
                   style={styles.picker}
+                  itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
                   <Picker.Item label="Select course" value="" />
@@ -685,6 +686,7 @@ export default function GroupsScreen() {
                       selectedValue={formData.level}
                       onValueChange={(value) => setFormData({ ...formData, level: value })}
                       style={styles.picker}
+                      itemStyle={styles.pickerItem}
                       dropdownIconColor={COLORS.gold}
                     >
                       <Picker.Item label="Select level" value="" />
@@ -710,6 +712,7 @@ export default function GroupsScreen() {
                       selectedValue={formData.teacher_id}
                       onValueChange={(value) => setFormData({ ...formData, teacher_id: value })}
                       style={styles.picker}
+                      itemStyle={styles.pickerItem}
                       dropdownIconColor={COLORS.gold}
                     >
                       <Picker.Item label="Select teacher" value="" />
@@ -733,6 +736,7 @@ export default function GroupsScreen() {
                       selectedValue={scheduleForm.day}
                       onValueChange={(value) => setScheduleForm({ ...scheduleForm, day: value })}
                       style={styles.pickerSmall}
+                      itemStyle={styles.pickerItem}
                       dropdownIconColor={COLORS.gold}
                     >
                       {DAYS.map((day) => (
@@ -1203,12 +1207,24 @@ const styles = StyleSheet.create({
     borderColor: COLORS.marbleGray,
     overflow: 'hidden',
     marginBottom: SIZES.md,
+    height: 48,
+    justifyContent: 'center',
   },
   picker: {
+    width: '100%',
+    height: 48,
     color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
   },
   pickerSmall: {
+    width: '100%',
+    height: 48,
     color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
+  },
+  pickerItem: {
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
   },
   scheduleFormContainer: {
     backgroundColor: COLORS.backgroundLight,
