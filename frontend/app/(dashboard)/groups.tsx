@@ -64,6 +64,9 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'
 
 export default function GroupsScreen() {
   const { user } = useAuth();
+  const canCreateGroup = ['super_admin', 'manager', 'teacher'].includes(user?.role || '');
+  const canEditGroup = ['super_admin', 'manager'].includes(user?.role || '');
+  const canManageGroupStudents = ['super_admin', 'manager'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -114,8 +117,14 @@ export default function GroupsScreen() {
 
   const loadTeachers = async () => {
     try {
-      const response = await api.get('/teachers');
-      setTeachers(response.data);
+      if (user?.role === 'teacher') {
+        const response = await api.get('/teachers/me');
+        setTeachers([response.data]);
+        setFormData((current) => ({ ...current, teacher_id: response.data.id }));
+      } else {
+        const response = await api.get('/teachers');
+        setTeachers(response.data);
+      }
     } catch (error) {
       console.error('Error loading teachers:', error);
     }
@@ -140,7 +149,7 @@ export default function GroupsScreen() {
   };
 
   const handleCreateGroup = async () => {
-    if (!formData.name || !formData.course_id || !formData.teacher_id) {
+    if (!formData.name || !formData.course_id || (user?.role !== 'teacher' && !formData.teacher_id)) {
       Alert.alert('Error', 'Please fill in required fields (Name, Course, Teacher)');
       return;
     }
@@ -153,6 +162,24 @@ export default function GroupsScreen() {
       loadGroups();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create group');
+    }
+  };
+
+  const handleUpdateGroup = async () => {
+    if (!selectedGroup || !formData.name || !formData.course_id || !formData.teacher_id) {
+      Alert.alert('Error', 'Please fill in required fields (Name, Course, Teacher)');
+      return;
+    }
+
+    try {
+      await api.put(`/groups/${selectedGroup.id}`, formData);
+      Alert.alert('Success', 'Group updated successfully');
+      setModalVisible(false);
+      setDetailModalVisible(false);
+      resetForm();
+      await loadGroups();
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to update group');
     }
   };
 
@@ -227,6 +254,20 @@ export default function GroupsScreen() {
     setDetailModalVisible(true);
   };
 
+  const openEditModal = (group: Group) => {
+    setSelectedGroup(group);
+    setIsEditing(true);
+    setFormData({
+      name: group.name,
+      course_id: group.course_id,
+      teacher_id: group.teacher_id,
+      level: group.level || '',
+      schedule: group.schedule || [],
+    });
+    setDetailModalVisible(false);
+    setModalVisible(true);
+  };
+
   const resetForm = () => {
     setFormData({
       name: '',
@@ -295,15 +336,20 @@ export default function GroupsScreen() {
           <Text style={styles.headerTitle}>Groups</Text>
           <Text style={styles.headerSubtitle}>{groups.length} total groups</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => {
-            resetForm();
-            setModalVisible(true);
-          }}
-        >
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canCreateGroup && (
+          <TouchableOpacity
+            style={styles.addButton}
+            onPress={() => {
+              resetForm();
+              if (user?.role === 'teacher' && teachers[0]) {
+                setFormData((current) => ({ ...current, teacher_id: teachers[0].id }));
+              }
+              setModalVisible(true);
+            }}
+          >
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search */}
@@ -416,9 +462,16 @@ export default function GroupsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Group Details</Text>
-              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
+              <View style={styles.modalHeaderActions}>
+                {selectedGroup && canEditGroup && (
+                  <TouchableOpacity onPress={() => openEditModal(selectedGroup)}>
+                    <Ionicons name="create-outline" size={24} color={COLORS.gold} />
+                  </TouchableOpacity>
+                )}
+                <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
+                  <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+                </TouchableOpacity>
+              </View>
             </View>
 
             {selectedGroup && (
@@ -484,10 +537,12 @@ export default function GroupsScreen() {
                 <View style={styles.detailSection}>
                   <View style={styles.sectionHeader}>
                     <Text style={styles.detailLabel}>Students ({selectedGroup.student_ids?.length || 0})</Text>
-                    <TouchableOpacity style={styles.addStudentBtn} onPress={() => setStudentModalVisible(true)}>
-                      <Ionicons name="person-add" size={18} color={COLORS.gold} />
-                      <Text style={styles.addStudentText}>Add</Text>
-                    </TouchableOpacity>
+                    {canManageGroupStudents && (
+                      <TouchableOpacity style={styles.addStudentBtn} onPress={() => setStudentModalVisible(true)}>
+                        <Ionicons name="person-add" size={18} color={COLORS.gold} />
+                        <Text style={styles.addStudentText}>Add</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
 
                   {getGroupStudents(selectedGroup.student_ids || []).length > 0 ? (
@@ -505,12 +560,14 @@ export default function GroupsScreen() {
                           </Text>
                           <Text style={styles.studentId}>{student.student_id}</Text>
                         </View>
-                        <TouchableOpacity
-                          style={styles.removeStudentBtn}
-                          onPress={() => handleRemoveStudentFromGroup(student.id)}
-                        >
-                          <Ionicons name="close-circle" size={24} color={COLORS.error} />
-                        </TouchableOpacity>
+                        {canManageGroupStudents && (
+                          <TouchableOpacity
+                            style={styles.removeStudentBtn}
+                            onPress={() => handleRemoveStudentFromGroup(student.id)}
+                          >
+                            <Ionicons name="close-circle" size={24} color={COLORS.error} />
+                          </TouchableOpacity>
+                        )}
                       </View>
                     ))
                   ) : (
@@ -586,7 +643,7 @@ export default function GroupsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Create New Group</Text>
+              <Text style={styles.modalTitle}>{isEditing ? 'Edit Group' : 'Create New Group'}</Text>
               <TouchableOpacity
                 onPress={() => {
                   setModalVisible(false);
@@ -639,24 +696,34 @@ export default function GroupsScreen() {
                 </>
               )}
 
-              <Text style={styles.formLabel}>Teacher *</Text>
-              <View style={styles.pickerContainer}>
-                <Picker
-                  selectedValue={formData.teacher_id}
-                  onValueChange={(value) => setFormData({ ...formData, teacher_id: value })}
-                  style={styles.picker}
-                  dropdownIconColor={COLORS.gold}
-                >
-                  <Picker.Item label="Select teacher" value="" />
-                  {teachers.map((teacher) => (
-                    <Picker.Item
-                      key={teacher.id}
-                      label={`${teacher.first_name} ${teacher.last_name}`}
-                      value={teacher.id}
-                    />
-                  ))}
-                </Picker>
-              </View>
+              {user?.role === 'teacher' ? (
+                <Input
+                  label="Teacher"
+                  value={teachers[0] ? `${teachers[0].first_name} ${teachers[0].last_name}` : 'Current teacher'}
+                  editable={false}
+                />
+              ) : (
+                <>
+                  <Text style={styles.formLabel}>Teacher *</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={formData.teacher_id}
+                      onValueChange={(value) => setFormData({ ...formData, teacher_id: value })}
+                      style={styles.picker}
+                      dropdownIconColor={COLORS.gold}
+                    >
+                      <Picker.Item label="Select teacher" value="" />
+                      {teachers.map((teacher) => (
+                        <Picker.Item
+                          key={teacher.id}
+                          label={`${teacher.first_name} ${teacher.last_name}`}
+                          value={teacher.id}
+                        />
+                      ))}
+                    </Picker>
+                  </View>
+                </>
+              )}
 
               <Text style={styles.formLabel}>Schedule</Text>
               <View style={styles.scheduleFormContainer}>
@@ -725,7 +792,11 @@ export default function GroupsScreen() {
                 </View>
               )}
 
-              <Button title="Create Group" onPress={handleCreateGroup} style={{ marginTop: SIZES.lg }} />
+              <Button
+                title={isEditing ? 'Update Group' : 'Create Group'}
+                onPress={isEditing ? handleUpdateGroup : handleCreateGroup}
+                style={{ marginTop: SIZES.lg }}
+              />
             </ScrollView>
           </View>
         </View>
@@ -939,6 +1010,11 @@ const styles = StyleSheet.create({
     padding: SIZES.lg,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.marbleGray,
+  },
+  modalHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SIZES.md,
   },
   modalTitle: {
     fontSize: SIZES.fontXl,

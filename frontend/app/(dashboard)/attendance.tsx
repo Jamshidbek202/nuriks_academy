@@ -115,16 +115,16 @@ export default function AttendanceScreen() {
     if (!selectedGroup) return;
 
     try {
-      const response = await api.get(`/attendance/group/${selectedGroup.id}`);
+      const response = await api.get(`/attendance/group/${selectedGroup.id}`, {
+        params: {
+          start_date: `${selectedDate}T00:00:00`,
+          end_date: `${selectedDate}T23:59:59`,
+        },
+      });
       setAttendanceRecords(response.data);
 
-      // Build today's attendance map
-      const today = selectedDate;
-      const todayRecords = response.data.filter(
-        (r: AttendanceRecord) => r.date.split('T')[0] === today
-      );
       const attendanceMap: Record<string, string> = {};
-      todayRecords.forEach((r: AttendanceRecord) => {
+      response.data.forEach((r: AttendanceRecord) => {
         attendanceMap[r.student_id] = r.status;
       });
       setTodayAttendance(attendanceMap);

@@ -58,7 +58,7 @@ export default function LoginScreen() {
             <View style={styles.logoCircle}>
               <Text style={styles.logoText}>NA</Text>
             </View>
-            <Text style={styles.academyName}>Nurik's Academy</Text>
+            <Text style={styles.academyName}>Nurik{"'"}s Academy</Text>
             <Text style={styles.tagline}>Excellence in Education</Text>
           </View>
 

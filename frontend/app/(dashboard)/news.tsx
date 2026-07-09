@@ -116,8 +116,9 @@ export default function NewsScreen() {
         onPress: async () => {
           try {
             await api.delete(`/admin/news/${id}`);
+            setNews((currentNews) => currentNews.filter((item) => item.id !== id));
             Alert.alert('Success', 'News deleted successfully');
-            loadNews();
+            await loadNews();
           } catch (error: any) {
             Alert.alert('Error', error.response?.data?.detail || 'Failed to delete news');
           }

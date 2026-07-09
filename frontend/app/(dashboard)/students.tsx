@@ -21,7 +21,7 @@ import { Input } from '../../src/components/Input';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
-  const [students, setStudents] = useState([]);
+  const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -110,8 +110,11 @@ export default function StudentsScreen() {
           onPress: async () => {
             try {
               await api.delete(`/students/${student.id}`);
+              setStudents((currentStudents) =>
+                currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
+              );
               Alert.alert('Success', 'Student archived successfully');
-              loadStudents();
+              await loadStudents();
             } catch (error) {
               Alert.alert('Error', 'Failed to delete student');
             }
@@ -179,12 +182,6 @@ export default function StudentsScreen() {
           <Text style={styles.headerTitle}>Students</Text>
           <Text style={styles.headerSubtitle}>{students.length} total students</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => { resetForm(); setModalVisible(true); }}
-        >
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
       </View>
 
       <View style={styles.searchContainer}>
@@ -252,7 +249,7 @@ export default function StudentsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{selectedStudent ? 'Edit Student' : 'Add New Student'}</Text>
+              <Text style={styles.modalTitle}>Edit Student</Text>
               <TouchableOpacity onPress={() => { setModalVisible(false); resetForm(); }}>
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
@@ -297,28 +294,9 @@ export default function StudentsScreen() {
                 multiline
               />
 
-              {!selectedStudent && (
-                <>
-                  <Input
-                    label="Parent Name"
-                    value={formData.parent_name}
-                    onChangeText={(text) => setFormData({ ...formData, parent_name: text })}
-                    placeholder="Enter parent name"
-                  />
-
-                  <Input
-                    label="Parent Phone"
-                    value={formData.parent_phone}
-                    onChangeText={(text) => setFormData({ ...formData, parent_phone: text })}
-                    placeholder="+998901234567"
-                    keyboardType="phone-pad"
-                  />
-                </>
-              )}
-
               <Button
-                title={selectedStudent ? 'Update Student' : 'Create Student'}
-                onPress={selectedStudent ? handleUpdateStudent : handleCreateStudent}
+                title="Update Student"
+                onPress={handleUpdateStudent}
                 style={{ marginTop: SIZES.md }}
               />
             </ScrollView>

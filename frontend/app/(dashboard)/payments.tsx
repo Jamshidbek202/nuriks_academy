@@ -46,6 +46,7 @@ type PaymentMethod = 'cash' | 'click' | 'payme';
 
 export default function PaymentsScreen() {
   const { user } = useAuth();
+  const canManagePayments = ['super_admin', 'manager'].includes(user?.role || '');
   const [students, setStudents] = useState<Student[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [unpaidStudents, setUnpaidStudents] = useState<Student[]>([]);
@@ -70,14 +71,25 @@ export default function PaymentsScreen() {
 
   const loadData = async () => {
     try {
-      const [studentsRes, paymentsRes, unpaidRes] = await Promise.all([
-        api.get('/students'),
-        api.get('/payments/history'),
-        api.get('/payments/unpaid'),
-      ]);
-      setStudents(studentsRes.data);
-      setPayments(paymentsRes.data);
-      setUnpaidStudents(unpaidRes.data);
+      if (canManagePayments) {
+        const [studentsRes, paymentsRes, unpaidRes] = await Promise.all([
+          api.get('/students'),
+          api.get('/payments/history'),
+          api.get('/payments/unpaid'),
+        ]);
+        setStudents(studentsRes.data);
+        setPayments(paymentsRes.data);
+        setUnpaidStudents(unpaidRes.data);
+      } else {
+        const [studentsRes, paymentsRes] = await Promise.all([
+          api.get('/students'),
+          api.get('/payments/history'),
+        ]);
+        setStudents(studentsRes.data);
+        setPayments(paymentsRes.data);
+        setUnpaidStudents([]);
+        setActiveTab('history');
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -244,9 +256,11 @@ export default function PaymentsScreen() {
           <Text style={styles.headerTitle}>Payments</Text>
           <Text style={styles.headerSubtitle}>Manage student payments</Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canManagePayments && (
+          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Stats Cards */}
@@ -270,13 +284,15 @@ export default function PaymentsScreen() {
 
       {/* Tab Buttons */}
       <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tabButton, activeTab === 'unpaid' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('unpaid')}
-        >
-          <Ionicons name="warning" size={18} color={activeTab === 'unpaid' ? COLORS.marbleDark : COLORS.textSecondary} />
-          <Text style={[styles.tabText, activeTab === 'unpaid' && styles.tabTextActive]}>Unpaid ({unpaidStudents.length})</Text>
-        </TouchableOpacity>
+        {canManagePayments && (
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'unpaid' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('unpaid')}
+          >
+            <Ionicons name="warning" size={18} color={activeTab === 'unpaid' ? COLORS.marbleDark : COLORS.textSecondary} />
+            <Text style={[styles.tabText, activeTab === 'unpaid' && styles.tabTextActive]}>Unpaid ({unpaidStudents.length})</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[styles.tabButton, activeTab === 'history' && styles.tabButtonActive]}
           onPress={() => setActiveTab('history')}

@@ -54,6 +54,7 @@ interface Student {
 
 export default function HomeworkScreen() {
   const { user } = useAuth();
+  const canManageHomework = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [homeworkList, setHomeworkList] = useState<Homework[]>([]);
@@ -227,9 +228,11 @@ export default function HomeworkScreen() {
           <Text style={styles.headerTitle}>Homework</Text>
           <Text style={styles.headerSubtitle}>Assign and track homework</Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canManageHomework && (
+          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Group Selector */}
@@ -311,7 +314,9 @@ export default function HomeworkScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="book-outline" size={64} color={COLORS.textTertiary} />
             <Text style={styles.emptyText}>No homework assigned</Text>
-            <Text style={styles.emptySubtext}>Create homework for this group</Text>
+            <Text style={styles.emptySubtext}>
+              {canManageHomework ? 'Create homework for this group' : 'No homework for this group yet'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -364,14 +369,16 @@ export default function HomeworkScreen() {
                             </View>
                           )}
                         </View>
-                        <TouchableOpacity
-                          style={styles.gradeButton}
-                          onPress={() => openGradeModal(selectedHomework, studentId)}
-                        >
-                          <Text style={styles.gradeButtonText}>
-                            {submission?.grade !== null && submission?.grade !== undefined ? 'Edit' : 'Grade'}
-                          </Text>
-                        </TouchableOpacity>
+                        {canManageHomework && (
+                          <TouchableOpacity
+                            style={styles.gradeButton}
+                            onPress={() => openGradeModal(selectedHomework, studentId)}
+                          >
+                            <Text style={styles.gradeButtonText}>
+                              {submission?.grade !== null && submission?.grade !== undefined ? 'Edit' : 'Grade'}
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     );
                   })}

@@ -59,6 +59,7 @@ interface Course {
 
 export default function TestsScreen() {
   const { user } = useAuth();
+  const canManageTests = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -259,9 +260,11 @@ export default function TestsScreen() {
           <Text style={styles.headerTitle}>Tests</Text>
           <Text style={styles.headerSubtitle}>Mid & End of Course Tests</Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canManageTests && (
+          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Filters */}
@@ -353,7 +356,9 @@ export default function TestsScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="clipboard-outline" size={64} color={COLORS.textTertiary} />
             <Text style={styles.emptyText}>No tests yet</Text>
-            <Text style={styles.emptySubtext}>Create a test for this group</Text>
+            <Text style={styles.emptySubtext}>
+              {canManageTests ? 'Create a test for this group' : 'No tests for this group yet'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -431,12 +436,14 @@ export default function TestsScreen() {
                           <Text style={styles.notGradedText}>Not graded</Text>
                         )}
                       </View>
-                      <TouchableOpacity
-                        style={styles.gradeBtn}
-                        onPress={() => openGradeModal(selectedTest, studentId)}
-                      >
-                        <Text style={styles.gradeBtnText}>{result ? 'Edit' : 'Grade'}</Text>
-                      </TouchableOpacity>
+                      {canManageTests && (
+                        <TouchableOpacity
+                          style={styles.gradeBtn}
+                          onPress={() => openGradeModal(selectedTest, studentId)}
+                        >
+                          <Text style={styles.gradeBtnText}>{result ? 'Edit' : 'Grade'}</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   );
                 })}
