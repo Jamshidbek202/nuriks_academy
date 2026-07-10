@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -40,6 +40,8 @@ export default function ConversationScreen() {
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const shouldReconnectRef = useRef(false);
+  const currentUserId = String(user?._id || user?.id || '');
 
   const [conversation, setConversation] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
@@ -52,11 +54,13 @@ export default function ConversationScreen() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
     loadConversation();
     loadMessages();
     connectWebSocket();
 
     return () => {
+      shouldReconnectRef.current = false;
       if (wsRef.current) {
         wsRef.current.close();
       }
@@ -84,8 +88,9 @@ export default function ConversationScreen() {
 
       ws.onclose = () => {
         console.log('WebSocket closed');
-        // Attempt reconnect after 5 seconds
-        setTimeout(connectWebSocket, 5000);
+        if (shouldReconnectRef.current) {
+          setTimeout(connectWebSocket, 5000);
+        }
       };
 
       wsRef.current = ws;
@@ -98,10 +103,13 @@ export default function ConversationScreen() {
     switch (data.type) {
       case 'new_message':
         if (data.conversation_id === id) {
-          setMessages(prev => [...prev, data.message]);
+          setMessages(prev => (
+            prev.some(m => m.id === data.message.id) ? prev : [...prev, data.message]
+          ));
           scrollToBottom();
-          // Mark as read immediately
-          markMessageAsRead(data.message.id);
+          if (data.message.sender_id !== currentUserId) {
+            markMessageAsRead(data.message.id);
+          }
         }
         break;
       
@@ -343,7 +351,7 @@ export default function ConversationScreen() {
   };
 
   const renderMessage = (message: any, index: number) => {
-    const isOwn = message.sender_id === String(user?._id || user?.id);
+    const isOwn = message.sender_id === currentUserId;
     const showDate = index === 0 || 
       formatDate(messages[index - 1]?.created_at) !== formatDate(message.created_at);
 
@@ -407,10 +415,11 @@ export default function ConversationScreen() {
 
   const getOtherParticipant = () => {
     if (!conversation) return null;
-    const otherId = conversation.participants?.find((p: string) => p !== String(user?._id || user?.id));
+    const otherId = conversation.participants?.find((p: string) => p !== currentUserId);
+    const role = conversation.participant_roles?.[otherId];
     return {
-      name: conversation.participant_names?.[otherId] || 'Unknown',
-      role: conversation.participant_roles?.[otherId]
+      name: role === 'super_admin' ? 'Chat with Admin' : conversation.participant_names?.[otherId] || 'Unknown',
+      role
     };
   };
 
@@ -438,7 +447,7 @@ export default function ConversationScreen() {
         
         <View style={styles.headerInfo}>
           <Text style={styles.headerName}>{otherParticipant?.name}</Text>
-          <Text style={styles.headerRole}>{otherParticipant?.role}</Text>
+          <Text style={styles.headerRole}>{otherParticipant?.role?.replace('_', ' ')}</Text>
         </View>
         
         {/* Future: Video call button */}

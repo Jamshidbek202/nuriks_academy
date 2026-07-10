@@ -19,11 +19,18 @@ import { Input } from '../../src/components/Input';
 
 interface Booking {
   id: string;
+  booking_id?: string;
   student_id: string;
   support_id: string;
+  support_staff_id?: string;
+  student_name?: string;
+  student_code?: string;
+  support_name?: string;
   booking_date: string;
   start_time: string;
   end_time: string;
+  duration_minutes?: number;
+  topic?: string;
   status: string;
   notes?: string;
   session_notes?: string;
@@ -44,6 +51,7 @@ export default function SupportHomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'pending' | 'today' | 'all'>('today');
   const [notesModalVisible, setNotesModalVisible] = useState(false);
+  const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sessionNotes, setSessionNotes] = useState('');
 
@@ -121,12 +129,22 @@ export default function SupportHomeScreen() {
   const openNotesModal = (booking: Booking) => {
     setSelectedBooking(booking);
     setSessionNotes(booking.session_notes || '');
+    setDetailModalVisible(false);
     setNotesModalVisible(true);
   };
 
   const getStudentName = (studentId: string) => {
     const student = students.find(s => s.id === studentId);
     return student ? `${student.first_name} ${student.last_name}` : 'Unknown';
+  };
+
+  const getBookingStudentName = (booking: Booking) => {
+    return booking.student_name || getStudentName(booking.student_id);
+  };
+
+  const openDetailModal = (booking: Booking) => {
+    setSelectedBooking(booking);
+    setDetailModalVisible(true);
   };
 
   const formatDate = (dateString: string) => {
@@ -231,7 +249,12 @@ export default function SupportHomeScreen() {
       >
         {filteredBookings.length > 0 ? (
           filteredBookings.map((booking) => (
-            <View key={booking.id} style={styles.bookingCard}>
+            <TouchableOpacity
+              key={booking.id}
+              style={styles.bookingCard}
+              activeOpacity={0.8}
+              onPress={() => openDetailModal(booking)}
+            >
               <View style={styles.bookingHeader}>
                 <View style={styles.bookingTime}>
                   <Ionicons name="time" size={18} color={COLORS.gold} />
@@ -245,7 +268,10 @@ export default function SupportHomeScreen() {
               </View>
 
               <View style={styles.bookingInfo}>
-                <Text style={styles.studentName}>{getStudentName(booking.student_id)}</Text>
+                <Text style={styles.studentName}>{getBookingStudentName(booking)}</Text>
+                {!!booking.topic && (
+                  <Text style={styles.bookingTopic}>{booking.topic}</Text>
+                )}
                 <Text style={styles.bookingDate}>{formatDate(booking.booking_date)}</Text>
                 {booking.notes && (
                   <Text style={styles.bookingNotes}>{booking.notes}</Text>
@@ -280,7 +306,7 @@ export default function SupportHomeScreen() {
                   <Text style={styles.notesButtonText}>Add Session Notes</Text>
                 </TouchableOpacity>
               )}
-            </View>
+            </TouchableOpacity>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -297,6 +323,92 @@ export default function SupportHomeScreen() {
         <View style={{ height: 100 }} />
       </ScrollView>
 
+      {/* Booking Detail Modal */}
+      <Modal visible={detailModalVisible} animationType="slide" transparent={true} onRequestClose={() => setDetailModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Support Session</Text>
+              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {selectedBooking && (
+              <View style={styles.modalForm}>
+                <Text style={styles.modalStudentName}>{getBookingStudentName(selectedBooking)}</Text>
+                {!!selectedBooking.student_code && (
+                  <Text style={styles.modalStudentCode}>{selectedBooking.student_code}</Text>
+                )}
+
+                <View style={styles.detailRow}>
+                  <Ionicons name="calendar-outline" size={20} color={COLORS.gold} />
+                  <Text style={styles.detailText}>{formatDate(selectedBooking.booking_date)}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="time-outline" size={20} color={COLORS.gold} />
+                  <Text style={styles.detailText}>{selectedBooking.start_time} - {selectedBooking.end_time}</Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="information-circle-outline" size={20} color={getStatusColor(selectedBooking.status)} />
+                  <Text style={[styles.detailText, { color: getStatusColor(selectedBooking.status), textTransform: 'capitalize' }]}>
+                    {selectedBooking.status}
+                  </Text>
+                </View>
+
+                {!!selectedBooking.topic && (
+                  <View style={styles.detailBlock}>
+                    <Text style={styles.detailLabel}>Needs help with</Text>
+                    <Text style={styles.detailValue}>{selectedBooking.topic}</Text>
+                  </View>
+                )}
+
+                {!!selectedBooking.notes && (
+                  <View style={styles.detailBlock}>
+                    <Text style={styles.detailLabel}>Student notes</Text>
+                    <Text style={styles.detailValue}>{selectedBooking.notes}</Text>
+                  </View>
+                )}
+
+                {!!selectedBooking.session_notes && (
+                  <View style={styles.detailBlock}>
+                    <Text style={styles.detailLabel}>Session notes</Text>
+                    <Text style={styles.detailValue}>{selectedBooking.session_notes}</Text>
+                  </View>
+                )}
+
+                {selectedBooking.status === 'pending' && (
+                  <View style={styles.modalActionRow}>
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.acceptBtn]}
+                      onPress={() => {
+                        setDetailModalVisible(false);
+                        handleAcceptBooking(selectedBooking.id);
+                      }}
+                    >
+                      <Text style={[styles.actionBtnText, { color: COLORS.success }]}>Accept</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modalActionButton, styles.rejectBtn]}
+                      onPress={() => {
+                        setDetailModalVisible(false);
+                        handleRejectBooking(selectedBooking.id);
+                      }}
+                    >
+                      <Text style={[styles.actionBtnText, { color: COLORS.error }]}>Reject</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {selectedBooking.status === 'confirmed' && (
+                  <Button title="Add Session Notes" onPress={() => openNotesModal(selectedBooking)} style={{ marginTop: SIZES.lg }} />
+                )}
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Notes Modal */}
       <Modal visible={notesModalVisible} animationType="slide" transparent={true} onRequestClose={() => setNotesModalVisible(false)}>
         <View style={styles.modalOverlay}>
@@ -310,7 +422,7 @@ export default function SupportHomeScreen() {
 
             <View style={styles.modalForm}>
               {selectedBooking && (
-                <Text style={styles.modalStudentName}>{getStudentName(selectedBooking.student_id)}</Text>
+                <Text style={styles.modalStudentName}>{getBookingStudentName(selectedBooking)}</Text>
               )}
 
               <Input
@@ -356,6 +468,7 @@ const styles = StyleSheet.create({
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   bookingInfo: { marginBottom: SIZES.sm },
   studentName: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
+  bookingTopic: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.gold, marginTop: 2 },
   bookingDate: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 2 },
   bookingNotes: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs, fontStyle: 'italic' },
   actionButtons: { flexDirection: 'row', gap: SIZES.sm, marginTop: SIZES.sm, paddingTop: SIZES.sm, borderTopWidth: 1, borderTopColor: COLORS.marbleGray },
@@ -374,4 +487,12 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   modalForm: { padding: SIZES.lg },
   modalStudentName: { fontSize: SIZES.fontLg, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.lg, textAlign: 'center' },
+  modalStudentCode: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: -SIZES.md, marginBottom: SIZES.lg, textAlign: 'center' },
+  detailRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, marginBottom: SIZES.sm },
+  detailText: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, fontWeight: '500' },
+  detailBlock: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginTop: SIZES.md },
+  detailLabel: { fontSize: SIZES.fontXs, fontWeight: '700', color: COLORS.textTertiary, textTransform: 'uppercase', marginBottom: SIZES.xs },
+  detailValue: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, lineHeight: 22 },
+  modalActionRow: { flexDirection: 'row', gap: SIZES.sm, marginTop: SIZES.lg },
+  modalActionButton: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: SIZES.md, borderRadius: SIZES.radiusMd },
 });

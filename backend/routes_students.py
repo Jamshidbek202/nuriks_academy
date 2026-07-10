@@ -185,7 +185,27 @@ async def get_students(
             else:
                 return []
         elif current_user["role"] == "student":
-            query["user_id"] = str(current_user["_id"])
+            student = await db.students.find_one({
+                "user_id": str(current_user["_id"]),
+                "status": {"$ne": StudentStatus.ARCHIVED}
+            })
+            if not student:
+                return []
+
+            group_ids = set(student.get("group_ids", []))
+            groups_by_membership = await db.groups.find({"student_ids": str(student["_id"])}).to_list(100)
+            group_ids.update(str(group["_id"]) for group in groups_by_membership)
+
+            groups = await db.groups.find({"_id": {"$in": [ObjectId(gid) for gid in group_ids if ObjectId.is_valid(gid)]}}).to_list(100)
+            classmate_ids = {
+                sid
+                for group in groups
+                for sid in group.get("student_ids", [])
+                if ObjectId.is_valid(sid)
+            }
+            classmate_ids.add(str(student["_id"]))
+
+            query["_id"] = {"$in": [ObjectId(sid) for sid in classmate_ids]}
         
         students = await db.students.find(query).skip(skip).limit(limit).to_list(limit)
         return [serialize_doc(s) for s in students]
@@ -202,7 +222,10 @@ async def get_student(
     from server import db, serialize_doc
     
     try:
-        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        student = await db.students.find_one({
+            "_id": ObjectId(student_id),
+            "status": {"$ne": StudentStatus.ARCHIVED}
+        })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
@@ -315,6 +338,23 @@ async def delete_student(
         await db.groups.update_many(
             {"student_ids": student_id},
             {"$pull": {"student_ids": student_id}}
+        )
+
+        await db.tests.update_many(
+            {"results.student_id": student_id},
+            {"$pull": {"results": {"student_id": student_id}}}
+        )
+
+        await db.homework.update_many(
+            {"submissions.student_id": student_id},
+            {"$pull": {"submissions": {"student_id": student_id}}}
+        )
+
+        await db.attendance.delete_many({"student_id": student_id})
+
+        await db.teacher_journal.update_many(
+            {"student_performance.student_id": student_id},
+            {"$pull": {"student_performance": {"student_id": student_id}}}
         )
         
         await create_audit_log(

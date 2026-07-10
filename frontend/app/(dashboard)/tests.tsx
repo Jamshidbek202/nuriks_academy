@@ -186,10 +186,30 @@ export default function TestsScreen() {
         score: score,
         notes: gradeData.notes || null,
       });
+      const percentage = (score / selectedTest.max_score) * 100;
+      const resultData = {
+        student_id: selectedStudent,
+        score,
+        percentage,
+        notes: gradeData.notes || undefined,
+        graded_at: new Date().toISOString(),
+      };
+      const applyGrade = (test: Test): Test => {
+        const hasExistingResult = test.results.some((result) => result.student_id === selectedStudent);
+        return {
+          ...test,
+          results: hasExistingResult
+            ? test.results.map((result) => result.student_id === selectedStudent ? resultData : result)
+            : [...test.results, resultData],
+        };
+      };
+
+      setTests((current) => current.map((test) => test.id === selectedTest.id ? applyGrade(test) : test));
+      setSelectedTest((current) => current && current.id === selectedTest.id ? applyGrade(current) : current);
       Alert.alert('Success', 'Test graded successfully');
       setGradeModalVisible(false);
       setGradeData({ score: '', notes: '' });
-      loadTests();
+      await loadTests();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to grade test');
     }
@@ -215,16 +235,19 @@ export default function TestsScreen() {
   };
 
   const getGroupStats = (test: Test) => {
-    if (!selectedGroup || test.results.length === 0) {
-      return { avg: 0, min: 0, max: 0, graded: 0, total: selectedGroup?.student_ids.length || 0 };
+    const activeStudentIds = new Set(getSelectedGroupStudents().map((student) => student.id));
+    const activeResults = test.results.filter((result) => activeStudentIds.has(result.student_id));
+
+    if (!selectedGroup || activeResults.length === 0) {
+      return { avg: 0, min: 0, max: 0, graded: 0, total: activeStudentIds.size };
     }
-    const percentages = test.results.map(r => r.percentage);
+    const percentages = activeResults.map(r => r.percentage);
     return {
       avg: Math.round(percentages.reduce((a, b) => a + b, 0) / percentages.length),
       min: Math.round(Math.min(...percentages)),
       max: Math.round(Math.max(...percentages)),
-      graded: test.results.length,
-      total: selectedGroup.student_ids.length,
+      graded: activeResults.length,
+      total: activeStudentIds.size,
     };
   };
 
@@ -243,6 +266,11 @@ export default function TestsScreen() {
       notes: result?.notes || '',
     });
     setGradeModalVisible(true);
+  };
+
+  const getSelectedGroupStudents = () => {
+    if (!selectedGroup) return [];
+    return students.filter((student) => selectedGroup.student_ids.includes(student.id));
   };
 
   if (loading) {
@@ -417,7 +445,8 @@ export default function TestsScreen() {
                 })()}
 
                 <Text style={styles.sectionTitle}>Student Results</Text>
-                {selectedGroup && selectedGroup.student_ids.map((studentId) => {
+                {getSelectedGroupStudents().map((student) => {
+                  const studentId = student.id;
                   const result = selectedTest.results.find(r => r.student_id === studentId);
                   return (
                     <View key={studentId} style={styles.studentResult}>

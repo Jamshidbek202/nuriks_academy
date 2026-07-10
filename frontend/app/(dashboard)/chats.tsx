@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -27,7 +28,7 @@ const showAlert = (title: string, message: string) => {
 };
 
 export default function ChatsScreen() {
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const router = useRouter();
   const [conversations, setConversations] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
@@ -35,12 +36,17 @@ export default function ChatsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'chats' | 'contacts'>('chats');
+  const [adminRoleFilter, setAdminRoleFilter] = useState('all');
+  const adminRoleFilters = [
+    { key: 'all', label: 'All' },
+    { key: 'student', label: 'Students' },
+    { key: 'parent', label: 'Parents' },
+    { key: 'teacher', label: 'Teachers' },
+    { key: 'support', label: 'Support' },
+    { key: 'manager', label: 'Managers' },
+  ];
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       const [convResponse, contactsResponse] = await Promise.all([
         api.get('/chat/conversations'),
@@ -59,7 +65,17 @@ export default function ChatsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const handleStartChat = async (contact: any) => {
     try {
@@ -97,6 +113,9 @@ export default function ChatsScreen() {
 
   const getRoleIcon = (role: string) => {
     switch (role) {
+      case 'super_admin': return 'shield-checkmark';
+      case 'manager': return 'briefcase';
+      case 'parent': return 'people';
       case 'teacher': return 'school';
       case 'student': return 'person';
       case 'support': return 'headset';
@@ -106,6 +125,9 @@ export default function ChatsScreen() {
 
   const getRoleColor = (role: string) => {
     switch (role) {
+      case 'super_admin': return COLORS.gold;
+      case 'manager': return COLORS.marbleLight;
+      case 'parent': return COLORS.goldLight;
       case 'teacher': return COLORS.info;
       case 'student': return COLORS.success;
       case 'support': return COLORS.warning;
@@ -114,12 +136,15 @@ export default function ChatsScreen() {
   };
 
   const filteredConversations = conversations.filter(conv => {
+    const role = conv.other_participant?.role || '';
+    if (user?.role === 'super_admin' && adminRoleFilter !== 'all' && role !== adminRoleFilter) return false;
     if (!searchQuery) return true;
     const name = conv.other_participant?.name || '';
     return name.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   const filteredContacts = contacts.filter(contact => {
+    if (user?.role === 'super_admin' && adminRoleFilter !== 'all' && contact.role !== adminRoleFilter) return false;
     if (!searchQuery) return true;
     return contact.name.toLowerCase().includes(searchQuery.toLowerCase());
   });
@@ -158,6 +183,32 @@ export default function ChatsScreen() {
           </Text>
         </View>
       </View>
+
+      {user?.role === 'super_admin' && (
+        <View style={styles.adminFilterShell}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminFilterContent}>
+            {adminRoleFilters.map((filter) => (
+              <TouchableOpacity
+                key={filter.key}
+                style={[
+                  styles.adminFilterButton,
+                  adminRoleFilter === filter.key && styles.adminFilterButtonActive,
+                ]}
+                onPress={() => setAdminRoleFilter(filter.key)}
+              >
+                <Text
+                  style={[
+                    styles.adminFilterText,
+                    adminRoleFilter === filter.key && styles.adminFilterTextActive,
+                  ]}
+                >
+                  {filter.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      )}
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -243,7 +294,7 @@ export default function ChatsScreen() {
                 <View style={styles.conversationInfo}>
                   <View style={styles.conversationHeader}>
                     <Text style={styles.participantName} numberOfLines={1}>
-                      {conv.other_participant?.name || 'Unknown'}
+                      {conv.other_participant?.role === 'super_admin' ? 'Chat with Admin' : conv.other_participant?.name || 'Unknown'}
                     </Text>
                     <Text style={styles.timeText}>
                       {formatTime(conv.last_message_at)}
@@ -263,7 +314,7 @@ export default function ChatsScreen() {
                   
                   <View style={styles.roleBadge}>
                     <Text style={[styles.roleText, { color: getRoleColor(conv.other_participant?.role) }]}>
-                      {conv.other_participant?.role}
+                      {conv.other_participant?.role?.replace('_', ' ')}
                     </Text>
                   </View>
                 </View>
@@ -309,7 +360,7 @@ export default function ChatsScreen() {
                   <View style={styles.contactMeta}>
                     <View style={[styles.roleBadgeSmall, { backgroundColor: getRoleColor(contact.role) + '20' }]}>
                       <Text style={[styles.roleTextSmall, { color: getRoleColor(contact.role) }]}>
-                        {contact.role}
+                        {contact.role?.replace('_', ' ')}
                       </Text>
                     </View>
                     {contact.subject && (
@@ -385,6 +436,34 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSm,
     color: COLORS.gold,
     fontWeight: '600',
+  },
+  adminFilterShell: {
+    backgroundColor: COLORS.marbleDark,
+    paddingBottom: SIZES.sm,
+  },
+  adminFilterContent: {
+    paddingHorizontal: SIZES.md,
+    gap: SIZES.sm,
+  },
+  adminFilterButton: {
+    paddingHorizontal: SIZES.md,
+    paddingVertical: SIZES.sm,
+    borderRadius: SIZES.radiusFull,
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+    backgroundColor: COLORS.backgroundCard,
+  },
+  adminFilterButtonActive: {
+    backgroundColor: COLORS.gold,
+    borderColor: COLORS.gold,
+  },
+  adminFilterText: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
+    color: COLORS.textSecondary,
+  },
+  adminFilterTextActive: {
+    color: COLORS.marbleDark,
   },
   searchContainer: {
     flexDirection: 'row',

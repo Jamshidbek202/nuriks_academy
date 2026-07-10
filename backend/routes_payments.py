@@ -81,6 +81,13 @@ async def create_cash_payment(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        student = await db.students.find_one({
+            "_id": ObjectId(payment_data.student_id),
+            "status": {"$ne": "archived"}
+        })
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+
         payment_id = await get_next_payment_id(db)
         
         # Create payment record
@@ -130,6 +137,13 @@ async def init_click_payment(
     import os
     
     try:
+        student = await db.students.find_one({
+            "_id": ObjectId(payment_data.student_id),
+            "status": {"$ne": "archived"}
+        })
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+
         # Get Click credentials from environment
         click_merchant_id = os.getenv("CLICK_MERCHANT_ID", "demo")
         click_service_id = os.getenv("CLICK_SERVICE_ID", "demo")
@@ -232,6 +246,13 @@ async def init_payme_payment(
     import base64
     
     try:
+        student = await db.students.find_one({
+            "_id": ObjectId(payment_data.student_id),
+            "status": {"$ne": "archived"}
+        })
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+
         # Get Payme credentials
         payme_merchant_id = os.getenv("PAYME_MERCHANT_ID", "demo")
         
@@ -378,10 +399,26 @@ async def get_student_payment_history(
             parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
             if not parent or student_id not in parent.get("student_ids", []):
                 raise HTTPException(status_code=403, detail="Access denied")
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
+            if not student:
+                return []
         elif current_user["role"] == "student":
-            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
             if not student or str(student["user_id"]) != str(current_user["_id"]):
                 raise HTTPException(status_code=403, detail="Access denied")
+        else:
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
+            if not student:
+                return []
         
         payments = await db.payments.find(
             {"student_id": student_id}
@@ -427,16 +464,28 @@ async def get_payment_history(
         
         if current_user["role"] == "manager":
             query["branch_id"] = current_user.get("branch_id")
+            active_students = await db.students.find({
+                "branch_id": current_user.get("branch_id"),
+                "status": {"$ne": "archived"}
+            }).to_list(5000)
+            query["student_id"] = {"$in": [str(student["_id"]) for student in active_students]}
         elif current_user["role"] == "parent":
             parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
             if not parent or not parent.get("student_ids"):
                 return []
-            query["student_id"] = {"$in": parent["student_ids"]}
+            active_children = await db.students.find({
+                "_id": {"$in": [ObjectId(sid) for sid in parent["student_ids"] if ObjectId.is_valid(sid)]},
+                "status": {"$ne": "archived"}
+            }).to_list(100)
+            query["student_id"] = {"$in": [str(child["_id"]) for child in active_children]}
         elif current_user["role"] == "student":
             student = await db.students.find_one({"user_id": str(current_user["_id"])})
             if not student:
                 return []
             query["student_id"] = str(student["_id"])
+        elif current_user["role"] == "super_admin":
+            active_students = await db.students.find({"status": {"$ne": "archived"}}).to_list(5000)
+            query["student_id"] = {"$in": [str(student["_id"]) for student in active_students]}
         
         payments = await db.payments.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
         

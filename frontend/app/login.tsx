@@ -19,22 +19,34 @@ import { COLORS, SIZES, SHADOWS } from '../src/constants/theme';
 export default function LoginScreen() {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const { login: authLogin } = useAuth();
   const router = useRouter();
 
   const handleLogin = async () => {
-    if (!login || !password) {
-      Alert.alert('Error', 'Please enter login and password');
+    const trimmedLogin = login.trim();
+    const trimmedPassword = password.trim();
+
+    setLogin(trimmedLogin);
+    setPassword(trimmedPassword);
+    setErrorMessage('');
+
+    if (!trimmedLogin || !trimmedPassword) {
+      const message = 'Please enter login and password';
+      setErrorMessage(message);
+      Alert.alert('Error', message);
       return;
     }
 
     setLoading(true);
     try {
-      await authLogin(login, password);
+      await authLogin(trimmedLogin, trimmedPassword);
       router.replace('/(dashboard)');
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+      const message = error.message || 'Invalid login or password';
+      setErrorMessage(message);
+      Alert.alert('Login Failed', message);
     } finally {
       setLoading(false);
     }
@@ -66,6 +78,11 @@ export default function LoginScreen() {
           <View style={styles.formContainer}>
             <Text style={styles.title}>Welcome Back</Text>
             <Text style={styles.subtitle}>Sign in to continue</Text>
+            {!!errorMessage && (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            )}
 
             <View style={styles.inputContainer}>
               <Text style={styles.label}>Login</Text>
@@ -184,6 +201,19 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
     marginBottom: SIZES.lg,
+  },
+  errorBox: {
+    backgroundColor: COLORS.error + '18',
+    borderColor: COLORS.error,
+    borderWidth: 1,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    marginBottom: SIZES.md,
+  },
+  errorText: {
+    color: COLORS.error,
+    fontSize: SIZES.fontSm,
+    fontWeight: '600',
   },
   inputContainer: {
     marginBottom: SIZES.md,

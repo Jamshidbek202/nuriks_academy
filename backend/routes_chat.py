@@ -79,6 +79,44 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from auth import get_current_user
     return await get_current_user(credentials, db)
 
+async def mark_conversation_read(db, conversation_id: str, user_id: str):
+    """Mark unread incoming messages in a conversation as read for this user."""
+    read_at = datetime.utcnow()
+    unread_messages = await db.messages.find({
+        "conversation_id": conversation_id,
+        "sender_id": {"$ne": user_id},
+        "status": {"$ne": "read"}
+    }).to_list(500)
+
+    if not unread_messages:
+        await db.conversations.update_one(
+            {"_id": ObjectId(conversation_id)},
+            {"$set": {f"unread_counts.{user_id}": 0}}
+        )
+        return []
+
+    message_ids = [m["_id"] for m in unread_messages]
+    await db.messages.update_many(
+        {"_id": {"$in": message_ids}},
+        {"$set": {"status": "read", "read_at": read_at}}
+    )
+
+    await db.conversations.update_one(
+        {"_id": ObjectId(conversation_id)},
+        {"$set": {f"unread_counts.{user_id}": 0}}
+    )
+
+    for msg in unread_messages:
+        await manager.send_personal_message({
+            "type": "message_read",
+            "message_id": str(msg["_id"]),
+            "conversation_id": conversation_id,
+            "read_by": user_id,
+            "read_at": read_at.isoformat()
+        }, msg.get("sender_id"))
+
+    return unread_messages
+
 # Models
 class MessageCreate(BaseModel):
     content: str
@@ -91,6 +129,13 @@ class ConversationCreate(BaseModel):
     participant_id: str  # The other user to chat with
 
 # ==================== CHAT ACCESS CONTROL ====================
+
+async def get_primary_admin(db) -> Optional[dict]:
+    """Return the first active super admin for help/support conversations."""
+    return await db.users.find_one(
+        {"role": "super_admin", "is_active": True},
+        sort=[("created_at", 1), ("_id", 1)]
+    )
 
 async def can_chat_with(current_user: dict, other_user_id: str, db) -> tuple[bool, str]:
     """
@@ -107,14 +152,20 @@ async def can_chat_with(current_user: dict, other_user_id: str, db) -> tuple[boo
     
     other_role = other_user.get("role")
     
-    # Parent and Manager cannot access chat
+    # Admins can chat directly with active students, parents, teachers, support, and managers.
+    if current_role == "super_admin":
+        if other_user.get("is_active") and other_role in ["student", "parent", "teacher", "support", "manager"]:
+            return True, "Admin can chat with academy users"
+        return False, "Admin can only chat with active academy users"
+
+    # Everyone can contact an admin from Help & Support. Parent/manager access is limited to this.
+    if other_role == "super_admin" and other_user.get("is_active"):
+        return True, "User can chat with admin"
+
+    # Parent and Manager cannot use general chat.
     if current_role in ["parent", "manager"]:
         return False, "Chat access not allowed for your role"
-    
-    # Super Admin can view all chats (read-only audit)
-    if current_role == "super_admin":
-        return True, "Admin audit access"
-    
+
     # Student can chat with:
     # 1. Their assigned teacher
     # 2. Support staff
@@ -181,11 +232,11 @@ async def get_chat_contacts(
     if role in ["parent", "manager"]:
         return []
     
-    # Super Admin can see all active users (for audit)
+    # Super Admin can start conversations with all active non-admin users
     if role == "super_admin":
         users = await db.users.find({
             "is_active": True,
-            "role": {"$in": ["student", "teacher", "support"]}
+            "role": {"$in": ["student", "parent", "teacher", "support", "manager"]}
         }).to_list(500)
         
         for u in users:
@@ -338,6 +389,60 @@ async def create_or_get_conversation(
     
     return serialize_doc(conversation)
 
+@router.post("/conversations/admin")
+async def create_or_get_admin_conversation(
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Create or get the Help & Support conversation with the primary admin."""
+    from server import db, serialize_doc
+
+    user_id = str(current_user["_id"])
+    role = current_user.get("role")
+
+    if role == "super_admin":
+        raise HTTPException(status_code=400, detail="Admin should start conversations from the chat contacts list")
+
+    admin_user = await get_primary_admin(db)
+    if not admin_user:
+        raise HTTPException(status_code=404, detail="No admin is available for chat")
+
+    admin_id = str(admin_user["_id"])
+
+    existing = await db.conversations.find_one({
+        "participants": {"$all": [user_id, admin_id]},
+        "type": "direct"
+    })
+
+    if existing:
+        return serialize_doc(existing)
+
+    conversation = {
+        "type": "direct",
+        "participants": [user_id, admin_id],
+        "participant_names": {
+            user_id: current_user.get("full_name", "Unknown"),
+            admin_id: admin_user.get("full_name", "Admin")
+        },
+        "participant_roles": {
+            user_id: role,
+            admin_id: "super_admin"
+        },
+        "last_message": None,
+        "last_message_at": None,
+        "unread_counts": {user_id: 0, admin_id: 0},
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "source": "help_support",
+        "video_call_enabled": True,
+        "screen_share_enabled": True,
+        "active_call": None
+    }
+
+    result = await db.conversations.insert_one(conversation)
+    conversation["_id"] = result.inserted_id
+
+    return serialize_doc(conversation)
+
 @router.get("/conversations")
 async def get_conversations(
     current_user: dict = Depends(get_current_user_dep)
@@ -348,16 +453,9 @@ async def get_conversations(
     user_id = str(current_user["_id"])
     role = current_user.get("role")
     
-    if role in ["parent", "manager"]:
-        return []
-    
-    # Super admin can see all conversations (audit)
-    if role == "super_admin":
-        conversations = await db.conversations.find({}).sort("last_message_at", -1).to_list(500)
-    else:
-        conversations = await db.conversations.find({
-            "participants": user_id
-        }).sort("last_message_at", -1).to_list(100)
+    conversations = await db.conversations.find({
+        "participants": user_id
+    }).sort("last_message_at", -1).to_list(500 if role == "super_admin" else 100)
     
     result = []
     for conv in conversations:
@@ -396,7 +494,7 @@ async def get_conversation(
         raise HTTPException(status_code=404, detail="Conversation not found")
     
     # Check access
-    if role != "super_admin" and user_id not in conversation.get("participants", []):
+    if user_id not in conversation.get("participants", []):
         raise HTTPException(status_code=403, detail="Access denied")
     
     conv_data = serialize_doc(conversation)
@@ -425,7 +523,7 @@ async def get_messages(
     if not conversation:
         raise HTTPException(status_code=404, detail="Conversation not found")
     
-    if role != "super_admin" and user_id not in conversation.get("participants", []):
+    if user_id not in conversation.get("participants", []):
         raise HTTPException(status_code=403, detail="Access denied")
     
     # Build query
@@ -434,37 +532,12 @@ async def get_messages(
     if search:
         query["content"] = {"$regex": search, "$options": "i"}
     
+    # Mark messages as read before returning them so local state matches the database.
+    await mark_conversation_read(db, conversation_id, user_id)
+
     # Get messages
     messages = await db.messages.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
-    
-    # Mark messages as read
-    if role != "super_admin":
-        await db.messages.update_many(
-            {
-                "conversation_id": conversation_id,
-                "sender_id": {"$ne": user_id},
-                "status": {"$ne": "read"}
-            },
-            {"$set": {"status": "read", "read_at": datetime.utcnow()}}
-        )
-        
-        # Reset unread count
-        await db.conversations.update_one(
-            {"_id": ObjectId(conversation_id)},
-            {"$set": {f"unread_counts.{user_id}": 0}}
-        )
-        
-        # Notify sender about read status
-        for msg in messages:
-            if msg.get("sender_id") != user_id and msg.get("status") != "read":
-                await manager.send_personal_message({
-                    "type": "message_read",
-                    "message_id": str(msg["_id"]),
-                    "conversation_id": conversation_id,
-                    "read_by": user_id,
-                    "read_at": datetime.utcnow().isoformat()
-                }, msg.get("sender_id"))
-    
+
     # Reverse to show oldest first
     messages.reverse()
     
@@ -481,10 +554,6 @@ async def send_message(
     
     user_id = str(current_user["_id"])
     role = current_user.get("role")
-    
-    # Super admin cannot send messages (read-only)
-    if role == "super_admin":
-        raise HTTPException(status_code=403, detail="Admin has read-only access")
     
     # Check conversation access
     conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id)})
@@ -580,11 +649,6 @@ async def upload_file(
     """Upload a file for chat"""
     from server import db
     
-    role = current_user.get("role")
-    
-    if role in ["parent", "manager", "super_admin"]:
-        raise HTTPException(status_code=403, detail="File upload not allowed for your role")
-    
     # Validate file type
     content_type = file.content_type or ""
     is_image = content_type in ALLOWED_IMAGE_TYPES
@@ -654,11 +718,6 @@ async def get_total_unread_count(
     from server import db
     
     user_id = str(current_user["_id"])
-    role = current_user.get("role")
-    
-    if role in ["parent", "manager"]:
-        return {"total_unread": 0}
-    
     # Sum up unread counts from all conversations
     pipeline = [
         {"$match": {"participants": user_id}},
@@ -680,7 +739,7 @@ async def update_message_status(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Update message status (delivered/read)"""
-    from server import db, serialize_doc
+    from server import db
     
     if status not in ["delivered", "read"]:
         raise HTTPException(status_code=400, detail="Invalid status")
@@ -688,7 +747,22 @@ async def update_message_status(
     message = await db.messages.find_one({"_id": ObjectId(message_id)})
     if not message:
         raise HTTPException(status_code=404, detail="Message not found")
-    
+
+    user_id = str(current_user["_id"])
+    conversation_id = message.get("conversation_id")
+    conversation = await db.conversations.find_one({"_id": ObjectId(conversation_id)})
+    if not conversation:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    if user_id not in conversation.get("participants", []):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    if message.get("sender_id") == user_id:
+        raise HTTPException(status_code=403, detail="Only the recipient can update message status")
+
+    if status == "read" and message.get("status") == "read":
+        return {"status": "updated"}
+
     update_data = {"status": status}
     if status == "delivered":
         update_data["delivered_at"] = datetime.utcnow()
@@ -699,12 +773,24 @@ async def update_message_status(
         {"_id": ObjectId(message_id)},
         {"$set": update_data}
     )
-    
+
+    if status == "read":
+        remaining_unread = await db.messages.count_documents({
+            "conversation_id": conversation_id,
+            "sender_id": {"$ne": user_id},
+            "status": {"$ne": "read"}
+        })
+        await db.conversations.update_one(
+            {"_id": ObjectId(conversation_id)},
+            {"$set": {f"unread_counts.{user_id}": remaining_unread}}
+        )
+
     # Notify sender
     await manager.send_personal_message({
         "type": f"message_{status}",
         "message_id": message_id,
-        "conversation_id": message.get("conversation_id"),
+        "conversation_id": conversation_id,
+        f"{status}_by": user_id,
         f"{status}_at": update_data.get(f"{status}_at", datetime.utcnow()).isoformat()
     }, message.get("sender_id"))
     
@@ -736,18 +822,19 @@ async def websocket_endpoint(websocket: WebSocket, token: str):
             await websocket.close(code=4001)
             return
         
-        # Check role (parent and manager cannot use chat)
-        if user.get("role") in ["parent", "manager"]:
-            await websocket.close(code=4003)
-            return
-        
         # Connect
         await manager.connect(websocket, user_id)
         
         # Mark user as online and notify their contacts
         # Update any pending messages to delivered
+        user_conversations = await db.conversations.find(
+            {"participants": user_id},
+            {"_id": 1}
+        ).to_list(500)
+        user_conversation_ids = [str(conv["_id"]) for conv in user_conversations]
         await db.messages.update_many(
             {
+                "conversation_id": {"$in": user_conversation_ids},
                 "sender_id": {"$ne": user_id},
                 "status": "sent"
             },

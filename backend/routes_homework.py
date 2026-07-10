@@ -17,6 +17,22 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from server import db
     return await get_current_user(credentials, db)
 
+async def get_active_group_student_ids(db, group_id: str) -> set[str]:
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        return set()
+
+    student_ids = set(group.get("student_ids", []))
+    students = await db.students.find({
+        "$or": [
+            {"_id": {"$in": [ObjectId(sid) for sid in student_ids if ObjectId.is_valid(sid)]}},
+            {"group_ids": group_id}
+        ],
+        "status": {"$ne": "archived"}
+    }).to_list(500)
+
+    return {str(student["_id"]) for student in students}
+
 class HomeworkCreate(BaseModel):
     group_id: str
     title: str
@@ -226,22 +242,72 @@ async def grade_homework(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        result = await db.homework.update_one(
-            {
-                "_id": ObjectId(grade_data.homework_id),
-                "submissions.student_id": grade_data.student_id
-            },
-            {
-                "$set": {
-                    "submissions.$.grade": grade_data.grade,
-                    "submissions.$.feedback": grade_data.feedback,
-                    "submissions.$.graded_at": datetime.utcnow()
-                }
-            }
+        homework = await db.homework.find_one({"_id": ObjectId(grade_data.homework_id)})
+        if not homework:
+            raise HTTPException(status_code=404, detail="Homework not found")
+
+        group = await db.groups.find_one({"_id": ObjectId(homework["group_id"])})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if (
+                not teacher
+                or (
+                    homework["group_id"] not in teacher.get("group_ids", [])
+                    and group.get("teacher_id") != str(teacher["_id"])
+                )
+            ):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        student = await db.students.find_one({
+            "_id": ObjectId(grade_data.student_id),
+            "status": {"$ne": "archived"}
+        })
+        if (
+            not student
+            or (
+                homework["group_id"] not in student.get("group_ids", [])
+                and grade_data.student_id not in group.get("student_ids", [])
+            )
+        ):
+            raise HTTPException(status_code=400, detail="Student is not active in this group")
+
+        submission_data = {
+            "student_id": grade_data.student_id,
+            "submitted_at": None,
+            "content": "",
+            "attachments": [],
+            "grade": grade_data.grade,
+            "feedback": grade_data.feedback,
+            "graded_at": datetime.utcnow()
+        }
+
+        existing_submission = next(
+            (s for s in homework.get("submissions", []) if s["student_id"] == grade_data.student_id),
+            None
         )
-        
-        if result.modified_count == 0:
-            raise HTTPException(status_code=404, detail="Submission not found")
+
+        if existing_submission:
+            await db.homework.update_one(
+                {
+                    "_id": ObjectId(grade_data.homework_id),
+                    "submissions.student_id": grade_data.student_id
+                },
+                {
+                    "$set": {
+                        "submissions.$.grade": grade_data.grade,
+                        "submissions.$.feedback": grade_data.feedback,
+                        "submissions.$.graded_at": datetime.utcnow()
+                    }
+                }
+            )
+        else:
+            await db.homework.update_one(
+                {"_id": ObjectId(grade_data.homework_id)},
+                {"$push": {"submissions": submission_data}}
+            )
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -301,9 +367,10 @@ async def get_group_homework(
             if not parent:
                 raise HTTPException(status_code=403, detail="Access denied")
 
-            children = await db.students.find(
-                {"_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", [])]}}
-            ).to_list(100)
+            children = await db.students.find({
+                "_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", []) if ObjectId.is_valid(sid)]},
+                "status": {"$ne": "archived"}
+            }).to_list(100)
             group = await db.groups.find_one({"_id": ObjectId(group_id)})
             if not group or not any(
                 group_id in child.get("group_ids", []) or str(child["_id"]) in group.get("student_ids", [])
@@ -314,8 +381,18 @@ async def get_group_homework(
         homework_list = await db.homework.find(
             {"group_id": group_id}
         ).sort("due_date", -1).skip(skip).limit(limit).to_list(limit)
+        active_student_ids = await get_active_group_student_ids(db, group_id)
         
-        return [serialize_doc(h) for h in homework_list]
+        result = []
+        for homework in homework_list:
+            homework_data = serialize_doc(homework)
+            homework_data["submissions"] = [
+                submission for submission in homework_data.get("submissions", [])
+                if submission.get("student_id") in active_student_ids
+            ]
+            result.append(homework_data)
+
+        return result
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -335,12 +412,18 @@ async def get_student_homework(
             if not parent or student_id not in parent.get("student_ids", []):
                 raise HTTPException(status_code=403, detail="Access denied")
         elif current_user["role"] == "student":
-            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
             if not student or str(student["user_id"]) != str(current_user["_id"]):
                 raise HTTPException(status_code=403, detail="Access denied")
         
         # Get student's groups
-        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        student = await db.students.find_one({
+            "_id": ObjectId(student_id),
+            "status": {"$ne": "archived"}
+        })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         

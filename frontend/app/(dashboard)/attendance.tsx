@@ -67,6 +67,7 @@ const ATTENDANCE_STATUSES = [
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
+  const canMarkAttendance = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
@@ -170,6 +171,10 @@ export default function AttendanceScreen() {
 
   const markAttendance = async (studentId: string, status: string) => {
     if (!selectedGroup) return;
+    if (!canMarkAttendance) {
+      Alert.alert('Access denied', 'Only teachers, managers, and admins can mark attendance.');
+      return;
+    }
     if (!hasClassOnSelectedDate()) {
       Alert.alert('No class scheduled', 'This group does not have a class on the selected date.');
       return;
@@ -286,7 +291,9 @@ export default function AttendanceScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Attendance</Text>
-          <Text style={styles.headerSubtitle}>Mark and track student attendance</Text>
+          <Text style={styles.headerSubtitle}>
+            {canMarkAttendance ? 'Mark and track student attendance' : 'View attendance records'}
+          </Text>
         </View>
       </View>
 
@@ -425,31 +432,50 @@ export default function AttendanceScreen() {
                   </View>
                 </TouchableOpacity>
 
-                <View style={styles.attendanceButtons}>
-                  {ATTENDANCE_STATUSES.map((status) => (
-                    <TouchableOpacity
-                      key={status.value}
-                      style={[
-                        styles.statusButton,
-                        todayAttendance[student.id] === status.value && {
-                          backgroundColor: status.color,
-                          borderColor: status.color,
-                        },
-                      ]}
-                      onPress={() => markAttendance(student.id, status.value)}
-                    >
-                      <Ionicons
-                        name={status.icon as any}
-                        size={20}
-                        color={
-                          todayAttendance[student.id] === status.value
-                            ? COLORS.marbleDark
-                            : status.color
-                        }
-                      />
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                {canMarkAttendance ? (
+                  <View style={styles.attendanceButtons}>
+                    {ATTENDANCE_STATUSES.map((status) => (
+                      <TouchableOpacity
+                        key={status.value}
+                        style={[
+                          styles.statusButton,
+                          todayAttendance[student.id] === status.value && {
+                            backgroundColor: status.color,
+                            borderColor: status.color,
+                          },
+                        ]}
+                        onPress={() => markAttendance(student.id, status.value)}
+                      >
+                        <Ionicons
+                          name={status.icon as any}
+                          size={20}
+                          color={
+                            todayAttendance[student.id] === status.value
+                              ? COLORS.marbleDark
+                              : status.color
+                          }
+                        />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={styles.readOnlyStatus}>
+                    {todayAttendance[student.id] ? (
+                      <>
+                        <Ionicons
+                          name={getStatusIcon(todayAttendance[student.id]) as any}
+                          size={18}
+                          color={getStatusColor(todayAttendance[student.id])}
+                        />
+                        <Text style={[styles.readOnlyStatusText, { color: getStatusColor(todayAttendance[student.id]) }]}>
+                          {todayAttendance[student.id]}
+                        </Text>
+                      </>
+                    ) : (
+                      <Text style={styles.unmarkedText}>Unmarked</Text>
+                    )}
+                  </View>
+                )}
               </View>
             ))
           ) : (
@@ -859,6 +885,22 @@ const styles = StyleSheet.create({
   attendanceButtons: {
     flexDirection: 'row',
     gap: SIZES.xs,
+  },
+  readOnlyStatus: {
+    minWidth: 92,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SIZES.xs,
+  },
+  readOnlyStatusText: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  unmarkedText: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textTertiary,
   },
   statusButton: {
     width: 40,

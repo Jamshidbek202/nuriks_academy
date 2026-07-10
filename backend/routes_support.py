@@ -75,7 +75,10 @@ async def create_booking(
             raise HTTPException(status_code=404, detail="Support staff not found")
         
         # Get student profile
-        student = await db.students.find_one({"user_id": str(current_user["_id"])})
+        student = await db.students.find_one({
+            "user_id": str(current_user["_id"]),
+            "status": {"$ne": "archived"}
+        })
         if not student:
             raise HTTPException(status_code=404, detail="Student profile not found")
         
@@ -151,7 +154,10 @@ async def get_bookings(
         # Role-based filtering
         if current_user["role"] == "student":
             # Students see only their own bookings
-            student = await db.students.find_one({"user_id": str(current_user["_id"])})
+            student = await db.students.find_one({
+                "user_id": str(current_user["_id"]),
+                "status": {"$ne": "archived"}
+            })
             if student:
                 query["student_id"] = str(student["_id"])
             else:
@@ -169,9 +175,17 @@ async def get_bookings(
             # Parents see their children's bookings
             parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
             if parent and parent.get("student_ids"):
-                query["student_id"] = {"$in": parent["student_ids"]}
+                active_children = await db.students.find({
+                    "_id": {"$in": [ObjectId(sid) for sid in parent["student_ids"] if ObjectId.is_valid(sid)]},
+                    "status": {"$ne": "archived"}
+                }).to_list(100)
+                query["student_id"] = {"$in": [str(child["_id"]) for child in active_children]}
             else:
                 return []
+
+        if "student_id" not in query:
+            active_students = await db.students.find({"status": {"$ne": "archived"}}).to_list(5000)
+            query["student_id"] = {"$in": [str(student["_id"]) for student in active_students]}
         
         # Admin/Manager can see all (with optional filters)
         if support_staff_id:
@@ -188,7 +202,10 @@ async def get_bookings(
         # Enrich with student and support info
         for booking in bookings:
             # Get student info
-            student = await db.students.find_one({"_id": ObjectId(booking["student_id"])})
+            student = await db.students.find_one({
+                "_id": ObjectId(booking["student_id"]),
+                "status": {"$ne": "archived"}
+            })
             if student:
                 booking["student_name"] = f"{student['first_name']} {student['last_name']}"
                 booking["student_code"] = student["student_id"]

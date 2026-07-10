@@ -126,7 +126,10 @@ async def create_certificate(
     
     try:
         # Get student info
-        student = await db.students.find_one({"_id": ObjectId(cert_data.student_id)})
+        student = await db.students.find_one({
+            "_id": ObjectId(cert_data.student_id),
+            "status": {"$ne": "archived"}
+        })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
@@ -200,10 +203,26 @@ async def get_student_certificates(
             parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
             if not parent or student_id not in parent.get("student_ids", []):
                 raise HTTPException(status_code=403, detail="Access denied")
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
+            if not student:
+                return []
         elif current_user["role"] == "student":
-            student = await db.students.find_one({"_id": ObjectId(student_id)})
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
             if not student or str(student["user_id"]) != str(current_user["_id"]):
                 raise HTTPException(status_code=403, detail="Access denied")
+        else:
+            student = await db.students.find_one({
+                "_id": ObjectId(student_id),
+                "status": {"$ne": "archived"}
+            })
+            if not student:
+                return []
         
         certificates = await db.certificates.find(
             {"student_id": student_id}
@@ -230,6 +249,13 @@ async def download_certificate(
         certificate = await db.certificates.find_one({"_id": ObjectId(certificate_id)})
         if not certificate:
             raise HTTPException(status_code=404, detail="Certificate not found")
+
+        certificate_student = await db.students.find_one({
+            "_id": ObjectId(certificate["student_id"]),
+            "status": {"$ne": "archived"}
+        })
+        if not certificate_student:
+            raise HTTPException(status_code=404, detail="Certificate not found")
         
         # Check permissions
         if current_user["role"] == "parent":
@@ -237,8 +263,7 @@ async def download_certificate(
             if not parent or certificate["student_id"] not in parent.get("student_ids", []):
                 raise HTTPException(status_code=403, detail="Access denied")
         elif current_user["role"] == "student":
-            student = await db.students.find_one({"_id": ObjectId(certificate["student_id"])})
-            if not student or str(student["user_id"]) != str(current_user["_id"]):
+            if str(certificate_student["user_id"]) != str(current_user["_id"]):
                 raise HTTPException(status_code=403, detail="Access denied")
         
         # Decode PDF from base64

@@ -134,7 +134,30 @@ async def get_groups(
             ]
         
         groups = await db.groups.find(query).skip(skip).limit(limit).to_list(limit)
-        return [serialize_doc(g) for g in groups]
+        all_student_ids = {
+            sid
+            for group in groups
+            for sid in group.get("student_ids", [])
+            if ObjectId.is_valid(sid)
+        }
+        active_student_ids = set()
+        if all_student_ids:
+            active_students = await db.students.find({
+                "_id": {"$in": [ObjectId(sid) for sid in all_student_ids]},
+                "status": {"$ne": "archived"}
+            }).to_list(len(all_student_ids))
+            active_student_ids = {str(student["_id"]) for student in active_students}
+
+        result = []
+        for group in groups:
+            group_data = serialize_doc(group)
+            group_data["student_ids"] = [
+                sid for sid in group_data.get("student_ids", [])
+                if sid in active_student_ids
+            ]
+            result.append(group_data)
+
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -215,6 +238,13 @@ async def add_student_to_group(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        student = await db.students.find_one({
+            "_id": ObjectId(student_id),
+            "status": {"$ne": "archived"}
+        })
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+
         # Add to group
         await db.groups.update_one(
             {"_id": ObjectId(group_id)},

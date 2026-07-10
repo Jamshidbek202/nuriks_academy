@@ -394,6 +394,7 @@ export default function PaymentsScreen() {
                   selectedValue={formData.student_id}
                   onValueChange={(value) => setFormData({ ...formData, student_id: value })}
                   style={styles.picker}
+                  itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
                   <Picker.Item label="Select student" value="" />
@@ -511,8 +512,9 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   modalForm: { padding: SIZES.lg },
   formLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs, marginTop: SIZES.sm },
-  pickerContainer: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', marginBottom: SIZES.md },
-  picker: { color: COLORS.textPrimary },
+  pickerContainer: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', marginBottom: SIZES.md, height: 48, justifyContent: 'center' },
+  picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundLight },
+  pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundLight },
   methodSelector: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.md },
   methodButton: { flex: 1, alignItems: 'center', paddingVertical: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.marbleGray },
   methodButtonActive: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },

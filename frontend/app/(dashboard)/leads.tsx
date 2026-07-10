@@ -329,6 +329,7 @@ export default function LeadsScreen() {
                     selectedValue={formData.interested_course}
                     onValueChange={(value) => setFormData({ ...formData, interested_course: value })}
                     style={styles.picker}
+                    itemStyle={styles.pickerItem}
                     dropdownIconColor={COLORS.gold}
                   >
                     <Picker.Item label="Select course" value="" />
@@ -346,6 +347,7 @@ export default function LeadsScreen() {
                     selectedValue={formData.source}
                     onValueChange={(value) => setFormData({ ...formData, source: value })}
                     style={styles.picker}
+                    itemStyle={styles.pickerItem}
                     dropdownIconColor={COLORS.gold}
                   >
                     {LEAD_SOURCES.map((source) => (
@@ -652,9 +654,18 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.marbleGray,
     overflow: 'hidden',
+    height: 48,
+    justifyContent: 'center',
   },
   picker: {
+    width: '100%',
+    height: 48,
     color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
+  },
+  pickerItem: {
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
   },
   submitButton: {
     backgroundColor: COLORS.gold,

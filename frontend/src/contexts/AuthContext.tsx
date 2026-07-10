@@ -119,9 +119,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (loginInput: string, password: string) => {
     try {
+      const trimmedLogin = loginInput.trim();
+      const trimmedPassword = password.trim();
       const response = await api.post('/auth/login', {
-        login: loginInput,
-        password,
+        login: trimmedLogin,
+        password: trimmedPassword,
       });
 
       const accessToken = response.data.access_token;

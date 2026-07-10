@@ -166,13 +166,14 @@ export default function JournalScreen() {
   const openEditModal = (entry: JournalEntry) => {
     setSelectedEntry(entry);
     setIsEditing(true);
+    const activeStudentIds = new Set(students.map((student) => student.id));
     setFormData({
       lesson_date: entry.lesson_date.split('T')[0],
       lesson_number: entry.lesson_number,
       topic: entry.topic,
       materials_covered: entry.materials_covered,
       homework_assigned: entry.homework_assigned || '',
-      student_performance: entry.student_performance,
+      student_performance: entry.student_performance.filter((performance) => activeStudentIds.has(performance.student_id)),
     });
     setDetailModalVisible(false);
     setModalVisible(true);
@@ -212,6 +213,11 @@ export default function JournalScreen() {
   const getStudentName = (studentId: string) => {
     const student = students.find(s => s.id === studentId);
     return student ? `${student.first_name} ${student.last_name}` : 'Unknown';
+  };
+
+  const getActivePerformance = (performance: StudentPerformance[]) => {
+    const activeStudentIds = new Set(students.map((student) => student.id));
+    return performance.filter((item) => activeStudentIds.has(item.student_id));
   };
 
   const formatDate = (dateString: string) => {
@@ -314,7 +320,7 @@ export default function JournalScreen() {
 
               <View style={styles.performanceStats}>
                 <Text style={styles.performanceLabel}>
-                  {entry.student_performance.length} students rated
+                  {getActivePerformance(entry.student_performance).length} students rated
                 </Text>
               </View>
             </TouchableOpacity>
@@ -372,7 +378,7 @@ export default function JournalScreen() {
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Student Performance</Text>
-                  {selectedEntry.student_performance.map((sp, idx) => (
+                  {getActivePerformance(selectedEntry.student_performance).map((sp, idx) => (
                     <View key={idx} style={styles.performanceItem}>
                       <Text style={styles.performanceStudentName}>{getStudentName(sp.student_id)}</Text>
                       <View style={styles.participationDisplay}>

@@ -16,6 +16,22 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from server import db
     return await get_current_user(credentials, db)
 
+async def get_active_group_student_ids(db, group_id: str) -> set[str]:
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        return set()
+
+    student_ids = set(group.get("student_ids", []))
+    students = await db.students.find({
+        "$or": [
+            {"_id": {"$in": [ObjectId(sid) for sid in student_ids if ObjectId.is_valid(sid)]}},
+            {"group_ids": group_id}
+        ],
+        "status": {"$ne": "archived"}
+    }).to_list(500)
+
+    return {str(student["_id"]) for student in students}
+
 class StudentPerformance(BaseModel):
     student_id: str
     participation: int  # 1-5
@@ -116,7 +132,17 @@ async def get_group_journal(
             {"group_id": group_id}
         ).sort("lesson_date", -1).skip(skip).limit(limit).to_list(limit)
         
-        return [serialize_doc(e) for e in entries]
+        active_student_ids = await get_active_group_student_ids(db, group_id)
+        result = []
+        for entry in entries:
+            entry_data = serialize_doc(entry)
+            entry_data["student_performance"] = [
+                performance for performance in entry_data.get("student_performance", [])
+                if performance.get("student_id") in active_student_ids
+            ]
+            result.append(entry_data)
+
+        return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

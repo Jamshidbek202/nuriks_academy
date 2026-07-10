@@ -32,10 +32,15 @@ interface Course {
   name: string;
 }
 
+interface Student {
+  id: string;
+}
+
 export default function TeacherHomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const [groups, setGroups] = useState<Group[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [todayClasses, setTodayClasses] = useState<TodayClass[]>([]);
   const [loading, setLoading] = useState(true);
@@ -51,12 +56,14 @@ export default function TeacherHomeScreen() {
   const loadTeacherData = async () => {
     try {
       // Get all groups and filter by teacher
-      const [groupsRes, coursesRes] = await Promise.all([
+      const [groupsRes, coursesRes, studentsRes] = await Promise.all([
         api.get('/groups'),
         api.get('/courses'),
+        api.get('/students'),
       ]);
 
       setCourses(coursesRes.data);
+      setStudents(studentsRes.data);
 
       // Show groups assigned to this teacher
       const teacherGroups = groupsRes.data;
@@ -89,7 +96,21 @@ export default function TeacherHomeScreen() {
   };
 
   const getTotalStudents = () => {
-    return groups.reduce((total, group) => total + (group.student_ids?.length || 0), 0);
+    const activeStudentIds = new Set(students.map((student) => student.id));
+    const uniqueGroupStudentIds = new Set<string>();
+    groups.forEach((group) => {
+      group.student_ids?.forEach((studentId) => {
+        if (activeStudentIds.has(studentId)) {
+          uniqueGroupStudentIds.add(studentId);
+        }
+      });
+    });
+    return uniqueGroupStudentIds.size;
+  };
+
+  const getGroupStudentCount = (group: Group) => {
+    const activeStudentIds = new Set(students.map((student) => student.id));
+    return (group.student_ids || []).filter((studentId) => activeStudentIds.has(studentId)).length;
   };
 
   if (loading) {
@@ -211,7 +232,7 @@ export default function TeacherHomeScreen() {
               <View style={styles.groupMeta}>
                 <View style={styles.metaItem}>
                   <Ionicons name="people" size={14} color={COLORS.textTertiary} />
-                  <Text style={styles.metaText}>{group.student_ids?.length || 0} students</Text>
+                  <Text style={styles.metaText}>{getGroupStudentCount(group)} students</Text>
                 </View>
                 <View style={styles.metaItem}>
                   <Ionicons name="calendar" size={14} color={COLORS.textTertiary} />

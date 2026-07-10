@@ -168,10 +168,30 @@ export default function HomeworkScreen() {
         grade: parseFloat(gradeData.grade),
         feedback: gradeData.feedback || null,
       });
+      const submissionData = {
+        student_id: selectedStudent,
+        grade: parseFloat(gradeData.grade),
+        feedback: gradeData.feedback || undefined,
+        graded_at: new Date().toISOString(),
+      };
+      const applyGrade = (homework: Homework): Homework => {
+        const hasExistingSubmission = homework.submissions.some((submission) => submission.student_id === selectedStudent);
+        return {
+          ...homework,
+          submissions: hasExistingSubmission
+            ? homework.submissions.map((submission) =>
+                submission.student_id === selectedStudent ? { ...submission, ...submissionData } : submission
+              )
+            : [...homework.submissions, submissionData],
+        };
+      };
+
+      setHomeworkList((current) => current.map((homework) => homework.id === selectedHomework.id ? applyGrade(homework) : homework));
+      setSelectedHomework((current) => current && current.id === selectedHomework.id ? applyGrade(current) : current);
       Alert.alert('Success', 'Homework graded successfully');
       setGradeModalVisible(false);
       setGradeData({ grade: '', feedback: '' });
-      loadHomework();
+      await loadHomework();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to grade homework');
     }
@@ -193,9 +213,11 @@ export default function HomeworkScreen() {
 
   const getSubmissionStatus = (homework: Homework) => {
     if (!selectedGroup) return { submitted: 0, total: 0, graded: 0 };
-    const total = selectedGroup.student_ids.length;
-    const submitted = homework.submissions.length;
-    const graded = homework.submissions.filter(s => s.grade !== null && s.grade !== undefined).length;
+    const activeStudentIds = new Set(getSelectedGroupStudents().map((student) => student.id));
+    const activeSubmissions = homework.submissions.filter((submission) => activeStudentIds.has(submission.student_id));
+    const total = activeStudentIds.size;
+    const submitted = activeSubmissions.length;
+    const graded = activeSubmissions.filter(s => s.grade !== null && s.grade !== undefined).length;
     return { submitted, total, graded };
   };
 
@@ -221,6 +243,11 @@ export default function HomeworkScreen() {
       feedback: submission?.feedback || '',
     });
     setGradeModalVisible(true);
+  };
+
+  const getSelectedGroupStudents = () => {
+    if (!selectedGroup) return [];
+    return students.filter((student) => selectedGroup.student_ids.includes(student.id));
   };
 
   if (loading) {
@@ -358,7 +385,8 @@ export default function HomeworkScreen() {
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Student Submissions & Grades</Text>
-                  {selectedGroup && selectedGroup.student_ids.map((studentId) => {
+                  {getSelectedGroupStudents().map((student) => {
+                    const studentId = student.id;
                     const submission = selectedHomework.submissions.find(s => s.student_id === studentId);
                     return (
                       <View key={studentId} style={styles.studentSubmission}>

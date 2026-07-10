@@ -10,11 +10,13 @@ import {
   Modal,
   Pressable,
   Switch,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
+import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import {
   getNotificationPreferences,
@@ -81,7 +83,10 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [helpChatLoading, setHelpChatLoading] = useState(false);
+  const [receptionPhone, setReceptionPhone] = useState('+998901234567');
   const [notificationLoading, setNotificationLoading] = useState(false);
   const [notificationSaving, setNotificationSaving] = useState(false);
   const [testSending, setTestSending] = useState(false);
@@ -110,6 +115,22 @@ export default function ProfileScreen() {
 
     loadPreferences();
   }, [showNotificationModal]);
+
+  useEffect(() => {
+    if (!showHelpModal) return;
+
+    const loadReceptionPhone = async () => {
+      try {
+        const response = await api.get('/settings');
+        const phone = response.data?.academy_phone || response.data?.phone;
+        if (phone) setReceptionPhone(phone);
+      } catch (error) {
+        console.error('Error loading reception phone:', error);
+      }
+    };
+
+    loadReceptionPhone();
+  }, [showHelpModal]);
 
   const handleLogoutPress = () => {
     // For web, use custom modal. For native, also use custom modal for consistency
@@ -169,6 +190,23 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleCallReception = () => {
+    Linking.openURL(`tel:${receptionPhone}`);
+  };
+
+  const handleChatWithAdmin = async () => {
+    setHelpChatLoading(true);
+    try {
+      const response = await api.post('/chat/conversations/admin');
+      setShowHelpModal(false);
+      router.push(`/chat/${response.data.id}`);
+    } catch (error) {
+      console.error('Error opening admin chat:', error);
+    } finally {
+      setHelpChatLoading(false);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -217,7 +255,7 @@ export default function ProfileScreen() {
               <Text style={styles.menuText}>Notifications</Text>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem}>
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowHelpModal(true)}>
               <Ionicons name="help-circle" size={24} color={COLORS.success} />
               <Text style={styles.menuText}>Help & Support</Text>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
@@ -372,6 +410,59 @@ export default function ProfileScreen() {
                 )}
               </TouchableOpacity>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showHelpModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowHelpModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowHelpModal(false)}>
+          <Pressable style={styles.helpModalContent} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.notificationModalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Help & Support</Text>
+                <Text style={styles.notificationModalSubtitle}>
+                  Reception or admin chat
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowHelpModal(false)} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.helpActionCard} onPress={handleCallReception}>
+              <View style={[styles.helpActionIcon, { backgroundColor: COLORS.success + '20' }]}>
+                <Ionicons name="call" size={24} color={COLORS.success} />
+              </View>
+              <View style={styles.helpActionContent}>
+                <Text style={styles.helpActionTitle}>Call Central Reception</Text>
+                <Text style={styles.helpActionSubtitle}>{receptionPhone}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.helpActionCard}
+              onPress={handleChatWithAdmin}
+              disabled={helpChatLoading}
+            >
+              <View style={[styles.helpActionIcon, { backgroundColor: COLORS.gold + '20' }]}>
+                <Ionicons name="chatbubbles" size={24} color={COLORS.gold} />
+              </View>
+              <View style={styles.helpActionContent}>
+                <Text style={styles.helpActionTitle}>Chat with Admin</Text>
+                <Text style={styles.helpActionSubtitle}>Open a direct support conversation</Text>
+              </View>
+              {helpChatLoading ? (
+                <ActivityIndicator color={COLORS.gold} />
+              ) : (
+                <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
+              )}
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -592,6 +683,14 @@ const styles = StyleSheet.create({
     maxHeight: '82%',
     ...SHADOWS.large,
   },
+  helpModalContent: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.lg,
+    width: '100%',
+    maxWidth: 480,
+    ...SHADOWS.large,
+  },
   notificationModalHeader: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -700,5 +799,36 @@ const styles = StyleSheet.create({
     color: COLORS.marbleDark,
     fontSize: SIZES.fontMd,
     fontWeight: '700',
+  },
+  helpActionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    marginTop: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+  },
+  helpActionIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: SIZES.md,
+  },
+  helpActionContent: {
+    flex: 1,
+  },
+  helpActionTitle: {
+    fontSize: SIZES.fontMd,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  helpActionSubtitle: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+    marginTop: 2,
   },
 });
