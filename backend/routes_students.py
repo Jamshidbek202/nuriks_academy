@@ -297,14 +297,25 @@ async def delete_student(
         raise HTTPException(status_code=403, detail="Only Manager or Super Admin can delete students")
     
     try:
-        # Soft delete - change status to archived
+        # Soft delete - change status to archived and remove stale memberships.
         result = await db.students.update_one(
             {"_id": ObjectId(student_id)},
-            {"$set": {"status": "archived", "updated_at": datetime.utcnow()}}
+            {
+                "$set": {
+                    "status": "archived",
+                    "group_ids": [],
+                    "updated_at": datetime.utcnow()
+                }
+            }
         )
         
         if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Student not found")
+
+        await db.groups.update_many(
+            {"student_ids": student_id},
+            {"$pull": {"student_ids": student_id}}
+        )
         
         await create_audit_log(
             str(current_user["_id"]),

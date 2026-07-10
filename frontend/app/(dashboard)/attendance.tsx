@@ -34,6 +34,7 @@ interface Group {
   student_ids: string[];
   course_id: string;
   teacher_id: string;
+  schedule: Schedule[];
 }
 
 interface Student {
@@ -41,6 +42,13 @@ interface Student {
   student_id: string;
   first_name: string;
   last_name: string;
+}
+
+interface Schedule {
+  day: string;
+  start_time: string;
+  end_time: string;
+  room?: string;
 }
 
 interface AttendanceStats {
@@ -162,6 +170,10 @@ export default function AttendanceScreen() {
 
   const markAttendance = async (studentId: string, status: string) => {
     if (!selectedGroup) return;
+    if (!hasClassOnSelectedDate()) {
+      Alert.alert('No class scheduled', 'This group does not have a class on the selected date.');
+      return;
+    }
 
     try {
       await api.post('/attendance', {
@@ -187,6 +199,23 @@ export default function AttendanceScreen() {
   const getGroupStudents = () => {
     if (!selectedGroup) return [];
     return students.filter((s) => selectedGroup.student_ids.includes(s.id));
+  };
+
+  const getSelectedDateDay = () => {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    return date.toLocaleDateString('en-US', { weekday: 'long' });
+  };
+
+  const hasClassOnSelectedDate = () => {
+    if (!selectedGroup) return false;
+    const selectedDay = getSelectedDateDay().toLowerCase();
+    return (selectedGroup.schedule || []).some((session) => session.day.toLowerCase() === selectedDay);
+  };
+
+  const getSelectedDateSessions = () => {
+    if (!selectedGroup) return [];
+    const selectedDay = getSelectedDateDay().toLowerCase();
+    return (selectedGroup.schedule || []).filter((session) => session.day.toLowerCase() === selectedDay);
   };
 
   const getStatusColor = (status: string) => {
@@ -248,6 +277,8 @@ export default function AttendanceScreen() {
 
   const groupStudents = getGroupStudents();
   const todayStats = getTodayStats();
+  const hasClassToday = hasClassOnSelectedDate();
+  const selectedDateSessions = getSelectedDateSessions();
 
   return (
     <View style={styles.container}>
@@ -300,8 +331,22 @@ export default function AttendanceScreen() {
         </TouchableOpacity>
       </View>
 
+      {selectedGroup && hasClassToday && selectedDateSessions.length > 0 && (
+        <View style={styles.sessionStrip}>
+          {selectedDateSessions.map((session, index) => (
+            <View key={`${session.day}-${session.start_time}-${index}`} style={styles.sessionChip}>
+              <Ionicons name="time-outline" size={14} color={COLORS.gold} />
+              <Text style={styles.sessionChipText}>
+                {session.start_time} - {session.end_time}
+                {session.room ? ` • Room ${session.room}` : ''}
+              </Text>
+            </View>
+          ))}
+        </View>
+      )}
+
       {/* Today's Stats */}
-      {selectedGroup && (
+      {selectedGroup && hasClassToday && (
         <View style={styles.statsCard}>
           <View style={styles.statsRow}>
             <View style={styles.statBox}>
@@ -351,7 +396,15 @@ export default function AttendanceScreen() {
         }
       >
         {selectedGroup ? (
-          groupStudents.length > 0 ? (
+          !hasClassToday ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="calendar-outline" size={64} color={COLORS.textTertiary} />
+              <Text style={styles.emptyText}>No class scheduled</Text>
+              <Text style={styles.emptySubtext}>
+                {selectedGroup.name} does not meet on {getSelectedDateDay()}.
+              </Text>
+            </View>
+          ) : groupStudents.length > 0 ? (
             groupStudents.map((student) => (
               <View key={student.id} style={styles.studentCard}>
                 <TouchableOpacity
@@ -676,6 +729,29 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontMd,
     fontWeight: '600',
     color: COLORS.textPrimary,
+  },
+  sessionStrip: {
+    paddingHorizontal: SIZES.md,
+    marginBottom: SIZES.md,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SIZES.sm,
+  },
+  sessionChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusFull,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: SIZES.xs,
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+    gap: SIZES.xs,
+  },
+  sessionChipText: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textPrimary,
+    fontWeight: '600',
   },
   todayBadge: {
     backgroundColor: COLORS.gold,

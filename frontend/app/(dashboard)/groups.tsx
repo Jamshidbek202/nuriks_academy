@@ -403,7 +403,7 @@ export default function GroupsScreen() {
             <View style={styles.groupStats}>
               <View style={styles.statItem}>
                 <Ionicons name="people" size={16} color={COLORS.gold} />
-                <Text style={styles.statValue}>{group.student_ids?.length || 0}</Text>
+                <Text style={styles.statValue}>{getGroupStudents(group.student_ids || []).length}</Text>
                 <Text style={styles.statLabel}>Students</Text>
               </View>
               <View style={styles.statDivider} />
@@ -501,7 +501,7 @@ export default function GroupsScreen() {
                     <View style={styles.infoItem}>
                       <Ionicons name="people" size={20} color={COLORS.gold} />
                       <Text style={styles.infoTitle}>Students</Text>
-                      <Text style={styles.infoValue}>{selectedGroup.student_ids?.length || 0}</Text>
+                      <Text style={styles.infoValue}>{getGroupStudents(selectedGroup.student_ids || []).length}</Text>
                     </View>
                     {selectedGroup.level && (
                       <View style={styles.infoItem}>
@@ -536,7 +536,9 @@ export default function GroupsScreen() {
 
                 <View style={styles.detailSection}>
                   <View style={styles.sectionHeader}>
-                    <Text style={styles.detailLabel}>Students ({selectedGroup.student_ids?.length || 0})</Text>
+                    <Text style={styles.detailLabel}>
+                      Students ({getGroupStudents(selectedGroup.student_ids || []).length})
+                    </Text>
                     {canManageGroupStudents && (
                       <TouchableOpacity style={styles.addStudentBtn} onPress={() => setStudentModalVisible(true)}>
                         <Ionicons name="person-add" size={18} color={COLORS.gold} />

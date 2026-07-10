@@ -16,6 +16,14 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from server import db
     return await get_current_user(credentials, db)
 
+def group_has_class_on_day(group: dict, attendance_day: datetime) -> bool:
+    schedule = group.get("schedule", [])
+    if not schedule:
+        return False
+
+    weekday = attendance_day.strftime("%A").lower()
+    return any(str(item.get("day", "")).lower() == weekday for item in schedule)
+
 @router.post("", response_model=Attendance)
 async def mark_attendance(
     attendance_data: AttendanceBase,
@@ -30,23 +38,46 @@ async def mark_attendance(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        group = await db.groups.find_one({"_id": ObjectId(attendance_data.group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
         # Get teacher ID
         teacher_id = None
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
                 teacher_id = str(teacher["_id"])
+                if (
+                    attendance_data.group_id not in teacher.get("group_ids", [])
+                    and group.get("teacher_id") != teacher_id
+                ):
+                    raise HTTPException(status_code=403, detail="You can only mark attendance for your own groups")
         else:
             # For managers/admins, get teacher from group
-            group = await db.groups.find_one({"_id": ObjectId(attendance_data.group_id)})
-            if group:
-                teacher_id = group["teacher_id"]
+            teacher_id = group["teacher_id"]
         
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
         
         attendance_day = attendance_data.date.replace(hour=0, minute=0, second=0, microsecond=0)
         next_day = attendance_day + timedelta(days=1)
+
+        if not group_has_class_on_day(group, attendance_day):
+            raise HTTPException(status_code=400, detail="This group does not have a class scheduled on this date")
+
+        student = await db.students.find_one({
+            "_id": ObjectId(attendance_data.student_id),
+            "status": {"$ne": "archived"}
+        })
+        if (
+            not student
+            or (
+                attendance_data.group_id not in student.get("group_ids", [])
+                and attendance_data.student_id not in group.get("student_ids", [])
+            )
+        ):
+            raise HTTPException(status_code=400, detail="Student is not active in this group")
 
         # Check if attendance already exists for this student on this calendar date
         existing = await db.attendance.find_one({
