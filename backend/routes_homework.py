@@ -242,6 +242,9 @@ async def grade_homework(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if grade_data.grade < 0 or grade_data.grade > 100:
+            raise HTTPException(status_code=400, detail="Homework grade must be between 0 and 100")
+
         homework = await db.homework.find_one({"_id": ObjectId(grade_data.homework_id)})
         if not homework:
             raise HTTPException(status_code=404, detail="Homework not found")

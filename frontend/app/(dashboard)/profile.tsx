@@ -255,11 +255,13 @@ export default function ProfileScreen() {
               <Text style={styles.menuText}>Notifications</Text>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowHelpModal(true)}>
-              <Ionicons name="help-circle" size={24} color={COLORS.success} />
-              <Text style={styles.menuText}>Help & Support</Text>
-              <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-            </TouchableOpacity>
+            {user?.role !== 'super_admin' && (
+              <TouchableOpacity style={styles.menuItem} onPress={() => setShowHelpModal(true)}>
+                <Ionicons name="help-circle" size={24} color={COLORS.success} />
+                <Text style={styles.menuText}>Help & Support</Text>
+                <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 

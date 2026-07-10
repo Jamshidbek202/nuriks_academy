@@ -62,6 +62,9 @@ async def create_test(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if test_data.max_score <= 0:
+            raise HTTPException(status_code=400, detail="Max score must be greater than 0")
+
         # Get teacher ID
         teacher_id = None
         if current_user["role"] == "teacher":
@@ -157,6 +160,12 @@ async def grade_test(
         if not test:
             raise HTTPException(status_code=404, detail="Test not found")
 
+        max_score = float(test.get("max_score") or 0)
+        if max_score <= 0:
+            raise HTTPException(status_code=400, detail="Test max score is invalid")
+        if grade_data.score < 0 or grade_data.score > max_score:
+            raise HTTPException(status_code=400, detail=f"Score must be between 0 and {max_score:g}")
+
         group = await db.groups.find_one({"_id": ObjectId(test["group_id"])})
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -185,7 +194,7 @@ async def grade_test(
         ):
             raise HTTPException(status_code=400, detail="Student is not active in this group")
         
-        percentage = (grade_data.score / test["max_score"]) * 100
+        percentage = (grade_data.score / max_score) * 100
         
         # Check if student already has a result
         existing = next(

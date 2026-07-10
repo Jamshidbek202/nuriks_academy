@@ -174,8 +174,8 @@ export default function TestsScreen() {
     }
 
     const score = parseFloat(gradeData.score);
-    if (score > selectedTest.max_score) {
-      Alert.alert('Error', `Score cannot exceed max score of ${selectedTest.max_score}`);
+    if (Number.isNaN(score) || score < 0 || score > selectedTest.max_score) {
+      Alert.alert('Error', `Score must be between 0 and ${selectedTest.max_score}`);
       return;
     }
 

@@ -161,16 +161,22 @@ export default function HomeworkScreen() {
       return;
     }
 
+    const grade = parseFloat(gradeData.grade);
+    if (Number.isNaN(grade) || grade < 0 || grade > 100) {
+      Alert.alert('Error', 'Grade must be between 0 and 100');
+      return;
+    }
+
     try {
       await api.post('/homework/grade', {
         homework_id: selectedHomework.id,
         student_id: selectedStudent,
-        grade: parseFloat(gradeData.grade),
+        grade,
         feedback: gradeData.feedback || null,
       });
       const submissionData = {
         student_id: selectedStudent,
-        grade: parseFloat(gradeData.grade),
+        grade,
         feedback: gradeData.feedback || undefined,
         graded_at: new Date().toISOString(),
       };
