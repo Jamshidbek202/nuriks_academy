@@ -142,6 +142,47 @@ async def create_homework(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== DELETE HOMEWORK ====================
+
+@router.delete("/{homework_id}")
+async def delete_homework(
+    homework_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Delete homework (assigned teacher, manager, or super admin)."""
+    from server import db, create_audit_log
+
+    if current_user["role"] not in ["teacher", "manager", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if not ObjectId.is_valid(homework_id):
+        raise HTTPException(status_code=400, detail="Invalid homework ID")
+
+    homework = await db.homework.find_one({"_id": ObjectId(homework_id)})
+    if not homework:
+        raise HTTPException(status_code=404, detail="Homework not found")
+
+    if current_user["role"] == "teacher":
+        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        group = await db.groups.find_one({"_id": ObjectId(homework["group_id"])})
+        if (
+            not teacher
+            or not group
+            or (
+                homework["group_id"] not in teacher.get("group_ids", [])
+                and group.get("teacher_id") != str(teacher["_id"])
+            )
+        ):
+            raise HTTPException(status_code=403, detail="You can only delete homework for your own groups")
+
+    await db.homework.delete_one({"_id": ObjectId(homework_id)})
+    await create_audit_log(
+        str(current_user["_id"]), "delete", "homework", homework_id,
+        {"title": homework.get("title"), "group_id": homework.get("group_id")},
+        request.client.host if request.client else None
+    )
+    return {"message": "Homework deleted successfully"}
+
 # ==================== SUBMIT HOMEWORK ====================
 
 @router.post("/submit")

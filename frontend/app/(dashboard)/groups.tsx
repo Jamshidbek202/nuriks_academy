@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -75,6 +76,7 @@ export default function GroupsScreen() {
   const [studentModalVisible, setStudentModalVisible] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [studentSearchQuery, setStudentSearchQuery] = useState('');
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -96,11 +98,18 @@ export default function GroupsScreen() {
   });
 
   useEffect(() => {
-    loadGroups();
     loadTeachers();
     loadCourses();
-    loadStudents();
   }, []);
+
+  // Groups is a persistent tab, so reload both sides of the membership
+  // relationship whenever it becomes active.
+  useFocusEffect(
+    useCallback(() => {
+      loadGroups();
+      loadStudents();
+    }, [])
+  );
 
   const loadGroups = async () => {
     try {
@@ -297,6 +306,18 @@ export default function GroupsScreen() {
   const getAvailableStudents = () => {
     if (!selectedGroup) return [];
     return students.filter((s) => !selectedGroup.student_ids.includes(s.id));
+  };
+
+  const getFilteredAvailableStudents = () => {
+    const query = studentSearchQuery.trim().toLowerCase();
+    const availableStudents = getAvailableStudents();
+    if (!query) return availableStudents;
+
+    return availableStudents.filter((student) =>
+      `${student.first_name} ${student.last_name} ${student.student_id}`
+        .toLowerCase()
+        .includes(query)
+    );
   };
 
   const getStatusColor = (status: string) => {
@@ -540,7 +561,7 @@ export default function GroupsScreen() {
                       Students ({getGroupStudents(selectedGroup.student_ids || []).length})
                     </Text>
                     {canManageGroupStudents && (
-                      <TouchableOpacity style={styles.addStudentBtn} onPress={() => setStudentModalVisible(true)}>
+                      <TouchableOpacity style={styles.addStudentBtn} onPress={() => { setStudentSearchQuery(''); setStudentModalVisible(true); }}>
                         <Ionicons name="person-add" size={18} color={COLORS.gold} />
                         <Text style={styles.addStudentText}>Add</Text>
                       </TouchableOpacity>
@@ -587,20 +608,38 @@ export default function GroupsScreen() {
         visible={studentModalVisible}
         animationType="slide"
         transparent={true}
-        onRequestClose={() => setStudentModalVisible(false)}
+        onRequestClose={() => { setStudentModalVisible(false); setStudentSearchQuery(''); }}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Student</Text>
-              <TouchableOpacity onPress={() => setStudentModalVisible(false)}>
+              <TouchableOpacity onPress={() => { setStudentModalVisible(false); setStudentSearchQuery(''); }}>
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
 
+            <View style={styles.studentSearchContainer}>
+              <Ionicons name="search" size={20} color={COLORS.textTertiary} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search by name or student ID..."
+                placeholderTextColor={COLORS.textTertiary}
+                value={studentSearchQuery}
+                onChangeText={setStudentSearchQuery}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {studentSearchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setStudentSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={COLORS.textTertiary} />
+                </TouchableOpacity>
+              )}
+            </View>
+
             <ScrollView style={styles.studentList}>
-              {getAvailableStudents().length > 0 ? (
-                getAvailableStudents().map((student) => (
+              {getFilteredAvailableStudents().length > 0 ? (
+                getFilteredAvailableStudents().map((student) => (
                   <TouchableOpacity
                     key={student.id}
                     style={styles.studentSelectItem}
@@ -624,7 +663,11 @@ export default function GroupsScreen() {
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color={COLORS.textTertiary} />
-                  <Text style={styles.emptyText}>All students are already in this group</Text>
+                  <Text style={styles.emptyText}>
+                    {getAvailableStudents().length === 0
+                      ? 'All students are already in this group'
+                      : 'No students match your search'}
+                  </Text>
                 </View>
               )}
             </ScrollView>
@@ -858,6 +901,17 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusMd,
     paddingHorizontal: SIZES.md,
     ...SHADOWS.small,
+  },
+  studentSearchContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.backgroundLight,
+    marginHorizontal: SIZES.lg,
+    marginTop: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    paddingHorizontal: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
   },
   searchIcon: {
     marginRight: SIZES.sm,

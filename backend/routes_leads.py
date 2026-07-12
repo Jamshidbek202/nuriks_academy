@@ -234,6 +234,10 @@ async def convert_lead_to_student(
         
         if lead.get("converted_to_student_id"):
             raise HTTPException(status_code=400, detail="Lead already converted")
+
+        # Older leads may predate branch inheritance. Converted students must
+        # still land in the converting manager/admin's visible branch.
+        student_branch_id = lead.get("branch_id") or current_user.get("branch_id")
         
         # Get next student ID
         result = await db.counters.find_one_and_update(
@@ -275,7 +279,7 @@ async def convert_lead_to_student(
                     "two_factor_enabled": False,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
-                    "branch_id": lead.get("branch_id")
+                    "branch_id": student_branch_id
                 }
                 parent_user_result = await db.users.insert_one(parent_user)
                 
@@ -304,7 +308,7 @@ async def convert_lead_to_student(
             "two_factor_enabled": False,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            "branch_id": lead.get("branch_id")
+            "branch_id": student_branch_id
         }
         student_user_result = await db.users.insert_one(student_user)
         
@@ -331,7 +335,7 @@ async def convert_lead_to_student(
             "group_ids": [],
             "status": "active",
             "enrollment_date": datetime.utcnow(),
-            "branch_id": lead.get("branch_id"),
+            "branch_id": student_branch_id,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -41,9 +42,16 @@ export default function StudentsScreen() {
   });
 
   useEffect(() => {
-    loadStudents();
     loadCourses();
   }, []);
+
+  // Dashboard tabs stay mounted. Refresh on every return so newly converted
+  // leads and status changes are visible without restarting the app.
+  useFocusEffect(
+    useCallback(() => {
+      loadStudents();
+    }, [])
+  );
 
   const loadStudents = async () => {
     try {

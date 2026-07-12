@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -67,6 +67,8 @@ export default function HomeworkScreen() {
   const [selectedHomework, setSelectedHomework] = useState<Homework | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [gradeData, setGradeData] = useState({ grade: '', feedback: '' });
+  const [deletingHomeworkId, setDeletingHomeworkId] = useState<string | null>(null);
+  const homeworkRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
     title: '',
@@ -119,16 +121,50 @@ export default function HomeworkScreen() {
     }
   };
 
-  const loadHomework = async () => {
-    if (!selectedGroup) return;
+  const loadHomework = async (groupId?: string) => {
+    const targetGroupId = groupId || selectedGroup?.id;
+    if (!targetGroupId) return;
+    const requestId = ++homeworkRequestId.current;
     try {
-      const response = await api.get(`/homework/group/${selectedGroup.id}`);
-      setHomeworkList(response.data);
+      const response = await api.get(`/homework/group/${targetGroupId}`, {
+        params: { _: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (requestId === homeworkRequestId.current) {
+        setHomeworkList(response.data);
+      }
     } catch (error) {
       console.error('Error loading homework:', error);
     } finally {
       setRefreshing(false);
     }
+  };
+
+  const deleteHomework = async (homework: Homework) => {
+    if (deletingHomeworkId) return;
+    try {
+      setDeletingHomeworkId(homework.id);
+      await api.delete(`/homework/${homework.id}`);
+      homeworkRequestId.current += 1;
+      setHomeworkList((current) => current.filter((item) => item.id !== homework.id));
+      setDetailModalVisible(false);
+      setSelectedHomework(null);
+      if (selectedGroup) {
+        await loadHomework(selectedGroup.id);
+      }
+      Alert.alert('Success', 'Homework deleted successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete homework');
+    } finally {
+      setDeletingHomeworkId(null);
+    }
+  };
+
+  const handleDeleteHomework = (homework: Homework) => {
+    Alert.alert('Delete Homework', `Delete “${homework.title}”? This cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteHomework(homework) },
+    ]);
   };
 
   const handleCreateHomework = async () => {
@@ -429,6 +465,16 @@ export default function HomeworkScreen() {
                     );
                   })}
                 </View>
+                {canManageHomework && (
+                  <Button
+                    title="Delete Homework"
+                    variant="outline"
+                    loading={deletingHomeworkId === selectedHomework.id}
+                    disabled={Boolean(deletingHomeworkId)}
+                    onPress={() => handleDeleteHomework(selectedHomework)}
+                    style={{ marginTop: SIZES.lg }}
+                  />
+                )}
               </ScrollView>
             )}
           </View>

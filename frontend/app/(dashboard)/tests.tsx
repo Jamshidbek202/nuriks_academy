@@ -77,6 +77,7 @@ export default function TestsScreen() {
   const [isCreating, setIsCreating] = useState(false);
   const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
   const creationKey = useRef('');
+  const testsRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
     test_type: 'mid_test',
@@ -93,7 +94,9 @@ export default function TestsScreen() {
 
   useEffect(() => {
     if (selectedGroup) {
-      loadTests();
+      loadTests(selectedGroup.id, selectedTestType);
+    } else {
+      setTests([]);
     }
   }, [selectedGroup, selectedTestType]);
 
@@ -129,15 +132,23 @@ export default function TestsScreen() {
     }
   };
 
-  const loadTests = async () => {
-    if (!selectedGroup) return;
+  const loadTests = async (groupId?: string, testType: string = selectedTestType) => {
+    const targetGroupId = groupId || selectedGroup?.id;
+    if (!targetGroupId) return;
+    const requestId = ++testsRequestId.current;
     try {
-      let url = `/tests/group/${selectedGroup.id}`;
-      if (selectedTestType !== 'all') {
-        url += `?test_type=${selectedTestType}`;
+      const response = await api.get(`/tests/group/${targetGroupId}`, {
+        params: {
+          ...(testType !== 'all' ? { test_type: testType } : {}),
+          _: Date.now(),
+        },
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      // A slower, older request must not overwrite a mutation or a newer
+      // group/filter selection.
+      if (requestId === testsRequestId.current) {
+        setTests(response.data);
       }
-      const response = await api.get(url);
-      setTests(response.data);
     } catch (error) {
       console.error('Error loading tests:', error);
     } finally {
@@ -154,6 +165,8 @@ export default function TestsScreen() {
 
     try {
       setIsCreating(true);
+      const groupId = selectedGroup.id;
+      const activeFilter = selectedTestType;
       const response = await api.post('/tests', {
         test_type: formData.test_type,
         group_id: selectedGroup.id,
@@ -162,11 +175,12 @@ export default function TestsScreen() {
         test_date: formData.test_date + 'T00:00:00',
         max_score: parseFloat(formData.max_score) || 100,
       }, { headers: { 'Idempotency-Key': creationKey.current } });
+      testsRequestId.current += 1;
       setTests((current) => [response.data, ...current]);
-      Alert.alert('Success', 'Test created successfully');
       setModalVisible(false);
       resetForm();
-      await loadTests();
+      await loadTests(groupId, activeFilter);
+      Alert.alert('Success', 'Test created successfully');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
     } finally {
@@ -179,9 +193,13 @@ export default function TestsScreen() {
     try {
       setDeletingTestId(test.id);
       await api.delete(`/tests/${test.id}`);
+      testsRequestId.current += 1;
       setTests((current) => current.filter((item) => item.id !== test.id));
       setDetailModalVisible(false);
       setSelectedTest(null);
+      if (selectedGroup) {
+        await loadTests(selectedGroup.id, selectedTestType);
+      }
       Alert.alert('Success', 'Test deleted successfully');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to delete test');
