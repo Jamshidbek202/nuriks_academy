@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -74,6 +74,9 @@ export default function TestsScreen() {
   const [selectedTest, setSelectedTest] = useState<Test | null>(null);
   const [selectedStudent, setSelectedStudent] = useState<string>('');
   const [gradeData, setGradeData] = useState({ score: '', notes: '' });
+  const [isCreating, setIsCreating] = useState(false);
+  const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
+  const creationKey = useRef('');
 
   const [formData, setFormData] = useState({
     test_type: 'mid_test',
@@ -143,12 +146,14 @@ export default function TestsScreen() {
   };
 
   const handleCreateTest = async () => {
+    if (isCreating) return;
     if (!selectedGroup || !formData.title || !formData.test_date) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
 
     try {
+      setIsCreating(true);
       const response = await api.post('/tests', {
         test_type: formData.test_type,
         group_id: selectedGroup.id,
@@ -156,7 +161,7 @@ export default function TestsScreen() {
         title: formData.title,
         test_date: formData.test_date + 'T00:00:00',
         max_score: parseFloat(formData.max_score) || 100,
-      });
+      }, { headers: { 'Idempotency-Key': creationKey.current } });
       setTests((current) => [response.data, ...current]);
       Alert.alert('Success', 'Test created successfully');
       setModalVisible(false);
@@ -164,7 +169,32 @@ export default function TestsScreen() {
       await loadTests();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
+    } finally {
+      setIsCreating(false);
     }
+  };
+
+  const deleteTest = async (test: Test) => {
+    if (deletingTestId) return;
+    try {
+      setDeletingTestId(test.id);
+      await api.delete(`/tests/${test.id}`);
+      setTests((current) => current.filter((item) => item.id !== test.id));
+      setDetailModalVisible(false);
+      setSelectedTest(null);
+      Alert.alert('Success', 'Test deleted successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete test');
+    } finally {
+      setDeletingTestId(null);
+    }
+  };
+
+  const handleDeleteTest = (test: Test) => {
+    Alert.alert('Delete Test', `Delete “${test.title}”? This cannot be undone.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteTest(test) },
+    ]);
   };
 
   const handleGradeTest = async () => {
@@ -290,7 +320,7 @@ export default function TestsScreen() {
           <Text style={styles.headerSubtitle}>Mid & End of Course Tests</Text>
         </View>
         {canManageTests && (
-          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); creationKey.current = `${Date.now()}-${Math.random()}`; setModalVisible(true); }}>
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}
@@ -478,6 +508,15 @@ export default function TestsScreen() {
                     </View>
                   );
                 })}
+                {canManageTests && (
+                  <Button
+                    title="Delete Test"
+                    variant="outline"
+                    loading={deletingTestId === selectedTest.id}
+                    onPress={() => handleDeleteTest(selectedTest)}
+                    style={{ marginTop: SIZES.lg }}
+                  />
+                )}
               </ScrollView>
             )}
           </View>
@@ -571,7 +610,7 @@ export default function TestsScreen() {
                 placeholder="100"
               />
 
-              <Button title="Create Test" onPress={handleCreateTest} style={{ marginTop: SIZES.lg }} />
+              <Button title="Create Test" onPress={handleCreateTest} loading={isCreating} disabled={isCreating} style={{ marginTop: SIZES.lg }} />
             </ScrollView>
           </View>
         </View>

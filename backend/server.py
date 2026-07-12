@@ -91,6 +91,9 @@ from database import client
 @app.on_event("startup")
 async def startup_event():
     global scheduler
+    # Sparse keeps legacy tests valid; uniqueness makes repeated create
+    # requests with the same client key atomic.
+    await db.tests.create_index("creation_key", unique=True, sparse=True)
     scheduler = start_scheduler(db)
     logger.info("Application started successfully")
 

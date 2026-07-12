@@ -8,6 +8,7 @@ from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime
 from pydantic import BaseModel
+from pymongo.errors import DuplicateKeyError
 from auth import get_current_user
 
 router = APIRouter(prefix="/tests", tags=["Tests"])
@@ -89,6 +90,7 @@ async def create_test(
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
         
+        idempotency_key = request.headers.get("Idempotency-Key")
         test = {
             "test_type": test_data.test_type,
             "group_id": test_data.group_id,
@@ -101,14 +103,31 @@ async def create_test(
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
-        
-        result = await db.tests.insert_one(test)
+
+        if idempotency_key:
+            test["creation_key"] = f'{current_user["_id"]}:{idempotency_key}'
+            try:
+                result = await db.tests.update_one(
+                    {"creation_key": test["creation_key"]},
+                    {"$setOnInsert": test},
+                    upsert=True
+                )
+            except DuplicateKeyError:
+                existing = await db.tests.find_one({"creation_key": test["creation_key"]})
+                return serialize_doc(existing)
+            if result.upserted_id is None:
+                existing = await db.tests.find_one({"creation_key": test["creation_key"]})
+                return serialize_doc(existing)
+            inserted_id = result.upserted_id
+        else:
+            result = await db.tests.insert_one(test)
+            inserted_id = result.inserted_id
         
         await create_audit_log(
             str(current_user["_id"]),
             "create",
             "test",
-            str(result.inserted_id),
+            str(inserted_id),
             {"title": test_data.title, "type": test_data.test_type},
             request.client.host if request.client else None
         )
@@ -132,13 +151,44 @@ async def create_test(
             import logging
             logging.error(f"Error sending test notifications: {e}")
         
-        test["id"] = str(result.inserted_id)
+        test["id"] = str(inserted_id)
         return serialize_doc(test)
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/{test_id}")
+async def delete_test(
+    test_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Delete a test (assigned teacher, manager, or super admin)."""
+    from server import db, create_audit_log
+
+    if current_user["role"] not in ["teacher", "manager", "super_admin"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if not ObjectId.is_valid(test_id):
+        raise HTTPException(status_code=400, detail="Invalid test ID")
+
+    test = await db.tests.find_one({"_id": ObjectId(test_id)})
+    if not test:
+        raise HTTPException(status_code=404, detail="Test not found")
+
+    if current_user["role"] == "teacher":
+        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        if not teacher or test.get("teacher_id") != str(teacher["_id"]):
+            raise HTTPException(status_code=403, detail="You can only delete your own tests")
+
+    await db.tests.delete_one({"_id": ObjectId(test_id)})
+    await create_audit_log(
+        str(current_user["_id"]), "delete", "test", test_id,
+        {"title": test.get("title")},
+        request.client.host if request.client else None
+    )
+    return {"message": "Test deleted successfully"}
 
 # ==================== GRADE TEST ====================
 

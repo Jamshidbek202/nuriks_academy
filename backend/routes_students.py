@@ -43,6 +43,11 @@ async def create_student(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        # Admin-created students should inherit the creator's branch unless an
+        # explicit branch was selected. Otherwise branch-scoped staff cannot
+        # see the new profile.
+        student_branch_id = student_data.branch_id or current_user.get("branch_id")
+
         # Generate student ID
         student_id = await get_next_student_id(db)
         
@@ -68,7 +73,7 @@ async def create_student(
                     "two_factor_enabled": False,
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow(),
-                    "branch_id": student_data.branch_id
+                    "branch_id": student_branch_id
                 }
                 parent_user_result = await db.users.insert_one(parent_user)
                 
@@ -97,7 +102,7 @@ async def create_student(
             "two_factor_enabled": False,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow(),
-            "branch_id": student_data.branch_id
+            "branch_id": student_branch_id
         }
         student_user_result = await db.users.insert_one(student_user)
         
@@ -117,7 +122,7 @@ async def create_student(
             "group_ids": [],
             "status": "active",
             "enrollment_date": datetime.utcnow(),
-            "branch_id": student_data.branch_id,
+            "branch_id": student_branch_id,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
@@ -172,6 +177,37 @@ async def get_students(
         elif current_user["role"] not in ["super_admin", "parent", "student"]:
             # Non-super admins see only their branch
             query["branch_id"] = current_user.get("branch_id")
+
+        # Teachers must always receive the active students in their assigned
+        # groups. This also handles legacy records whose branch is missing or
+        # differs, while still limiting visibility to the teacher's classes.
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if not teacher:
+                return []
+
+            teacher_id = str(teacher["_id"])
+            teacher_group_ids = [
+                gid for gid in teacher.get("group_ids", []) if ObjectId.is_valid(gid)
+            ]
+            assigned_groups = await db.groups.find({
+                "$or": [
+                    {"_id": {"$in": [ObjectId(gid) for gid in teacher_group_ids]}},
+                    {"teacher_id": teacher_id}
+                ]
+            }).to_list(500)
+            assigned_group_ids = [str(group["_id"]) for group in assigned_groups]
+            assigned_student_ids = {
+                sid
+                for group in assigned_groups
+                for sid in group.get("student_ids", [])
+                if ObjectId.is_valid(sid)
+            }
+            query.pop("branch_id", None)
+            query["$or"] = [
+                {"_id": {"$in": [ObjectId(sid) for sid in assigned_student_ids]}},
+                {"group_ids": {"$in": assigned_group_ids}}
+            ]
         
         # Filter by course
         if course_id:
