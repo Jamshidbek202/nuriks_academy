@@ -7,8 +7,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from auth import get_current_user, generate_unique_id
+from validation import require_date_string_window, require_time_string
 
 router = APIRouter(prefix="/support-bookings", tags=["Support Bookings"])
 support_staff_router = APIRouter(prefix="/support", tags=["Support Staff"])
@@ -19,9 +20,9 @@ class SupportBookingCreate(BaseModel):
     support_staff_id: str
     booking_date: str  # YYYY-MM-DD
     start_time: str    # HH:MM
-    duration_minutes: int = 40  # Max 40 minutes
-    topic: Optional[str] = None
-    notes: Optional[str] = None
+    duration_minutes: int = Field(40, ge=15, le=40)
+    topic: Optional[str] = Field(None, max_length=300)
+    notes: Optional[str] = Field(None, max_length=2000)
 
 class SessionNotesUpdate(BaseModel):
     session_notes: str
@@ -62,6 +63,8 @@ async def create_booking(
         raise HTTPException(status_code=403, detail="Only students can book support sessions")
     
     try:
+        require_date_string_window(booking_data.booking_date, future_days=30, label="Booking date")
+        require_time_string(booking_data.start_time, label="Start time")
         # Validate duration (max 40 minutes)
         if booking_data.duration_minutes > 40:
             raise HTTPException(status_code=400, detail="Maximum booking duration is 40 minutes")
@@ -230,6 +233,7 @@ async def get_available_slots(
     from server import db, serialize_doc
     
     try:
+        require_date_string_window(date, future_days=30, label="Booking date")
         # Get support staff and their available hours
         support_staff = await db.support_staff.find_one({"_id": ObjectId(support_staff_id)})
         if not support_staff:

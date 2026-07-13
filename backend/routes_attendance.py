@@ -8,6 +8,7 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 from models import Attendance, AttendanceBase, AttendanceStatus
 from auth import get_current_user
+from validation import require_date_window
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 security = HTTPBearer()
@@ -62,7 +63,10 @@ async def mark_attendance(
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
         
-        attendance_day = attendance_data.date.replace(hour=0, minute=0, second=0, microsecond=0)
+        attendance_date = require_date_window(
+            attendance_data.date, past_days=366, label="Attendance date"
+        )
+        attendance_day = attendance_date.replace(hour=0, minute=0, second=0, microsecond=0)
         next_day = attendance_day + timedelta(days=1)
 
         if not group_has_class_on_day(group, attendance_day):

@@ -5,12 +5,38 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from models import Group, GroupBase, GroupStatus
 from auth import get_current_user
 
 router = APIRouter(prefix="/groups", tags=["Groups"])
 security = HTTPBearer()
+
+VALID_SCHEDULE_DAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+def validate_group_data(group_data: GroupBase) -> None:
+    for session in group_data.schedule:
+        if session.day.lower() not in VALID_SCHEDULE_DAYS:
+            raise HTTPException(status_code=400, detail="Schedule contains an invalid weekday")
+        try:
+            start = datetime.strptime(session.start_time, "%H:%M")
+            end = datetime.strptime(session.end_time, "%H:%M")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Schedule times must use valid 24-hour HH:MM values")
+        if end <= start:
+            raise HTTPException(status_code=400, detail="Schedule end time must be after start time")
+
+    def normalized(value: Optional[datetime]) -> Optional[datetime]:
+        if value and value.tzinfo is not None:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        return value
+
+    start_date = normalized(group_data.start_date)
+    end_date = normalized(group_data.end_date)
+    if start_date and end_date and end_date < start_date:
+        raise HTTPException(status_code=400, detail="Group end date must be after its start date")
+    if start_date and end_date and end_date - start_date > timedelta(days=3650):
+        raise HTTPException(status_code=400, detail="A group date range cannot exceed 10 years")
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
@@ -29,6 +55,7 @@ async def create_group(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        validate_group_data(group_data)
         teacher_id = group_data.teacher_id
         if not await db.teachers.find_one({"_id": ObjectId(teacher_id)}):
             raise HTTPException(status_code=404, detail="Teacher not found")
@@ -65,6 +92,8 @@ async def create_group(
         
         group["id"] = str(result.inserted_id)
         return serialize_doc(group)
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -158,6 +187,8 @@ async def get_groups(
             result.append(group_data)
 
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -175,6 +206,7 @@ async def update_group(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     try:
+        validate_group_data(group_data)
         existing = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")

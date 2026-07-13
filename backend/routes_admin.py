@@ -211,7 +211,9 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
     
     try:
         # Student statistics
-        total_students = await db.students.count_documents({})
+        current_students = await db.students.count_documents({
+            "status": {"$ne": "archived"}
+        })
         active_students = await db.students.count_documents({"status": "active"})
         graduated_students = await db.students.count_documents({"status": "graduated"})
         frozen_students = await db.students.count_documents({"status": "frozen"})
@@ -285,7 +287,7 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
         
         return {
             "students": {
-                "total": total_students,
+                "total": current_students,
                 "active": active_students,
                 "graduated": graduated_students,
                 "frozen": frozen_students

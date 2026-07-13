@@ -18,6 +18,8 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { dateStringWithOffset } from '../../src/utils/dates';
 
 interface Payment {
   id: string;
@@ -176,6 +178,24 @@ export default function PaymentsScreen() {
   };
 
   const handlePayment = () => {
+    const amount = Number(formData.amount);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 1_000_000_000_000) {
+      Alert.alert('Invalid amount', 'Enter an amount greater than zero and no more than 1 trillion UZS.');
+      return;
+    }
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(formData.month)) {
+      Alert.alert('Invalid month', 'Month must be a real value in YYYY-MM format.');
+      return;
+    }
+    const [year, month] = formData.month.split('-').map(Number);
+    const selectedMonth = year * 12 + month;
+    const now = new Date();
+    const currentMonth = now.getFullYear() * 12 + now.getMonth() + 1;
+    if (selectedMonth < currentMonth - 24 || selectedMonth > currentMonth + 12) {
+      Alert.alert('Invalid month', 'Choose a payment month within the past two years or next year.');
+      return;
+    }
+
     switch (formData.payment_method) {
       case 'cash':
         handleCashPayment();
@@ -416,11 +436,13 @@ export default function PaymentsScreen() {
                 placeholder="500000"
               />
 
-              <Input
-                label="Month (YYYY-MM)"
+              <CalendarDatePicker
+                label="Payment Month"
                 value={formData.month}
-                onChangeText={(text) => setFormData({ ...formData, month: text })}
-                placeholder="2026-06"
+                onChange={(month) => setFormData({ ...formData, month })}
+                minimumDate={dateStringWithOffset(-730)}
+                maximumDate={dateStringWithOffset(365)}
+                mode="month"
               />
 
               <Text style={styles.formLabel}>Payment Method</Text>

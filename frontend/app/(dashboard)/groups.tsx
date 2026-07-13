@@ -239,6 +239,15 @@ export default function GroupsScreen() {
       Alert.alert('Error', 'Please fill in time fields');
       return;
     }
+    const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+    if (!timePattern.test(scheduleForm.start_time) || !timePattern.test(scheduleForm.end_time)) {
+      Alert.alert('Invalid time', 'Use a valid 24-hour time in HH:MM format.');
+      return;
+    }
+    if (scheduleForm.end_time <= scheduleForm.start_time) {
+      Alert.alert('Invalid time range', 'Class end time must be after its start time.');
+      return;
+    }
     setFormData({
       ...formData,
       schedule: [...formData.schedule, { ...scheduleForm }],

@@ -2,13 +2,15 @@
 Routes for Homework Management
 Phase 3: Homework CRUD, Submissions, Grading
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+import math
 from auth import get_current_user
+from validation import require_date_window
 
 router = APIRouter(prefix="/homework", tags=["Homework"])
 security = HTTPBearer()
@@ -35,8 +37,8 @@ async def get_active_group_student_ids(db, group_id: str) -> set[str]:
 
 class HomeworkCreate(BaseModel):
     group_id: str
-    title: str
-    description: str
+    title: str = Field(..., min_length=1, max_length=200)
+    description: str = Field(..., min_length=1, max_length=5000)
     due_date: datetime
     attachments: Optional[List[str]] = []
 
@@ -57,6 +59,7 @@ class HomeworkGrade(BaseModel):
 async def create_homework(
     homework_data: HomeworkCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create homework assignment (Teachers, Managers, Admins)"""
@@ -66,6 +69,10 @@ async def create_homework(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        homework_data.due_date = require_date_window(
+            homework_data.due_date, future_days=730, label="Homework due date"
+        )
+
         # Get teacher ID
         teacher_id = None
         if current_user["role"] == "teacher":
@@ -122,8 +129,8 @@ async def create_homework(
                 if student_ids:
                     from notification_helpers import notify_homework_assigned
                     due_date_str = homework_data.due_date.strftime("%B %d, %Y")
-                    await notify_homework_assigned(
-                        db,
+                    background_tasks.add_task(
+                        notify_homework_assigned, db,
                         student_ids=student_ids,
                         homework_title=homework_data.title,
                         due_date=due_date_str,
@@ -283,7 +290,7 @@ async def grade_homework(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        if grade_data.grade < 0 or grade_data.grade > 100:
+        if not math.isfinite(grade_data.grade) or grade_data.grade < 0 or grade_data.grade > 100:
             raise HTTPException(status_code=400, detail="Homework grade must be between 0 and 100")
 
         homework = await db.homework.find_one({"_id": ObjectId(grade_data.homework_id)})

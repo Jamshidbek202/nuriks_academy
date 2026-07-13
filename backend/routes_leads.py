@@ -7,7 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from auth import get_current_user, get_password_hash
 
 router = APIRouter(prefix="/leads", tags=["CRM"])
@@ -19,21 +19,21 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
 
 # Models
 class LeadCreate(BaseModel):
-    first_name: str
-    last_name: str
-    phone: str
-    age: Optional[int] = None
-    parent_name: Optional[str] = None
+    first_name: str = Field(..., min_length=1, max_length=100)
+    last_name: str = Field(..., min_length=1, max_length=100)
+    phone: str = Field(..., min_length=5, max_length=30)
+    age: Optional[int] = Field(None, ge=1, le=100)
+    parent_name: Optional[str] = Field(None, max_length=200)
     interested_course: Optional[str] = None
     source: str
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=5000)
     branch_id: Optional[str] = None
 
 class LeadUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    age: Optional[int] = None
+    age: Optional[int] = Field(None, ge=1, le=100)
     parent_name: Optional[str] = None
     interested_course: Optional[str] = None
     source: Optional[str] = None

@@ -83,6 +83,7 @@ logger.info("All route modules loaded and registered")
 
 # Start payment reminder scheduler
 from scheduler import start_scheduler
+from student_lifecycle import reconcile_archived_student_accounts
 scheduler = None
 
 # Import client for shutdown
@@ -94,6 +95,15 @@ async def startup_event():
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
     await db.tests.create_index("creation_key", unique=True, sparse=True)
+    await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
+    await db.notifications.create_index([("user_id", 1), ("is_read", 1)])
+    try:
+        reconciliation = await reconcile_archived_student_accounts(db)
+        logger.info("Student account reconciliation completed: %s", reconciliation)
+    except Exception:
+        # A legacy-data repair must not prevent the application from starting.
+        # The archive endpoint enforces the invariant for all future changes.
+        logger.exception("Student account reconciliation failed")
     scheduler = start_scheduler(db)
     logger.info("Application started successfully")
 
@@ -530,7 +540,13 @@ async def get_dashboard_stats(
             branch_query["branch_id"] = current_user.get("branch_id")
         
         # Student counts
-        total_students = await db.students.count_documents(branch_query)
+        # Keep the dashboard total consistent with the default Students list.
+        # Archived profiles are retained for history, but are not current
+        # students and the list hides them unless explicitly requested.
+        current_students = await db.students.count_documents({
+            **branch_query,
+            "status": {"$ne": "archived"}
+        })
         active_students = await db.students.count_documents({**branch_query, "status": "active"})
         frozen_students = await db.students.count_documents({**branch_query, "status": "frozen"})
         graduated_students = await db.students.count_documents({**branch_query, "status": "graduated"})
@@ -559,7 +575,7 @@ async def get_dashboard_stats(
         
         return {
             "students": {
-                "total": total_students,
+                "total": current_students,
                 "active": active_students,
                 "frozen": frozen_students,
                 "graduated": graduated_students,

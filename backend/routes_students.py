@@ -8,6 +8,12 @@ from typing import List, Optional
 from datetime import datetime
 from models import Student, StudentCreate, StudentStatus
 from auth import get_current_user, require_role, generate_student_id, get_password_hash
+from student_lifecycle import (
+    StudentLifecycleConflict,
+    archive_student_account,
+    permanently_delete_student_account,
+    restore_student_account,
+)
 
 router = APIRouter(prefix="/students", tags=["Students"])
 security = HTTPBearer()
@@ -144,7 +150,7 @@ async def create_student(
             {"student_id": student_id},
             request.client.host if request.client else None
         )
-        
+
         student["id"] = str(result.inserted_id)
         return serialize_doc(student)
         
@@ -343,67 +349,134 @@ async def update_student(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+def require_student_manager(current_user: dict, student: dict):
+    """Ensure managers cannot change students belonging to another branch."""
+    if current_user["role"] not in ["super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Only Manager or Super Admin can manage student accounts")
+    if (
+        current_user["role"] == "manager"
+        and student.get("branch_id") != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail="Student belongs to another branch")
+
+
 @router.delete("/{student_id}")
-async def delete_student(
+async def archive_student(
     student_id: str,
     request: Request,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Delete/Archive student (Manager or Super Admin only)"""
+    """Archive a student and deactivate the linked login account."""
     from server import db, create_audit_log
     
-    if current_user["role"] not in ["super_admin", "manager"]:
-        raise HTTPException(status_code=403, detail="Only Manager or Super Admin can delete students")
-    
     try:
-        # Soft delete - change status to archived and remove stale memberships.
-        result = await db.students.update_one(
-            {"_id": ObjectId(student_id)},
-            {
-                "$set": {
-                    "status": "archived",
-                    "group_ids": [],
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        if result.matched_count == 0:
+        if not ObjectId.is_valid(student_id):
             raise HTTPException(status_code=404, detail="Student not found")
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        require_student_manager(current_user, student)
 
-        await db.groups.update_many(
-            {"student_ids": student_id},
-            {"$pull": {"student_ids": student_id}}
+        lifecycle = await archive_student_account(
+            db,
+            student,
+            str(current_user["_id"]),
         )
 
-        await db.tests.update_many(
-            {"results.student_id": student_id},
-            {"$pull": {"results": {"student_id": student_id}}}
-        )
-
-        await db.homework.update_many(
-            {"submissions.student_id": student_id},
-            {"$pull": {"submissions": {"student_id": student_id}}}
-        )
-
-        await db.attendance.delete_many({"student_id": student_id})
-
-        await db.teacher_journal.update_many(
-            {"student_performance.student_id": student_id},
-            {"$pull": {"student_performance": {"student_id": student_id}}}
-        )
-        
         await create_audit_log(
             str(current_user["_id"]),
-            "delete",
+            "archive",
             "student",
             student_id,
-            None,
+            lifecycle,
             request.client.host if request.client else None
         )
-        
-        return {"message": "Student archived successfully"}
-        
+
+        return {"message": "Student archived and login deactivated", **lifecycle}
+
+    except StudentLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.patch("/{student_id}/restore")
+async def restore_student(
+    student_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Restore an archived student and reactivate the linked login account."""
+    from server import db, create_audit_log
+
+    try:
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=404, detail="Student not found")
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        require_student_manager(current_user, student)
+
+        lifecycle = await restore_student_account(
+            db,
+            student,
+            str(current_user["_id"]),
+        )
+        await create_audit_log(
+            str(current_user["_id"]),
+            "restore",
+            "student",
+            student_id,
+            lifecycle,
+            request.client.host if request.client else None,
+        )
+        return {"message": "Student restored successfully", **lifecycle}
+
+    except StudentLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{student_id}/permanent")
+async def permanently_delete_student(
+    student_id: str,
+    confirmation: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Permanently delete an unused archived student (Super Admin only)."""
+    from server import db, create_audit_log
+
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete students")
+
+    try:
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=404, detail="Student not found")
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+        if confirmation.strip() != student.get("student_id"):
+            raise HTTPException(status_code=400, detail="Type the exact student ID to confirm permanent deletion")
+
+        lifecycle = await permanently_delete_student_account(db, student)
+        await create_audit_log(
+            str(current_user["_id"]),
+            "permanent_delete",
+            "student",
+            student_id,
+            {"student_id": student.get("student_id"), **lifecycle},
+            request.client.host if request.client else None,
+        )
+        return {"message": "Student permanently deleted", **lifecycle}
+
+    except StudentLifecycleConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except HTTPException:
         raise
     except Exception as e:

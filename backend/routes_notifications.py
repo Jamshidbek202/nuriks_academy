@@ -32,6 +32,7 @@ class NotificationCreate(BaseModel):
     target_user_ids: Optional[List[str]] = None  # Target specific users
 
 class NotificationPreferences(BaseModel):
+    chat_notifications: bool = True
     payment_reminders: bool = True
     homework_notifications: bool = True
     test_notifications: bool = True
@@ -39,10 +40,79 @@ class NotificationPreferences(BaseModel):
     news_announcements: bool = True
     admin_broadcasts: bool = True
 
+NOTIFICATION_CATEGORIES = {
+    "chat_message": "chat",
+    "homework_assigned": "academic",
+    "test_scheduled": "academic",
+    "lesson_reminder": "academic",
+    "grade": "academic",
+    "attendance": "academic",
+    "certificate": "academic",
+    "payment_reminder": "payments",
+    "payment_received": "payments",
+    "news_announcement": "news",
+    "admin_broadcast": "system",
+}
+
+PREFERENCE_BY_TYPE = {
+    "chat_message": "chat_notifications",
+    "homework_assigned": "homework_notifications",
+    "test_scheduled": "test_notifications",
+    "lesson_reminder": "lesson_reminders",
+    "payment_reminder": "payment_reminders",
+    "payment_received": "payment_reminders",
+    "news_announcement": "news_announcements",
+    "admin_broadcast": "admin_broadcasts",
+}
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     from auth import get_current_user
     return await get_current_user(credentials, db)
+
+async def create_user_notification(
+    db,
+    user_id: str,
+    title: str,
+    message: str,
+    notification_type: str,
+    data: Optional[dict] = None,
+    preference_key: Optional[str] = None,
+    send_push: bool = True,
+):
+    """Respect preferences, persist an inbox item, and optionally send push."""
+    user_id = str(user_id)
+    preference_key = preference_key or PREFERENCE_BY_TYPE.get(notification_type)
+    prefs = await db.notification_preferences.find_one({"user_id": user_id})
+    if preference_key and prefs and not prefs.get(preference_key, True):
+        return None
+
+    now = datetime.utcnow()
+    document = {
+        "user_id": user_id,
+        "title": title,
+        "message": message,
+        "type": notification_type,
+        "category": NOTIFICATION_CATEGORIES.get(notification_type, "system"),
+        "data": data or {},
+        "is_read": False,
+        "read_at": None,
+        "created_at": now,
+        "sent_at": now,
+    }
+    result = await db.notifications.insert_one(document)
+
+    if send_push:
+        tokens = await get_user_tokens(user_id, db)
+        if tokens:
+            await send_expo_push_notification(tokens, title, message, {
+                **(data or {}),
+                "type": notification_type,
+                "notification_id": str(result.inserted_id),
+            })
+
+    document["_id"] = result.inserted_id
+    return document
 
 # ==================== DEVICE TOKEN MANAGEMENT ====================
 
@@ -122,6 +192,7 @@ async def get_notification_preferences(
         return NotificationPreferences().dict()
     
     return {
+        "chat_notifications": prefs.get("chat_notifications", True),
         "payment_reminders": prefs.get("payment_reminders", True),
         "homework_notifications": prefs.get("homework_notifications", True),
         "test_notifications": prefs.get("test_notifications", True),
@@ -150,6 +221,81 @@ async def update_notification_preferences(
     )
     
     return {"message": "Preferences updated successfully"}
+
+# ==================== PERSONAL NOTIFICATION INBOX ====================
+
+@router.get("")
+async def get_my_notifications(
+    category: Optional[str] = None,
+    unread_only: bool = False,
+    sort: str = "newest",
+    skip: int = 0,
+    limit: int = 100,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Return only the signed-in user's inbox notifications."""
+    from server import db, serialize_doc
+
+    if category and category not in {"chat", "academic", "payments", "news", "system"}:
+        raise HTTPException(status_code=400, detail="Invalid notification category")
+    if sort not in {"newest", "oldest"}:
+        raise HTTPException(status_code=400, detail="Sort must be newest or oldest")
+
+    query = {"user_id": str(current_user["_id"])}
+    if category:
+        legacy_types = [notification_type for notification_type, mapped_category in NOTIFICATION_CATEGORIES.items() if mapped_category == category]
+        query["$or"] = [{"category": category}, {"category": {"$exists": False}, "type": {"$in": legacy_types}}]
+    if unread_only:
+        query["is_read"] = False
+
+    safe_limit = min(max(limit, 1), 200)
+    notifications = await db.notifications.find(query).sort(
+        "created_at", -1 if sort == "newest" else 1
+    ).skip(max(skip, 0)).limit(safe_limit).to_list(safe_limit)
+    for notification in notifications:
+        notification.setdefault("category", NOTIFICATION_CATEGORIES.get(notification.get("type"), "system"))
+    return [serialize_doc(notification) for notification in notifications]
+
+@router.get("/unread-count")
+async def get_unread_notification_count(current_user: dict = Depends(get_current_user_dep)):
+    from server import db
+    count = await db.notifications.count_documents({
+        "user_id": str(current_user["_id"]), "is_read": False,
+    })
+    return {"count": count}
+
+@router.patch("/{notification_id}/read")
+async def mark_notification_read(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+    if not ObjectId.is_valid(notification_id):
+        raise HTTPException(status_code=400, detail="Invalid notification ID")
+    result = await db.notifications.update_one(
+        {"_id": ObjectId(notification_id), "user_id": str(current_user["_id"])},
+        {"$set": {"is_read": True, "read_at": datetime.utcnow()}},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    return {"message": "Notification marked as read"}
+
+@router.post("/read-all")
+async def mark_all_notifications_read(
+    category: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+    query = {"user_id": str(current_user["_id"]), "is_read": False}
+    if category:
+        if category not in {"chat", "academic", "payments", "news", "system"}:
+            raise HTTPException(status_code=400, detail="Invalid notification category")
+        legacy_types = [notification_type for notification_type, mapped_category in NOTIFICATION_CATEGORIES.items() if mapped_category == category]
+        query["$or"] = [{"category": category}, {"category": {"$exists": False}, "type": {"$in": legacy_types}}]
+    result = await db.notifications.update_many(
+        query, {"$set": {"is_read": True, "read_at": datetime.utcnow()}},
+    )
+    return {"message": "Notifications marked as read", "updated_count": result.modified_count}
 
 # ==================== SEND NOTIFICATIONS ====================
 
@@ -239,22 +385,12 @@ async def send_notification(
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    tokens = []
-    
-    if notification.target_user_ids:
-        for user_id in notification.target_user_ids:
-            user_tokens = await get_user_tokens(user_id, db)
-            tokens.extend(user_tokens)
-    
+    recipient_ids = set(notification.target_user_ids or [])
     if notification.target_roles:
-        role_tokens = await get_tokens_by_role(notification.target_roles, db)
-        tokens.extend(role_tokens)
-    
-    # Remove duplicates
-    tokens = list(set(tokens))
-    
-    if not tokens:
-        return {"message": "No registered devices found", "sent_count": 0}
+        users = await db.users.find({
+            "role": {"$in": notification.target_roles}, "is_active": True,
+        }).to_list(5000)
+        recipient_ids.update(str(user["_id"]) for user in users)
     
     # Save notification to history
     notif_doc = {
@@ -264,21 +400,20 @@ async def send_notification(
         "target_roles": notification.target_roles,
         "target_user_ids": notification.target_user_ids,
         "sent_by": str(current_user["_id"]),
-        "sent_count": len(tokens),
+        "sent_count": len(recipient_ids),
         "created_at": datetime.utcnow()
     }
     await db.notification_history.insert_one(notif_doc)
     
-    # Send in background
-    background_tasks.add_task(
-        send_expo_push_notification,
-        tokens,
-        notification.title,
-        notification.body,
-        notification.data
-    )
-    
-    return {"message": "Notification queued", "sent_count": len(tokens)}
+    delivered = 0
+    for user_id in recipient_ids:
+        saved = await create_user_notification(
+            db, user_id, notification.title, notification.body,
+            "admin_broadcast", notification.data, preference_key="admin_broadcasts",
+        )
+        delivered += int(saved is not None)
+
+    return {"message": "Notification delivered", "sent_count": delivered}
 
 @router.post("/broadcast")
 async def broadcast_notification(
@@ -292,12 +427,7 @@ async def broadcast_notification(
     if current_user["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Super Admin access required")
     
-    # Get all active tokens
-    all_tokens = await db.push_tokens.find({"is_active": True}).to_list(10000)
-    tokens = [t["token"] for t in all_tokens]
-    
-    if not tokens:
-        return {"message": "No registered devices found", "sent_count": 0}
+    users = await db.users.find({"is_active": True}).to_list(10000)
     
     # Save to history
     notif_doc = {
@@ -306,20 +436,20 @@ async def broadcast_notification(
         "data": notification.data,
         "type": "broadcast",
         "sent_by": str(current_user["_id"]),
-        "sent_count": len(tokens),
+        "sent_count": len(users),
         "created_at": datetime.utcnow()
     }
     await db.notification_history.insert_one(notif_doc)
     
-    background_tasks.add_task(
-        send_expo_push_notification,
-        tokens,
-        notification.title,
-        notification.body,
-        notification.data
-    )
-    
-    return {"message": "Broadcast notification queued", "sent_count": len(tokens)}
+    delivered = 0
+    for user in users:
+        saved = await create_user_notification(
+            db, str(user["_id"]), notification.title, notification.body,
+            "admin_broadcast", notification.data, preference_key="admin_broadcasts",
+        )
+        delivered += int(saved is not None)
+
+    return {"message": "Broadcast delivered", "sent_count": delivered}
 
 @router.get("/history")
 async def get_notification_history(
@@ -426,16 +556,9 @@ async def test_notification(
     """Send a test notification to the current user"""
     from server import db
     
-    tokens = await get_user_tokens(str(current_user["_id"]), db)
-    
-    if not tokens:
-        return {"message": "No push tokens registered for this user", "success": False}
-    
-    result = await send_expo_push_notification(
-        tokens,
-        "🔔 Test Notification",
+    result = await create_user_notification(
+        db, str(current_user["_id"]), "🔔 Test Notification",
         "This is a test notification from Nurik's Academy",
-        {"type": "test"}
+        "admin_broadcast", {"test": True}, preference_key=None,
     )
-    
-    return {"message": "Test notification sent", "tokens_count": len(tokens), "result": result}
+    return {"message": "Test notification sent", "success": result is not None}

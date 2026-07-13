@@ -28,6 +28,7 @@ import {
 type PreferenceKey = keyof NotificationPrefsType;
 
 const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPrefsType = {
+  chat_notifications: true,
   payment_reminders: true,
   homework_notifications: true,
   test_notifications: true,
@@ -40,6 +41,12 @@ const NOTIFICATION_OPTIONS: Record<
   PreferenceKey,
   { icon: string; title: string; description: string; roles: string[] }
 > = {
+  chat_notifications: {
+    icon: 'chatbubble-outline',
+    title: 'Chat Messages',
+    description: 'New messages from your conversations',
+    roles: ['student', 'parent', 'teacher', 'support', 'manager', 'super_admin'],
+  },
   payment_reminders: {
     icon: 'wallet-outline',
     title: 'Payment Reminders',

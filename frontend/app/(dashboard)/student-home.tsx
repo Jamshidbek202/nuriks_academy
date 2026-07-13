@@ -17,6 +17,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 
 interface StudentProfile {
   id: string;
@@ -78,6 +79,7 @@ export default function StudentHomeScreen() {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { user } = useAuth();
   const router = useRouter();
+  const unreadCount = useUnreadNotifications();
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
@@ -153,8 +155,12 @@ export default function StudentHomeScreen() {
         setSupportStaff([]);
       }
 
-      // Load notifications (placeholder)
-      setNotifications([]);
+      try {
+        const notificationRes = await api.get('/notifications', { params: { limit: 20 } });
+        setNotifications(notificationRes.data);
+      } catch (e) {
+        setNotifications([]);
+      }
 
     } catch (error) {
       console.error('Error loading student data:', error);
@@ -253,8 +259,6 @@ export default function StudentHomeScreen() {
     return dates;
   };
 
-  const unreadCount = notifications.filter(n => !n.is_read).length;
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -276,7 +280,7 @@ export default function StudentHomeScreen() {
         </View>
         <TouchableOpacity
           style={styles.notificationButton}
-          onPress={() => setNotificationModalVisible(true)}
+          onPress={() => router.push('/(dashboard)/notifications')}
         >
           <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
           {unreadCount > 0 && (

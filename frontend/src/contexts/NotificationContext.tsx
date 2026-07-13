@@ -3,6 +3,8 @@ import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
 import { useAuth } from './AuthContext';
+import { api } from '../services/api';
+import { WebNotificationToast, WebToastNotification } from '../components/WebNotificationToast';
 
 interface NotificationContextType {
   expoPushToken: string | null;
@@ -17,6 +19,8 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
     priority: Notifications.AndroidNotificationPriority.HIGH,
@@ -27,11 +31,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [expoPushToken, setExpoPushToken] = useState<string | null>(null);
   const [notification, setNotification] = useState<Notifications.Notification | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
-  const notificationListener = useRef<Notifications.Subscription>();
-  const responseListener = useRef<Notifications.Subscription>();
+  const [webToasts, setWebToasts] = useState<WebToastNotification[]>([]);
+  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
   const appState = useRef(AppState.currentState);
   const router = useRouter();
   const { user, pushToken } = useAuth();
+  const knownWebNotificationIds = useRef(new Set<string>());
+  const webInboxInitialized = useRef(false);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -67,6 +74,48 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       subscription.remove();
     };
   }, [pushToken]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !user) {
+      setWebToasts([]);
+      knownWebNotificationIds.current.clear();
+      webInboxInitialized.current = false;
+      return undefined;
+    }
+
+    let cancelled = false;
+    const pollInbox = async () => {
+      try {
+        const response = await api.get('/notifications', {
+          params: { sort: 'newest', limit: 30, _: Date.now() },
+        });
+        if (cancelled) return;
+
+        const inbox = response.data as WebToastNotification[];
+        if (!webInboxInitialized.current) {
+          inbox.forEach((item) => knownWebNotificationIds.current.add(item.id));
+          webInboxInitialized.current = true;
+          return;
+        }
+
+        const arrivals = inbox.filter((item) => !knownWebNotificationIds.current.has(item.id));
+        inbox.forEach((item) => knownWebNotificationIds.current.add(item.id));
+        if (arrivals.length > 0) {
+          // Reverse API's newest-first order so simultaneous events animate chronologically.
+          setWebToasts((current) => [...current, ...arrivals.reverse()].slice(-4));
+        }
+      } catch (error) {
+        console.error('Unable to check for new web notifications:', error);
+      }
+    };
+
+    void pollInbox();
+    const timer = setInterval(pollInbox, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [user]);
 
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
     if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
@@ -149,6 +198,14 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }}
     >
       {children}
+      {Platform.OS === 'web' && webToasts.map((toast, index) => (
+        <WebNotificationToast
+          key={toast.id}
+          notification={toast}
+          index={index}
+          onDismiss={(id) => setWebToasts((current) => current.filter((item) => item.id !== id))}
+        />
+      ))}
     </NotificationContext.Provider>
   );
 };

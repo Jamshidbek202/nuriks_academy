@@ -18,6 +18,8 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { dateStringWithOffset, todayDateString } from '../../src/utils/dates';
 
 interface StudentPerformance {
   student_id: string;
@@ -65,7 +67,7 @@ export default function JournalScreen() {
   const [isEditing, setIsEditing] = useState(false);
 
   const [formData, setFormData] = useState({
-    lesson_date: new Date().toISOString().split('T')[0],
+    lesson_date: todayDateString(),
     lesson_number: 1,
     topic: '',
     materials_covered: '',
@@ -136,6 +138,16 @@ export default function JournalScreen() {
       return;
     }
 
+    if (formData.lesson_date < dateStringWithOffset(-366) || formData.lesson_date > todayDateString()) {
+      Alert.alert('Invalid lesson date', 'Lesson dates must be within the past year and cannot be in the future.');
+      return;
+    }
+
+    if (!Number.isInteger(formData.lesson_number) || formData.lesson_number < 1 || formData.lesson_number > 10000) {
+      Alert.alert('Invalid lesson number', 'Lesson number must be between 1 and 10,000.');
+      return;
+    }
+
     try {
       const payload = {
         group_id: selectedGroup.id,
@@ -181,7 +193,7 @@ export default function JournalScreen() {
 
   const resetForm = () => {
     setFormData({
-      lesson_date: new Date().toISOString().split('T')[0],
+      lesson_date: todayDateString(),
       lesson_number: 1,
       topic: '',
       materials_covered: '',
@@ -415,11 +427,12 @@ export default function JournalScreen() {
             <ScrollView style={styles.modalForm}>
               <View style={styles.formRow}>
                 <View style={{ flex: 1 }}>
-                  <Input
+                  <CalendarDatePicker
                     label="Lesson Date"
                     value={formData.lesson_date}
-                    onChangeText={(text) => setFormData({ ...formData, lesson_date: text })}
-                    placeholder="YYYY-MM-DD"
+                    onChange={(date) => setFormData({ ...formData, lesson_date: date })}
+                    minimumDate={dateStringWithOffset(-366)}
+                    maximumDate={todayDateString()}
                   />
                 </View>
                 <View style={{ width: 100, marginLeft: SIZES.sm }}>

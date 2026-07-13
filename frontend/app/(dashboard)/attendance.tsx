@@ -16,6 +16,8 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { dateStringWithOffset, todayDateString, toLocalDateString } from '../../src/utils/dates';
 
 interface AttendanceRecord {
   id: string;
@@ -74,7 +76,7 @@ export default function AttendanceScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(todayDateString());
   const [markingModalVisible, setMarkingModalVisible] = useState(false);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [statsModalVisible, setStatsModalVisible] = useState(false);
@@ -246,9 +248,12 @@ export default function AttendanceScreen() {
   };
 
   const changeDate = (days: number) => {
-    const currentDate = new Date(selectedDate);
+    const currentDate = new Date(`${selectedDate}T00:00:00`);
     currentDate.setDate(currentDate.getDate() + days);
-    setSelectedDate(currentDate.toISOString().split('T')[0]);
+    const nextDate = toLocalDateString(currentDate);
+    if (nextDate >= dateStringWithOffset(-366) && nextDate <= todayDateString()) {
+      setSelectedDate(nextDate);
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -321,20 +326,18 @@ export default function AttendanceScreen() {
 
       {/* Date Navigator */}
       <View style={styles.dateNavigator}>
-        <TouchableOpacity style={styles.navButton} onPress={() => changeDate(-1)}>
-          <Ionicons name="chevron-back" size={24} color={COLORS.textPrimary} />
+        <TouchableOpacity style={styles.navButton} disabled={selectedDate <= dateStringWithOffset(-366)} onPress={() => changeDate(-1)}>
+          <Ionicons name="chevron-back" size={24} color={selectedDate <= dateStringWithOffset(-366) ? COLORS.textTertiary : COLORS.textPrimary} />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.dateDisplay}>
-          <Ionicons name="calendar" size={20} color={COLORS.gold} />
-          <Text style={styles.dateText}>{formatDate(selectedDate)}</Text>
-          {selectedDate === new Date().toISOString().split('T')[0] && (
-            <View style={styles.todayBadge}>
-              <Text style={styles.todayText}>Today</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.navButton} onPress={() => changeDate(1)}>
-          <Ionicons name="chevron-forward" size={24} color={COLORS.textPrimary} />
+        <CalendarDatePicker
+          value={selectedDate}
+          onChange={setSelectedDate}
+          minimumDate={dateStringWithOffset(-366)}
+          maximumDate={todayDateString()}
+          style={{ flex: 1, marginBottom: 0, borderWidth: 0, backgroundColor: 'transparent' }}
+        />
+        <TouchableOpacity style={styles.navButton} disabled={selectedDate >= todayDateString()} onPress={() => changeDate(1)}>
+          <Ionicons name="chevron-forward" size={24} color={selectedDate >= todayDateString() ? COLORS.textTertiary : COLORS.textPrimary} />
         </TouchableOpacity>
       </View>
 

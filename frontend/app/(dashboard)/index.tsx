@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 
 // Import role-specific screens
 import ParentHomeScreen from './parent-home';
@@ -24,6 +25,7 @@ import StudentHomeScreen from './student-home';
 export default function DashboardHome() {
   const { user } = useAuth();
   const router = useRouter();
+  const unreadNotifications = useUnreadNotifications();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -101,9 +103,10 @@ export default function DashboardHome() {
               <Text style={styles.userName}>{user.full_name}</Text>
               <Text style={styles.userRole}>{user.role.replace('_', ' ').toUpperCase()}</Text>
             </View>
-            <View style={styles.logoSmall}>
-              <Text style={styles.logoSmallText}>NA</Text>
-            </View>
+            <TouchableOpacity style={styles.logoSmall} onPress={() => router.push('/(dashboard)/notifications')}>
+              <Ionicons name="notifications" size={23} color={COLORS.gold} />
+              {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
+            </TouchableOpacity>
           </View>
         </LinearGradient>
 
@@ -117,7 +120,7 @@ export default function DashboardHome() {
           <View style={styles.statsGrid}>
             <StatCard
               icon="people"
-              title="Total Students"
+              title="Current Students"
               value={stats?.students?.total || 0}
               color={COLORS.gold}
             />
@@ -211,7 +214,7 @@ export default function DashboardHome() {
           <View>
             <Text style={styles.greeting}>Welcome,</Text>
             <Text style={styles.userName}>{user?.full_name}</Text>
-            <Text style={styles.userRole}>{user?.role?.toUpperCase()}</Text>
+            <Text style={styles.userRole}>{String(user?.role || '').toUpperCase()}</Text>
           </View>
           <View style={styles.logoSmall}>
             <Text style={styles.logoSmallText}>NA</Text>
@@ -305,6 +308,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  unreadBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, alignItems: 'center', justifyContent: 'center' },
+  unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   logoSmallText: {
     fontSize: 20,
     fontWeight: 'bold',

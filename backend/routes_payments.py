@@ -7,8 +7,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime, timedelta
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from auth import get_current_user
+from validation import require_month_window
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 security = HTTPBearer()
@@ -28,14 +29,46 @@ async def get_next_payment_id(db):
     )
     return generate_unique_id("PAY", result["seq"])
 
+async def notify_payment_parties(db, payment: dict):
+    """Create preference-aware payment receipts for the student and parent."""
+    try:
+        from routes_notifications import create_user_notification
+        student = await db.students.find_one({"_id": ObjectId(payment["student_id"])})
+        if not student:
+            return
+        student_name = f"{student.get('first_name', '')} {student.get('last_name', '')}".strip()
+        amount = float(payment.get("amount", 0))
+        data = {"student_id": str(student["_id"]), "payment_id": str(payment.get("_id", ""))}
+        if student.get("user_id"):
+            await create_user_notification(
+                db, student["user_id"], "✅ Payment Received",
+                f"Your payment of {amount:,.0f} UZS has been processed.",
+                "payment_received", data, preference_key="payment_reminders",
+            )
+        parent_id = student.get("parent_id")
+        if parent_id:
+            parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
+            parent = await db.parents.find_one({"_id": parent_key})
+        else:
+            parent = await db.parents.find_one({"student_ids": str(student["_id"])})
+        if parent and parent.get("user_id"):
+            await create_user_notification(
+                db, parent["user_id"], "✅ Payment Received",
+                f"Payment of {amount:,.0f} UZS for {student_name} has been processed.",
+                "payment_received", data, preference_key="payment_reminders",
+            )
+    except Exception as exc:
+        import logging
+        logging.error(f"Unable to send payment receipt notification: {exc}")
+
 # ==================== PAYMENT MODELS ====================
 
 class CashPaymentCreate(BaseModel):
     student_id: str
-    amount: float
+    amount: float = Field(..., gt=0, le=1_000_000_000_000)
     payment_type: str = "monthly_fee"
-    month: str  # YYYY-MM
-    notes: Optional[str] = None
+    month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    notes: Optional[str] = Field(None, max_length=2000)
 
 class PaymentResponse(BaseModel):
     id: str
@@ -54,17 +87,17 @@ class PaymentResponse(BaseModel):
 
 class ClickPaymentInit(BaseModel):
     student_id: str
-    amount: float
+    amount: float = Field(..., gt=0, le=1_000_000_000_000)
     payment_type: str = "monthly_fee"
-    month: str
-    return_url: str
+    month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    return_url: str = Field(..., min_length=1, max_length=2000)
 
 class PaymePaymentInit(BaseModel):
     student_id: str
-    amount: float
+    amount: float = Field(..., gt=0, le=1_000_000_000_000)
     payment_type: str = "monthly_fee"
-    month: str
-    return_url: str
+    month: str = Field(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$")
+    return_url: str = Field(..., min_length=1, max_length=2000)
 
 # ==================== CASH PAYMENTS ====================
 
@@ -81,6 +114,7 @@ async def create_cash_payment(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        require_month_window(payment_data.month)
         student = await db.students.find_one({
             "_id": ObjectId(payment_data.student_id),
             "status": {"$ne": "archived"}
@@ -118,10 +152,14 @@ async def create_cash_payment(
             {"student_id": payment_data.student_id, "amount": payment_data.amount, "method": "cash"},
             request.client.host if request.client else None
         )
+        payment["_id"] = payment_result.inserted_id
+        await notify_payment_parties(db, payment)
         
         payment["id"] = str(payment_result.inserted_id)
         return serialize_doc(payment)
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -137,6 +175,7 @@ async def init_click_payment(
     import os
     
     try:
+        require_month_window(payment_data.month)
         student = await db.students.find_one({
             "_id": ObjectId(payment_data.student_id),
             "status": {"$ne": "archived"}
@@ -179,6 +218,8 @@ async def init_click_payment(
             "merchant_trans_id": str(payment_result.inserted_id)
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -215,6 +256,9 @@ async def click_payment_callback(request: Request):
                     }
                 }
             )
+            if payment.get("payment_status") != "completed":
+                payment["_id"] = ObjectId(payment_id)
+                await notify_payment_parties(db, payment)
             return {"error": 0, "error_note": "Success"}
         else:
             # Payment failed
@@ -230,6 +274,8 @@ async def click_payment_callback(request: Request):
             )
             return {"error": data.get("error"), "error_note": data.get("error_note")}
             
+    except HTTPException:
+        raise
     except Exception as e:
         return {"error": -1, "error_note": str(e)}
 
@@ -246,6 +292,7 @@ async def init_payme_payment(
     import base64
     
     try:
+        require_month_window(payment_data.month)
         student = await db.students.find_one({
             "_id": ObjectId(payment_data.student_id),
             "status": {"$ne": "archived"}
@@ -292,6 +339,8 @@ async def init_payme_payment(
             "merchant_trans_id": str(payment_result.inserted_id)
         }
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -337,6 +386,7 @@ async def payme_payment_callback(request: Request):
             # Perform transaction
             account = data.get("params", {}).get("account", {})
             order_id = account.get("order_id")
+            previous_payment = await db.payments.find_one({"_id": ObjectId(order_id)})
             
             await db.payments.update_one(
                 {"_id": ObjectId(order_id)},
@@ -349,6 +399,9 @@ async def payme_payment_callback(request: Request):
                     }
                 }
             )
+            payment = await db.payments.find_one({"_id": ObjectId(order_id)})
+            if payment and previous_payment and previous_payment.get("payment_status") != "completed":
+                await notify_payment_parties(db, payment)
             
             return {
                 "result": {

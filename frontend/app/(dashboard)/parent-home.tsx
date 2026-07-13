@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 
 interface Child {
   id: string;
@@ -50,6 +51,7 @@ interface Notification {
 export default function ParentHomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const unreadNotifications = useUnreadNotifications();
   const [child, setChild] = useState<Child | null>(null);
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
@@ -127,8 +129,6 @@ export default function ParentHomeScreen() {
     }
   };
 
-  const unreadNotifications = notifications.filter(n => !n.is_read).length;
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -147,7 +147,7 @@ export default function ParentHomeScreen() {
         </View>
         <TouchableOpacity
           style={styles.notificationButton}
-          onPress={() => setNotificationModalVisible(true)}
+          onPress={() => router.push('/(dashboard)/notifications')}
         >
           <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
           {unreadNotifications > 0 && (

@@ -35,40 +35,34 @@ async def send_payment_reminders(db):
             })
             
             if not payment:
-                # Student hasn't paid - send notification
-                notification = {
-                    "user_id": student["user_id"],
-                    "title": "Payment Reminder",
-                    "message": f"Your payment for {current_month} is pending. Please complete your payment as soon as possible.",
-                    "type": "payment_reminder",
-                    "data": {
-                        "student_id": str(student["_id"]),
-                        "month": current_month
-                    },
-                    "is_read": False,
-                    "sent_at": datetime.utcnow(),
-                    "created_at": datetime.utcnow()
-                }
-                await db.notifications.insert_one(notification)
+                from routes_notifications import create_user_notification
+                data = {"student_id": str(student["_id"]), "month": current_month}
+                await create_user_notification(
+                    db, student["user_id"], "Payment Reminder",
+                    f"Your payment for {current_month} is pending. Please complete your payment as soon as possible.",
+                    "payment_reminder", data, preference_key="payment_reminders",
+                )
                 
                 # Also notify parent if exists
                 if student.get("parent_id"):
-                    parent = await db.parents.find_one({"_id": student["parent_id"]})
+                    from bson import ObjectId
+                    parent_id = student["parent_id"]
+                    parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
+                    parent = await db.parents.find_one({"_id": parent_key})
                     if parent:
-                        parent_notification = {
-                            "user_id": parent["user_id"],
-                            "title": "Payment Reminder",
-                            "message": f"Payment reminder for {student['first_name']} {student['last_name']} for {current_month} is pending.",
-                            "type": "payment_reminder",
-                            "data": {
-                                "student_id": str(student["_id"]),
-                                "month": current_month
-                            },
-                            "is_read": False,
-                            "sent_at": datetime.utcnow(),
-                            "created_at": datetime.utcnow()
-                        }
-                        await db.notifications.insert_one(parent_notification)
+                        await create_user_notification(
+                            db, parent["user_id"], "Payment Reminder",
+                            f"Payment for {student['first_name']} {student['last_name']} for {current_month} is pending.",
+                            "payment_reminder", data, preference_key="payment_reminders",
+                        )
+                else:
+                    parent = await db.parents.find_one({"student_ids": str(student["_id"])})
+                    if parent and parent.get("user_id"):
+                        await create_user_notification(
+                            db, parent["user_id"], "Payment Reminder",
+                            f"Payment for {student['first_name']} {student['last_name']} for {current_month} is pending.",
+                            "payment_reminder", data, preference_key="payment_reminders",
+                        )
                 
                 unpaid_count += 1
         

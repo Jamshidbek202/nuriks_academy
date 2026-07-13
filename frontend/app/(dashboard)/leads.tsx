@@ -106,10 +106,16 @@ export default function LeadsScreen() {
       return;
     }
 
+    const age = formData.age ? Number(formData.age) : null;
+    if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) {
+      showAlert('Invalid age', 'Age must be a whole number between 1 and 100.');
+      return;
+    }
+
     try {
       await api.post('/leads', {
         ...formData,
-        age: formData.age ? parseInt(formData.age) : null,
+        age,
       });
       showAlert('Success', 'Lead created successfully');
       setModalVisible(false);
@@ -830,6 +836,6 @@ const styles = StyleSheet.create({
   successButtonText: {
     fontSize: SIZES.fontMd,
     fontWeight: 'bold',
-    color: COLORS.white,
+    color: '#FFFFFF',
   },
 });

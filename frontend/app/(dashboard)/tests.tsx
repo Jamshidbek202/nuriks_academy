@@ -19,6 +19,8 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { dateStringWithOffset, todayDateString } from '../../src/utils/dates';
 
 interface TestResult {
   student_id: string;
@@ -84,7 +86,7 @@ export default function TestsScreen() {
   const [formData, setFormData] = useState({
     test_type: 'mid_test',
     title: '',
-    test_date: new Date().toISOString().split('T')[0],
+    test_date: todayDateString(),
     max_score: '100',
   });
 
@@ -167,6 +169,17 @@ export default function TestsScreen() {
       return;
     }
 
+    if (formData.test_date < todayDateString() || formData.test_date > dateStringWithOffset(730)) {
+      Alert.alert('Invalid test date', 'Choose a test date from today through the next two years.');
+      return;
+    }
+
+    const maxScore = Number(formData.max_score);
+    if (!Number.isFinite(maxScore) || maxScore < 1 || maxScore > 10000) {
+      Alert.alert('Invalid max score', 'Max score must be between 1 and 10,000.');
+      return;
+    }
+
     try {
       setIsCreating(true);
       const groupId = selectedGroup.id;
@@ -177,14 +190,16 @@ export default function TestsScreen() {
         course_id: selectedGroup.course_id,
         title: formData.title,
         test_date: formData.test_date + 'T00:00:00',
-        max_score: parseFloat(formData.max_score) || 100,
+        max_score: maxScore,
       }, { headers: { 'Idempotency-Key': creationKey.current } });
       testsRequestId.current += 1;
-      setTests((current) => [response.data, ...current]);
+      if (activeFilter === 'all' || response.data.test_type === activeFilter) {
+        setTests((current) => [response.data, ...current]);
+      }
       setModalVisible(false);
       resetForm();
-      await loadTests(groupId, activeFilter);
       Alert.alert('Success', 'Test created successfully');
+      void loadTests(groupId, activeFilter);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
     } finally {
@@ -275,7 +290,7 @@ export default function TestsScreen() {
   };
 
   const resetForm = () => {
-    setFormData({ test_type: 'mid_test', title: '', test_date: new Date().toISOString().split('T')[0], max_score: '100' });
+    setFormData({ test_type: 'mid_test', title: '', test_date: todayDateString(), max_score: '100' });
   };
 
   const getStudentName = (studentId: string) => {
@@ -624,11 +639,12 @@ export default function TestsScreen() {
                 placeholder="e.g., Unit 5 Test"
               />
 
-              <Input
-                label="Test Date * (YYYY-MM-DD)"
+              <CalendarDatePicker
+                label="Test Date *"
                 value={formData.test_date}
-                onChangeText={(text) => setFormData({ ...formData, test_date: text })}
-                placeholder="2026-06-30"
+                onChange={(date) => setFormData({ ...formData, test_date: date })}
+                minimumDate={todayDateString()}
+                maximumDate={dateStringWithOffset(730)}
               />
 
               <Input

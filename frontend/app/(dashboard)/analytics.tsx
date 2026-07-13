@@ -86,7 +86,7 @@ export default function AnalyticsScreen() {
         {/* Student Statistics */}
         <Text style={styles.sectionTitle}>Student Statistics</Text>
         <View style={styles.statsGrid}>
-          <StatCard icon="people" label="Total Students" value={analytics?.students.total || 0} color={COLORS.info} />
+          <StatCard icon="people" label="Current Students" value={analytics?.students.total || 0} color={COLORS.info} />
           <StatCard icon="checkmark-circle" label="Active" value={analytics?.students.active || 0} color={COLORS.success} />
           <StatCard icon="school" label="Graduated" value={analytics?.students.graduated || 0} color={COLORS.gold} />
           <StatCard icon="pause-circle" label="Frozen" value={analytics?.students.frozen || 0} color={COLORS.warning} />

@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 
 interface Group {
   id: string;
@@ -39,6 +40,7 @@ interface Student {
 export default function TeacherHomeScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const unreadNotifications = useUnreadNotifications();
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
@@ -129,9 +131,10 @@ export default function TeacherHomeScreen() {
           <Text style={styles.greeting}>Welcome, Teacher</Text>
           <Text style={styles.subtitle}>{user?.full_name || 'Teacher Portal'}</Text>
         </View>
-        <View style={styles.headerBadge}>
-          <Ionicons name="school" size={24} color={COLORS.gold} />
-        </View>
+        <TouchableOpacity style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
+          <Ionicons name="notifications" size={24} color={COLORS.gold} />
+          {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -257,6 +260,8 @@ const styles = StyleSheet.create({
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   headerBadge: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
+  unreadBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, alignItems: 'center', justifyContent: 'center' },
+  unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   content: { flex: 1, padding: SIZES.md },
   statsRow: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
   statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },

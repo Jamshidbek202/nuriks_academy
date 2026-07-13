@@ -621,21 +621,21 @@ async def send_message(
             "conversation_id": conversation_id
         }, other_id)
         
-        # Send push notification if user is not online (WebSocket not connected)
-        if other_id not in manager.active_connections:
-            try:
-                from notification_helpers import notify_chat_message
-                sender_name = current_user.get("full_name", "Someone")
-                await notify_chat_message(
-                    db,
-                    sender_id=user_id,
-                    recipient_id=other_id,
-                    sender_name=sender_name,
-                    message_preview=message_data.content,
-                    conversation_id=conversation_id
-                )
-            except Exception as e:
-                logger.error(f"Error sending chat notification: {e}")
+        # Always add the recipient's inbox item; only push when they are offline.
+        try:
+            from notification_helpers import notify_chat_message
+            sender_name = current_user.get("full_name", "Someone")
+            await notify_chat_message(
+                db,
+                sender_id=user_id,
+                recipient_id=other_id,
+                sender_name=sender_name,
+                message_preview=message_data.content,
+                conversation_id=conversation_id,
+                send_push=other_id not in manager.active_connections,
+            )
+        except Exception as e:
+            logger.error(f"Error sending chat notification: {e}")
     
     return serialize_doc(message)
 

@@ -2,14 +2,16 @@
 Routes for Testing Module
 Phase 3: Mid Tests, End of Course Tests, Grading, Progress Tracking
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+import math
 from pymongo.errors import DuplicateKeyError
 from auth import get_current_user
+from validation import require_date_window
 
 router = APIRouter(prefix="/tests", tags=["Tests"])
 security = HTTPBearer()
@@ -35,18 +37,18 @@ async def get_active_group_student_ids(db, group_id: str) -> set[str]:
     return {str(student["_id"]) for student in students}
 
 class TestCreate(BaseModel):
-    test_type: str  # "mid_test" or "end_of_course"
+    test_type: Literal["mid_test", "end_of_course"]
     group_id: str
     course_id: str
-    title: str
+    title: str = Field(..., min_length=1, max_length=200)
     test_date: datetime
-    max_score: float
+    max_score: float = Field(..., ge=1, le=10000)
 
 class TestGrade(BaseModel):
     test_id: str
     student_id: str
     score: float
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
 # ==================== CREATE TEST ====================
 
@@ -54,6 +56,7 @@ class TestGrade(BaseModel):
 async def create_test(
     test_data: TestCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create test (Teachers, Managers, Admins)"""
@@ -63,8 +66,11 @@ async def create_test(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        if test_data.max_score <= 0:
-            raise HTTPException(status_code=400, detail="Max score must be greater than 0")
+        if not math.isfinite(test_data.max_score):
+            raise HTTPException(status_code=400, detail="Max score must be a finite number")
+        test_data.test_date = require_date_window(
+            test_data.test_date, future_days=730, label="Test date"
+        )
 
         # Get teacher ID
         teacher_id = None
@@ -140,8 +146,8 @@ async def create_test(
                 if student_ids:
                     from notification_helpers import notify_test_scheduled
                     test_date_str = test_data.test_date.strftime("%B %d, %Y at %I:%M %p")
-                    await notify_test_scheduled(
-                        db,
+                    background_tasks.add_task(
+                        notify_test_scheduled, db,
                         student_ids=student_ids,
                         test_title=test_data.title,
                         test_date=test_date_str,
@@ -213,7 +219,7 @@ async def grade_test(
         max_score = float(test.get("max_score") or 0)
         if max_score <= 0:
             raise HTTPException(status_code=400, detail="Test max score is invalid")
-        if grade_data.score < 0 or grade_data.score > max_score:
+        if not math.isfinite(grade_data.score) or grade_data.score < 0 or grade_data.score > max_score:
             raise HTTPException(status_code=400, detail=f"Score must be between 0 and {max_score:g}")
 
         group = await db.groups.find_one({"_id": ObjectId(test["group_id"])})

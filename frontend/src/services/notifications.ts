@@ -12,12 +12,15 @@ import api from './api';
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
     shouldPlaySound: true,
     shouldSetBadge: true,
   }),
 });
 
 export interface NotificationPreferences {
+  chat_notifications: boolean;
   payment_reminders: boolean;
   homework_notifications: boolean;
   test_notifications: boolean;
@@ -138,6 +141,7 @@ export async function getNotificationPreferences(): Promise<NotificationPreferen
   } catch (error) {
     console.error('Error getting notification preferences:', error);
     return {
+      chat_notifications: true,
       payment_reminders: true,
       homework_notifications: true,
       test_notifications: true,

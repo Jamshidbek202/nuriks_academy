@@ -26,6 +26,7 @@ export default function NotificationPreferencesScreen() {
   const [saving, setSaving] = useState(false);
   const [testingSending, setTestingSending] = useState(false);
   const [preferences, setPreferences] = useState<NotificationPrefsType>({
+    chat_notifications: true,
     payment_reminders: true,
     homework_notifications: true,
     test_notifications: true,
@@ -175,6 +176,14 @@ export default function NotificationPreferencesScreen() {
         {/* Notification Preferences */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Notification Types</Text>
+
+          <PreferenceItem
+            icon="chatbubble-outline"
+            title="Chat Messages"
+            description="Get notified when someone sends you a message"
+            value={preferences.chat_notifications}
+            onToggle={() => handleToggle('chat_notifications')}
+          />
 
           <PreferenceItem
             icon="wallet-outline"

@@ -27,8 +27,9 @@ export default function StudentsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('current');
   const [courses, setCourses] = useState([]);
   
   const [formData, setFormData] = useState({
@@ -45,17 +46,11 @@ export default function StudentsScreen() {
     loadCourses();
   }, []);
 
-  // Dashboard tabs stay mounted. Refresh on every return so newly converted
-  // leads and status changes are visible without restarting the app.
-  useFocusEffect(
-    useCallback(() => {
-      loadStudents();
-    }, [])
-  );
-
-  const loadStudents = async () => {
+  const loadStudents = useCallback(async () => {
     try {
-      const response = await api.get('/students');
+      const response = await api.get('/students', {
+        params: statusFilter === 'current' ? undefined : { status: statusFilter },
+      });
       setStudents(response.data);
     } catch (error) {
       console.error('Error loading students:', error);
@@ -64,7 +59,15 @@ export default function StudentsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [statusFilter]);
+
+  // Dashboard tabs stay mounted. Refresh on every return so newly converted
+  // leads and status changes are visible without restarting the app.
+  useFocusEffect(
+    useCallback(() => {
+      loadStudents();
+    }, [loadStudents])
+  );
 
   const loadCourses = async () => {
     try {
@@ -107,7 +110,7 @@ export default function StudentsScreen() {
     }
   };
 
-  const deleteStudent = async (student: any) => {
+  const archiveStudent = async (student: any) => {
     const previousStudents = students;
     setStudents((currentStudents) =>
       currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
@@ -123,33 +126,95 @@ export default function StudentsScreen() {
       Alert.alert('Success', 'Student archived successfully');
     } catch (error: any) {
       setStudents(previousStudents);
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete student');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to archive student');
     }
   };
 
-  const handleDeleteStudent = (student: any) => {
+  const handleArchiveStudent = (student: any) => {
     if (Platform.OS === 'web') {
       const confirmed = window.confirm(
-        `Are you sure you want to archive ${student.first_name} ${student.last_name}?`
+        `Archive ${student.first_name} ${student.last_name}? Their login will be disabled, but academic history will be preserved.`
       );
       if (confirmed) {
-        deleteStudent(student);
+        archiveStudent(student);
       }
       return;
     }
 
     Alert.alert(
-      'Delete Student',
-      `Are you sure you want to archive ${student.first_name} ${student.last_name}?`,
+      'Archive Student',
+      `Archive ${student.first_name} ${student.last_name}? Their login will be disabled, but academic history will be preserved.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Delete',
+          text: 'Archive',
           style: 'destructive',
-          onPress: () => deleteStudent(student),
+          onPress: () => archiveStudent(student),
         },
       ]
     );
+  };
+
+  const restoreStudent = async (student: any) => {
+    const previousStudents = students;
+    setStudents((currentStudents) =>
+      currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
+    );
+
+    try {
+      await api.patch(`/students/${student.id}/restore`);
+      if (selectedStudent?.id === student.id) {
+        setModalVisible(false);
+        resetForm();
+      }
+      await loadStudents();
+      Alert.alert('Success', 'Student and login account restored successfully');
+    } catch (error: any) {
+      setStudents(previousStudents);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to restore student');
+    }
+  };
+
+  const handleRestoreStudent = (student: any) => {
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm(
+        `Restore ${student.first_name} ${student.last_name} and reactivate their login?`
+      );
+      if (confirmed) {
+        restoreStudent(student);
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Restore Student',
+      `Restore ${student.first_name} ${student.last_name} and reactivate their login?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Restore', onPress: () => restoreStudent(student) },
+      ]
+    );
+  };
+
+  const handlePermanentDelete = async (student: any) => {
+    if (Platform.OS !== 'web' || user?.role !== 'super_admin') return;
+
+    const confirmation = window.prompt(
+      `Permanent deletion cannot be undone. Type ${student.student_id} to continue. Students with historical records cannot be permanently deleted.`
+    );
+    if (confirmation === null) return;
+
+    try {
+      await api.delete(`/students/${student.id}/permanent`, {
+        params: { confirmation: confirmation.trim() },
+      });
+      setStudents((currentStudents) =>
+        currentStudents.filter((currentStudent) => currentStudent.id !== student.id)
+      );
+      Alert.alert('Success', 'Student permanently deleted');
+    } catch (error: any) {
+      Alert.alert('Deletion blocked', error.response?.data?.detail || 'Failed to permanently delete student');
+    }
   };
 
   const openEditModal = (student: any) => {
@@ -208,7 +273,9 @@ export default function StudentsScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.headerTitle}>Students</Text>
-          <Text style={styles.headerSubtitle}>{students.length} total students</Text>
+          <Text style={styles.headerSubtitle}>
+            {students.length} {statusFilter === 'current' ? 'current' : statusFilter} students
+          </Text>
         </View>
       </View>
 
@@ -221,6 +288,21 @@ export default function StudentsScreen() {
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+      </View>
+
+      <View style={styles.filterContainer}>
+        <Picker
+          selectedValue={statusFilter}
+          onValueChange={(value) => setStatusFilter(String(value))}
+          style={styles.filterPicker}
+          dropdownIconColor={COLORS.gold}
+        >
+          <Picker.Item label="Current students" value="current" />
+          <Picker.Item label="Active" value="active" />
+          <Picker.Item label="Frozen" value="frozen" />
+          <Picker.Item label="Graduated" value="graduated" />
+          <Picker.Item label="Archived" value="archived" />
+        </Picker>
       </View>
 
       <ScrollView
@@ -254,15 +336,41 @@ export default function StudentsScreen() {
                   </View>
                 </View>
               </View>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  handleDeleteStudent(student);
-                }}
-              >
-                <Ionicons name="trash-outline" size={20} color={COLORS.error} />
-              </TouchableOpacity>
+              {student.status !== 'archived' && (
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleArchiveStudent(student);
+                  }}
+                >
+                  <Ionicons name="archive-outline" size={20} color={COLORS.error} />
+                </TouchableOpacity>
+              )}
+              {student.status === 'archived' && (
+                <View style={styles.archivedActions}>
+                  <TouchableOpacity
+                    style={styles.restoreButton}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleRestoreStudent(student);
+                    }}
+                  >
+                    <Ionicons name="refresh-outline" size={21} color={COLORS.success} />
+                  </TouchableOpacity>
+                  {Platform.OS === 'web' && user?.role === 'super_admin' && (
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handlePermanentDelete(student);
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           </TouchableOpacity>
         ))}
@@ -392,6 +500,18 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
   },
+  filterContainer: {
+    backgroundColor: COLORS.backgroundCard,
+    marginHorizontal: SIZES.md,
+    marginBottom: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    overflow: 'hidden',
+    ...SHADOWS.small,
+  },
+  filterPicker: {
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundCard,
+  },
   list: {
     flex: 1,
     paddingHorizontal: SIZES.md,
@@ -450,6 +570,13 @@ const styles = StyleSheet.create({
   },
   deleteButton: {
     padding: SIZES.sm,
+  },
+  restoreButton: {
+    padding: SIZES.sm,
+  },
+  archivedActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,

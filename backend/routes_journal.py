@@ -6,8 +6,9 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from auth import get_current_user
+from validation import require_date_window
 
 router = APIRouter(prefix="/journal", tags=["Journal"])
 security = HTTPBearer()
@@ -34,16 +35,16 @@ async def get_active_group_student_ids(db, group_id: str) -> set[str]:
 
 class StudentPerformance(BaseModel):
     student_id: str
-    participation: int  # 1-5
-    notes: Optional[str] = None
+    participation: int = Field(..., ge=1, le=5)
+    notes: Optional[str] = Field(None, max_length=1000)
 
 class JournalEntryCreate(BaseModel):
     group_id: str
     lesson_date: datetime
-    lesson_number: int
-    topic: str
-    materials_covered: str
-    homework_assigned: Optional[str] = None
+    lesson_number: int = Field(..., ge=1, le=10000)
+    topic: str = Field(..., min_length=1, max_length=300)
+    materials_covered: str = Field(..., min_length=1, max_length=5000)
+    homework_assigned: Optional[str] = Field(None, max_length=5000)
     student_performance: List[StudentPerformance] = []
 
 class JournalEntry(BaseModel):
@@ -72,6 +73,9 @@ async def create_journal_entry(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        entry_data.lesson_date = require_date_window(
+            entry_data.lesson_date, past_days=366, label="Lesson date"
+        )
         # Get teacher ID
         teacher_id = None
         if current_user["role"] == "teacher":
@@ -160,6 +164,9 @@ async def update_journal_entry(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        entry_data.lesson_date = require_date_window(
+            entry_data.lesson_date, past_days=366, label="Lesson date"
+        )
         update_data = {
             "lesson_date": entry_data.lesson_date,
             "lesson_number": entry_data.lesson_number,

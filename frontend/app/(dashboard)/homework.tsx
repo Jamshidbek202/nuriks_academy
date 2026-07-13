@@ -19,6 +19,8 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { dateStringWithOffset, todayDateString } from '../../src/utils/dates';
 
 interface Submission {
   student_id: string;
@@ -173,6 +175,11 @@ export default function HomeworkScreen() {
   const handleCreateHomework = async () => {
     if (!selectedGroup || !formData.title || !formData.description || !formData.due_date) {
       Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+
+    if (formData.due_date < todayDateString() || formData.due_date > dateStringWithOffset(730)) {
+      Alert.alert('Invalid due date', 'Choose a due date from today through the next two years.');
       return;
     }
 
@@ -550,11 +557,13 @@ export default function HomeworkScreen() {
                 numberOfLines={4}
               />
 
-              <Input
-                label="Due Date * (YYYY-MM-DD)"
+              <CalendarDatePicker
+                label="Due Date *"
                 value={formData.due_date}
-                onChangeText={(text) => setFormData({ ...formData, due_date: text })}
-                placeholder="2026-06-30"
+                onChange={(date) => setFormData({ ...formData, due_date: date })}
+                minimumDate={todayDateString()}
+                maximumDate={dateStringWithOffset(730)}
+                placeholder="Choose a due date"
               />
 
               <Button title="Create Homework" onPress={handleCreateHomework} style={{ marginTop: SIZES.lg }} />

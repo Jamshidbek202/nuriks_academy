@@ -10,6 +10,7 @@ import {
   ScrollView,
   Alert,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
@@ -67,9 +68,12 @@ export default function LoginScreen() {
         >
           {/* Logo Section */}
           <View style={styles.logoSection}>
-            <View style={styles.logoCircle}>
-              <Text style={styles.logoText}>NA</Text>
-            </View>
+            <Image
+              source={require('../assets/images/logo.png')}
+              style={styles.logoImage}
+              resizeMode="cover"
+              accessibilityLabel="Nurik's Academy logo"
+            />
             <Text style={styles.academyName}>Nurik{"'"}s Academy</Text>
             <Text style={styles.tagline}>Excellence in Education</Text>
           </View>
@@ -159,20 +163,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: SIZES.xxl,
   },
-  logoCircle: {
+  logoImage: {
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: COLORS.gold,
-    justifyContent: 'center',
-    alignItems: 'center',
     marginBottom: SIZES.md,
     ...SHADOWS.large,
-  },
-  logoText: {
-    fontSize: 40,
-    fontWeight: 'bold',
-    color: COLORS.marbleDark,
   },
   academyName: {
     fontSize: SIZES.fontXxl,

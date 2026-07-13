@@ -11,11 +11,13 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 
 interface Booking {
   id: string;
@@ -44,6 +46,8 @@ interface Student {
 }
 
 export default function SupportHomeScreen() {
+  const router = useRouter();
+  const unreadNotifications = useUnreadNotifications();
   const { user } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -194,9 +198,10 @@ export default function SupportHomeScreen() {
           <Text style={styles.greeting}>Welcome, Support</Text>
           <Text style={styles.subtitle}>{user?.full_name || 'Support Portal'}</Text>
         </View>
-        <View style={styles.headerBadge}>
-          <Ionicons name="headset" size={24} color={COLORS.gold} />
-        </View>
+        <TouchableOpacity style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
+          <Ionicons name="notifications" size={24} color={COLORS.gold} />
+          {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
+        </TouchableOpacity>
       </View>
 
       {/* Stats */}
@@ -450,6 +455,8 @@ const styles = StyleSheet.create({
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   headerBadge: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
+  unreadBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, alignItems: 'center', justifyContent: 'center' },
+  unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   statsRow: { flexDirection: 'row', padding: SIZES.md, gap: SIZES.sm },
   statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
   statValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.xs },
