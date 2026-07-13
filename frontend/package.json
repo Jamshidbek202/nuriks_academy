@@ -10,6 +10,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "build": "expo export -p web",
+    "postbuild": "node ./scripts/copy-web-routing.js",
     "lint": "expo lint"
   },
   "dependencies": {

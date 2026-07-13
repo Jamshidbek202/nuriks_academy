@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -17,6 +18,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface TestResult {
   student_id: string;
@@ -93,12 +95,8 @@ export default function TestsScreen() {
   }, []);
 
   useEffect(() => {
-    if (selectedGroup) {
-      loadTests(selectedGroup.id, selectedTestType);
-    } else {
-      setTests([]);
-    }
-  }, [selectedGroup, selectedTestType]);
+    if (!selectedGroup) setTests([]);
+  }, [selectedGroup]);
 
   const loadGroups = async () => {
     try {
@@ -156,6 +154,12 @@ export default function TestsScreen() {
     }
   };
 
+  useLiveRefresh(
+    () => loadTests(selectedGroup?.id, selectedTestType),
+    Boolean(selectedGroup),
+    `${selectedGroup?.id ?? ''}:${selectedTestType}`,
+  );
+
   const handleCreateTest = async () => {
     if (isCreating) return;
     if (!selectedGroup || !formData.title || !formData.test_date) {
@@ -209,6 +213,13 @@ export default function TestsScreen() {
   };
 
   const handleDeleteTest = (test: Test) => {
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete “${test.title}”? This cannot be undone.`)) {
+        void deleteTest(test);
+      }
+      return;
+    }
+
     Alert.alert('Delete Test', `Delete “${test.title}”? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteTest(test) },

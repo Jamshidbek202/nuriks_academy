@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
@@ -17,6 +18,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Submission {
   student_id: string;
@@ -83,20 +85,8 @@ export default function HomeworkScreen() {
   }, []);
 
   useEffect(() => {
-    if (selectedGroup) {
-      loadHomework();
-    }
+    if (!selectedGroup) setHomeworkList([]);
   }, [selectedGroup]);
-
-  useEffect(() => {
-    if (!selectedGroup) return;
-
-    const refreshTimer = setInterval(() => {
-      loadHomework();
-    }, 15000);
-
-    return () => clearInterval(refreshTimer);
-  }, [selectedGroup?.id]);
 
   const loadGroups = async () => {
     try {
@@ -140,6 +130,12 @@ export default function HomeworkScreen() {
     }
   };
 
+  useLiveRefresh(
+    () => loadHomework(selectedGroup?.id),
+    Boolean(selectedGroup),
+    selectedGroup?.id,
+  );
+
   const deleteHomework = async (homework: Homework) => {
     if (deletingHomeworkId) return;
     try {
@@ -161,6 +157,13 @@ export default function HomeworkScreen() {
   };
 
   const handleDeleteHomework = (homework: Homework) => {
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete “${homework.title}”? This cannot be undone.`)) {
+        void deleteHomework(homework);
+      }
+      return;
+    }
+
     Alert.alert('Delete Homework', `Delete “${homework.title}”? This cannot be undone.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: () => deleteHomework(homework) },
@@ -181,6 +184,7 @@ export default function HomeworkScreen() {
         due_date: formData.due_date + 'T23:59:59',
         attachments: formData.attachments,
       });
+      homeworkRequestId.current += 1;
       setHomeworkList((current) => [response.data, ...current]);
       Alert.alert('Success', 'Homework created successfully');
       setModalVisible(false);
