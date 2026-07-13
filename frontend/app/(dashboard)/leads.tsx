@@ -10,11 +10,11 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
-import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 
 // Cross-platform alert helper
@@ -23,7 +23,6 @@ const showAlert = (title: string, message: string, onOk?: () => void) => {
     window.alert(`${title}\n\n${message}`);
     if (onOk) onOk();
   } else {
-    const { Alert } = require('react-native');
     Alert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
   }
 };
@@ -44,8 +43,7 @@ const LEAD_STATUSES = [
 ];
 
 export default function LeadsScreen() {
-  const { user } = useAuth();
-  const [leads, setLeads] = useState([]);
+  const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -160,6 +158,33 @@ export default function LeadsScreen() {
     }
   };
 
+  const deleteLead = async (lead: any) => {
+    try {
+      await api.delete(`/leads/${lead.id}`);
+      setLeads((currentLeads: any[]) =>
+        currentLeads.filter((currentLead) => currentLead.id !== lead.id)
+      );
+      showAlert('Success', 'Lead deleted successfully');
+    } catch (error: any) {
+      showAlert('Deletion blocked', error.response?.data?.detail || 'Failed to delete lead');
+    }
+  };
+
+  const handleDeleteLead = (lead: any) => {
+    const message = `Delete ${lead.first_name} ${lead.last_name} from CRM? This cannot be undone.`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) {
+        deleteLead(lead);
+      }
+      return;
+    }
+
+    Alert.alert('Delete Lead', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => deleteLead(lead) },
+    ]);
+  };
+
   const resetForm = () => {
     setFormData({
       first_name: '',
@@ -240,6 +265,18 @@ export default function LeadsScreen() {
                   <Text style={styles.leadSource}>{lead.source}</Text>
                 </View>
               </View>
+              {!lead.converted_to_student_id && lead.status !== 'enrolled' && (
+                <TouchableOpacity
+                  style={styles.deleteLeadButton}
+                  accessibilityLabel={`Delete ${lead.first_name} ${lead.last_name}`}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    handleDeleteLead(lead);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                </TouchableOpacity>
+              )}
             </View>
             
             {lead.status !== 'enrolled' && lead.status !== 'lost' && (
@@ -562,6 +599,10 @@ const styles = StyleSheet.create({
   },
   leadInfo: {
     flex: 1,
+  },
+  deleteLeadButton: {
+    padding: SIZES.sm,
+    marginLeft: SIZES.sm,
   },
   leadName: {
     fontSize: SIZES.fontMd,

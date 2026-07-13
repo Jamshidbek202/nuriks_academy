@@ -17,6 +17,17 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     from server import db
     return await get_current_user(credentials, db)
 
+
+def require_lead_access(current_user: dict, lead: dict):
+    """Restrict managers to CRM records belonging to their own branch."""
+    if current_user.get("role") not in ["super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if (
+        current_user.get("role") == "manager"
+        and lead.get("branch_id") != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail="Lead belongs to another branch")
+
 # Models
 class LeadCreate(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
@@ -55,6 +66,12 @@ async def create_lead(
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if (
+        current_user["role"] == "manager"
+        and lead_data.branch_id
+        and lead_data.branch_id != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail="Cannot create a lead for another branch")
     
     try:
         # Get next lead ID
@@ -80,7 +97,11 @@ async def create_lead(
             "assigned_to": str(current_user["_id"]),
             "trial_lesson_date": None,
             "converted_to_student_id": None,
-            "branch_id": lead_data.branch_id or current_user.get("branch_id"),
+            "branch_id": (
+                lead_data.branch_id
+                if current_user["role"] == "super_admin"
+                else current_user.get("branch_id")
+            ),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
@@ -99,6 +120,8 @@ async def create_lead(
         lead["id"] = str(lead_result.inserted_id)
         return serialize_doc(lead)
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -132,15 +155,19 @@ async def get_leads(
         if assigned_to:
             query["assigned_to"] = assigned_to
         
-        if branch_id:
-            query["branch_id"] = branch_id
-        elif current_user["role"] != "super_admin":
+        if current_user["role"] != "super_admin":
+            if branch_id and branch_id != current_user.get("branch_id"):
+                raise HTTPException(status_code=403, detail="Cannot view another branch's leads")
             query["branch_id"] = current_user.get("branch_id")
+        elif branch_id:
+            query["branch_id"] = branch_id
         
         leads = await db.leads.find(query).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
         
         return [serialize_doc(l) for l in leads]
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -156,9 +183,12 @@ async def get_lead(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=404, detail="Lead not found")
         lead = await db.leads.find_one({"_id": ObjectId(lead_id)})
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        require_lead_access(current_user, lead)
         
         return serialize_doc(lead)
         
@@ -183,9 +213,12 @@ async def update_lead(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=404, detail="Lead not found")
         existing = await db.leads.find_one({"_id": ObjectId(lead_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Lead not found")
+        require_lead_access(current_user, existing)
         
         # Build update dict from non-None values
         update_data = {k: v for k, v in lead_data.dict().items() if v is not None}
@@ -213,6 +246,60 @@ async def update_lead(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==================== DELETE LEAD ====================
+
+@router.delete("/{lead_id}")
+async def delete_lead(
+    lead_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Delete an unconverted lead (Manager or Super Admin)."""
+    from server import db, create_audit_log
+
+    if current_user["role"] not in ["super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    try:
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=404, detail="Lead not found")
+        lead = await db.leads.find_one({"_id": ObjectId(lead_id)})
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        require_lead_access(current_user, lead)
+
+        if lead.get("converted_to_student_id") or lead.get("status") == "enrolled":
+            raise HTTPException(
+                status_code=409,
+                detail="Converted leads cannot be deleted because they are linked to a student record",
+            )
+
+        result = await db.leads.delete_one({
+            "_id": lead["_id"],
+            "converted_to_student_id": None,
+        })
+        if result.deleted_count != 1:
+            raise HTTPException(status_code=409, detail="Lead changed and was not deleted")
+
+        await create_audit_log(
+            str(current_user["_id"]),
+            "delete",
+            "lead",
+            lead_id,
+            {
+                "lead_id": lead.get("lead_id"),
+                "name": f"{lead.get('first_name', '')} {lead.get('last_name', '')}".strip(),
+            },
+            request.client.host if request.client else None,
+        )
+        return {"message": "Lead deleted successfully", "deleted": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== CONVERT LEAD TO STUDENT ====================
 
 @router.post("/{lead_id}/convert")
@@ -228,9 +315,12 @@ async def convert_lead_to_student(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if not ObjectId.is_valid(lead_id):
+            raise HTTPException(status_code=404, detail="Lead not found")
         lead = await db.leads.find_one({"_id": ObjectId(lead_id)})
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
+        require_lead_access(current_user, lead)
         
         if lead.get("converted_to_student_id"):
             raise HTTPException(status_code=400, detail="Lead already converted")
@@ -399,10 +489,12 @@ async def get_crm_analytics(
     
     try:
         branch_query = {}
-        if branch_id:
-            branch_query["branch_id"] = branch_id
-        elif current_user["role"] != "super_admin":
+        if current_user["role"] != "super_admin":
+            if branch_id and branch_id != current_user.get("branch_id"):
+                raise HTTPException(status_code=403, detail="Cannot view another branch's analytics")
             branch_query["branch_id"] = current_user.get("branch_id")
+        elif branch_id:
+            branch_query["branch_id"] = branch_id
         
         # Total leads
         total_leads = await db.leads.count_documents(branch_query)
@@ -445,6 +537,8 @@ async def get_crm_analytics(
             "conversion_rate": round(conversion_rate, 2),
             "source_performance": source_performance
         }
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
