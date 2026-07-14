@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,15 +10,16 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Schedule {
   day: string;
@@ -82,6 +83,8 @@ export default function GroupsScreen() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
+  const pendingRemoval = useRef<{ groupId: string; studentId: string } | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -103,19 +106,32 @@ export default function GroupsScreen() {
     loadCourses();
   }, []);
 
-  // Groups is a persistent tab, so reload both sides of the membership
-  // relationship whenever it becomes active.
-  useFocusEffect(
-    useCallback(() => {
+  // Keep every role's group membership view current while the tab is open.
+  useLiveRefresh(
+    () => {
       loadGroups();
       loadStudents();
-    }, [])
+    },
+    true,
+    'group-memberships',
+    3000,
   );
 
   const loadGroups = async () => {
     try {
       const response = await api.get('/groups');
-      setGroups(response.data);
+      const pending = pendingRemoval.current;
+      const refreshedGroups = pending
+        ? response.data.map((group: Group) => group.id === pending.groupId
+            ? { ...group, student_ids: group.student_ids.filter((id) => id !== pending.studentId) }
+            : group
+          )
+        : response.data;
+      setGroups(refreshedGroups);
+      setSelectedGroup((current) => {
+        if (!current) return current;
+        return refreshedGroups.find((group: Group) => group.id === current.id) || null;
+      });
     } catch (error) {
       console.error('Error loading groups:', error);
       Alert.alert('Error', 'Failed to load groups');
@@ -152,7 +168,14 @@ export default function GroupsScreen() {
   const loadStudents = async () => {
     try {
       const response = await api.get('/students');
-      setStudents(response.data);
+      const pending = pendingRemoval.current;
+      setStudents(pending
+        ? response.data.map((student: Student) => student.id === pending.studentId
+            ? { ...student, group_ids: student.group_ids.filter((id) => id !== pending.groupId) }
+            : student
+          )
+        : response.data
+      );
     } catch (error) {
       console.error('Error loading students:', error);
     }
@@ -210,27 +233,77 @@ export default function GroupsScreen() {
     }
   };
 
-  const handleRemoveStudentFromGroup = async (studentId: string) => {
-    if (!selectedGroup) return;
+  const removeStudentFromGroup = async (student: Student) => {
+    if (!selectedGroup || removingStudentId) return;
 
-    Alert.alert('Remove Student', 'Are you sure you want to remove this student from the group?', [
+    const groupBeforeRemoval = selectedGroup;
+    const groupsBeforeRemoval = groups;
+    const studentsBeforeRemoval = students;
+    const groupId = selectedGroup.id;
+    pendingRemoval.current = { groupId, studentId: student.id };
+    setRemovingStudentId(student.id);
+
+    const removeMembership = (group: Group): Group => group.id === groupId
+      ? { ...group, student_ids: group.student_ids.filter((id) => id !== student.id) }
+      : group;
+    setGroups((current) => current.map(removeMembership));
+    setSelectedGroup((current) => current ? removeMembership(current) : current);
+    setStudents((current) => current.map((item) => item.id === student.id
+      ? { ...item, group_ids: item.group_ids.filter((id) => id !== groupId) }
+      : item
+    ));
+
+    try {
+      const response = await api.delete(`/groups/${groupId}/students/${student.id}`);
+      const updatedGroup = response.data.group as Group | undefined;
+      const updatedStudent = response.data.student as Student | undefined;
+      if (updatedGroup) {
+        setGroups((current) => current.map((group) => group.id === updatedGroup.id
+          ? { ...group, ...updatedGroup }
+          : group
+        ));
+        setSelectedGroup((current) => current?.id === updatedGroup.id
+          ? { ...current, ...updatedGroup }
+          : current
+        );
+      }
+      if (updatedStudent) {
+        setStudents((current) => current.map((item) => item.id === updatedStudent.id
+          ? { ...item, ...updatedStudent }
+          : item
+        ));
+      }
+      void loadGroups();
+      void loadStudents();
+    } catch (error: any) {
+      pendingRemoval.current = null;
+      setGroups(groupsBeforeRemoval);
+      setSelectedGroup(groupBeforeRemoval);
+      setStudents(studentsBeforeRemoval);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to remove student');
+    } finally {
+      pendingRemoval.current = null;
+      setRemovingStudentId(null);
+    }
+  };
+
+  const handleRemoveStudentFromGroup = (student: Student) => {
+    if (!selectedGroup || removingStudentId) return;
+    const message = `Remove ${student.first_name} ${student.last_name} from ${selectedGroup.name}?`;
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) {
+        void removeStudentFromGroup(student);
+      }
+      return;
+    }
+
+    Alert.alert('Remove Student', message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete(`/groups/${selectedGroup.id}/students/${studentId}`);
-            Alert.alert('Success', 'Student removed from group');
-            loadGroups();
-            loadStudents();
-            const updatedGroup = await api.get(`/groups`);
-            const found = updatedGroup.data.find((g: Group) => g.id === selectedGroup.id);
-            if (found) setSelectedGroup(found);
-          } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.detail || 'Failed to remove student');
-          }
-        },
+        onPress: () => void removeStudentFromGroup(student),
       },
     ]);
   };
@@ -596,9 +669,14 @@ export default function GroupsScreen() {
                         {canManageGroupStudents && (
                           <TouchableOpacity
                             style={styles.removeStudentBtn}
-                            onPress={() => handleRemoveStudentFromGroup(student.id)}
+                            disabled={removingStudentId === student.id}
+                            onPress={() => handleRemoveStudentFromGroup(student)}
                           >
-                            <Ionicons name="close-circle" size={24} color={COLORS.error} />
+                            {removingStudentId === student.id ? (
+                              <ActivityIndicator size="small" color={COLORS.error} />
+                            ) : (
+                              <Ionicons name="close-circle" size={24} color={COLORS.error} />
+                            )}
                           </TouchableOpacity>
                         )}
                       </View>

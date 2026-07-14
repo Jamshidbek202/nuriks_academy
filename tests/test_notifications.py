@@ -2,6 +2,7 @@ import unittest
 
 from bson import ObjectId
 
+from notification_helpers import notify_test_scheduled
 from routes_notifications import create_user_notification, remove_stale_news_notifications
 
 
@@ -27,6 +28,19 @@ class FakeDatabase:
     def __init__(self, preferences=None):
         self.notification_preferences = FakeCollection(preferences)
         self.notifications = FakeCollection()
+
+
+class EmptyFindCollection:
+    def find(self, _query):
+        return FakeCursor([])
+
+
+class FakeTestNotificationDatabase(FakeDatabase):
+    def __init__(self, student):
+        super().__init__()
+        self.students = FakeCollection(student)
+        self.parents = FakeCollection()
+        self.push_tokens = EmptyFindCollection()
 
 
 class FakeCursor:
@@ -91,6 +105,32 @@ class NotificationDeliveryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
         self.assertEqual(db.notifications.inserted, [])
+
+    async def test_scheduled_test_creates_student_inbox_notification(self):
+        student_id = ObjectId()
+        db = FakeTestNotificationDatabase({
+            "_id": student_id,
+            "user_id": "student-user-1",
+            "first_name": "Student",
+            "last_name": "One",
+        })
+
+        delivery = await notify_test_scheduled(
+            db,
+            student_ids=[str(student_id)],
+            test_title="Unit Test",
+            test_date="July 14, 2026",
+            test_type="mid_test",
+            test_id="test-1",
+        )
+
+        self.assertEqual(delivery["student_notifications"], 1)
+        self.assertEqual(delivery["errors"], 0)
+        self.assertEqual(len(db.notifications.inserted), 1)
+        saved = db.notifications.inserted[0]
+        self.assertEqual(saved["user_id"], "student-user-1")
+        self.assertEqual(saved["type"], "test_scheduled")
+        self.assertEqual(saved["data"]["test_id"], "test-1")
 
     async def test_retracted_news_is_removed_from_inbox_including_legacy_items(self):
         live_news_id = ObjectId()

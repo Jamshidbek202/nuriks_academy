@@ -81,6 +81,14 @@ async def notify_test_scheduled(
     Send notification when a test is scheduled
     Also notifies parents
     """
+    delivery = {
+        "student_notifications": 0,
+        "parent_notifications": 0,
+        "already_delivered": 0,
+        "skipped_by_preference": 0,
+        "missing_students": 0,
+        "errors": 0,
+    }
     emoji = "📝" if test_type == "mid_test" else "📋"
     type_label = "Mid-Term Test" if test_type == "mid_test" else "End Test"
     
@@ -88,33 +96,69 @@ async def notify_test_scheduled(
         try:
             student = await _get_student(db, student_id)
             if not student:
+                delivery["missing_students"] += 1
                 continue
             
             user_id = student.get("user_id", str(student["_id"]))
             
-            await _deliver(
-                db, user_id, f"{emoji} {type_label} Scheduled", f"'{test_title}' on {test_date}",
-                "test_scheduled", {
-                    "test_type": test_type,
-                    "student_id": student_id,
-                    **({"test_id": test_id} if test_id else {}),
-                }, "test_notifications",
-            )
+            notification_data = {
+                "test_type": test_type,
+                "student_id": student_id,
+                **({"test_id": test_id} if test_id else {}),
+            }
+            existing_student_notification = None
+            if test_id:
+                existing_student_notification = await db.notifications.find_one({
+                    "user_id": str(user_id),
+                    "type": "test_scheduled",
+                    "data.test_id": test_id,
+                    "data.student_id": student_id,
+                })
+            if existing_student_notification:
+                delivery["already_delivered"] += 1
+            else:
+                saved = await _deliver(
+                    db, user_id, f"{emoji} {type_label} Scheduled", f"'{test_title}' on {test_date}",
+                    "test_scheduled", notification_data, "test_notifications",
+                )
+                if saved is None:
+                    delivery["skipped_by_preference"] += 1
+                else:
+                    delivery["student_notifications"] += 1
             
             # Notify parent
             parent = await _get_parent(db, student)
             if parent and parent.get("user_id"):
                 student_name = f"{student.get('first_name', '')} {student.get('last_name', '')}".strip()
-                await _deliver(
-                    db, parent["user_id"], f"{emoji} Test for Your Child",
-                    f"'{test_title}' for {student_name} on {test_date}",
-                    "test_scheduled", {
-                        "student_id": student_id,
-                        **({"test_id": test_id} if test_id else {}),
-                    }, "test_notifications",
-                )
+                parent_data = {
+                    "student_id": student_id,
+                    **({"test_id": test_id} if test_id else {}),
+                }
+                existing_parent_notification = None
+                if test_id:
+                    existing_parent_notification = await db.notifications.find_one({
+                        "user_id": str(parent["user_id"]),
+                        "type": "test_scheduled",
+                        "data.test_id": test_id,
+                        "data.student_id": student_id,
+                    })
+                if existing_parent_notification:
+                    delivery["already_delivered"] += 1
+                else:
+                    saved = await _deliver(
+                        db, parent["user_id"], f"{emoji} Test for Your Child",
+                        f"'{test_title}' for {student_name} on {test_date}",
+                        "test_scheduled", parent_data, "test_notifications",
+                    )
+                    if saved is None:
+                        delivery["skipped_by_preference"] += 1
+                    else:
+                        delivery["parent_notifications"] += 1
         except Exception as e:
+            delivery["errors"] += 1
             logger.error(f"Error sending test notification to {student_id}: {e}")
+
+    return delivery
 
 async def notify_payment_reminder(db, parent_user_id: str, student_name: str, amount: float, due_date: str):
     """

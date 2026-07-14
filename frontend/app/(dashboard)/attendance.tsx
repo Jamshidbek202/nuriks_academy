@@ -19,6 +19,7 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { dateStringWithOffset, todayDateString, toLocalDateString } from '../../src/utils/dates';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface AttendanceRecord {
   id: string;
@@ -92,9 +93,12 @@ export default function AttendanceScreen() {
     try {
       const response = await api.get('/groups');
       setGroups(response.data);
-      if (response.data.length > 0) {
-        setSelectedGroup(response.data[0]);
-      }
+      setSelectedGroup((current) => {
+        if (current) {
+          return response.data.find((group: Group) => group.id === current.id) || response.data[0] || null;
+        }
+        return response.data[0] || null;
+      });
     } catch (error) {
       console.error('Error loading groups:', error);
       Alert.alert('Error', 'Failed to load groups');
@@ -156,6 +160,16 @@ export default function AttendanceScreen() {
         loadGroupAttendance();
       }
     }, [loadGroupAttendance, loadStudents, selectedGroup])
+  );
+
+  useLiveRefresh(
+    () => {
+      loadGroups();
+      loadStudents();
+    },
+    true,
+    'attendance-memberships',
+    3000,
   );
 
   const loadStudentHistory = async (studentId: string) => {

@@ -326,21 +326,48 @@ async def remove_student_from_group(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Remove student from group"""
-    from server import db, create_audit_log
+    from server import db, serialize_doc, create_audit_log
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
+    if not ObjectId.is_valid(group_id) or not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=400, detail="Invalid group or student ID")
+
     try:
-        await db.groups.update_one(
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student:
+            raise HTTPException(status_code=404, detail="Student not found")
+
+        group_result = await db.groups.update_one(
             {"_id": ObjectId(group_id)},
             {"$pull": {"student_ids": student_id}}
         )
         
-        await db.students.update_one(
-            {"_id": ObjectId(student_id)},
-            {"$pull": {"group_ids": group_id}}
-        )
+        try:
+            student_result = await db.students.update_one(
+                {"_id": ObjectId(student_id)},
+                {"$pull": {"group_ids": group_id}}
+            )
+        except Exception:
+            if student_id in group.get("student_ids", []):
+                await db.groups.update_one(
+                    {"_id": ObjectId(group_id)},
+                    {"$addToSet": {"student_ids": student_id}},
+                )
+            raise
+
+        if group_result.matched_count == 0 or student_result.matched_count == 0:
+            if student_id in group.get("student_ids", []):
+                await db.groups.update_one(
+                    {"_id": ObjectId(group_id)},
+                    {"$addToSet": {"student_ids": student_id}},
+                )
+            raise HTTPException(status_code=409, detail="Group membership could not be updated")
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -351,6 +378,14 @@ async def remove_student_from_group(
             request.client.host if request.client else None
         )
         
-        return {"message": "Student removed from group successfully"}
+        updated_group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        updated_student = await db.students.find_one({"_id": ObjectId(student_id)})
+        return {
+            "message": "Student removed from group successfully",
+            "group": serialize_doc(updated_group),
+            "student": serialize_doc(updated_student),
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

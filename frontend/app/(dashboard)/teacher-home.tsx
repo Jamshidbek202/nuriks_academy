@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -14,6 +14,7 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Group {
   id: string;
@@ -51,9 +52,12 @@ export default function TeacherHomeScreen() {
   const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const today = dayNames[new Date().getDay()];
 
-  useEffect(() => {
-    loadTeacherData();
-  }, []);
+  useLiveRefresh(
+    () => loadTeacherData(),
+    true,
+    `teacher-membership:${user?.id || user?._id || ''}`,
+    3000,
+  );
 
   const loadTeacherData = async () => {
     try {

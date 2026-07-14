@@ -2,7 +2,7 @@
 Routes for Testing Module
 Phase 3: Mid Tests, End of Course Tests, Grading, Progress Tracking
 """
-from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional, Literal
@@ -56,7 +56,6 @@ class TestGrade(BaseModel):
 async def create_test(
     test_data: TestCreate,
     request: Request,
-    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create test (Teachers, Managers, Admins)"""
@@ -110,6 +109,7 @@ async def create_test(
             "updated_at": datetime.utcnow()
         }
 
+        created_new = True
         if idempotency_key:
             test["creation_key"] = f'{current_user["_id"]}:{idempotency_key}'
             try:
@@ -120,34 +120,53 @@ async def create_test(
                 )
             except DuplicateKeyError:
                 existing = await db.tests.find_one({"creation_key": test["creation_key"]})
-                return serialize_doc(existing)
-            if result.upserted_id is None:
-                existing = await db.tests.find_one({"creation_key": test["creation_key"]})
-                return serialize_doc(existing)
-            inserted_id = result.upserted_id
+                if not existing:
+                    raise
+                test = existing
+                inserted_id = existing["_id"]
+                created_new = False
+            else:
+                if result.upserted_id is None:
+                    existing = await db.tests.find_one({"creation_key": test["creation_key"]})
+                    if not existing:
+                        raise HTTPException(status_code=409, detail="Test creation could not be reconciled")
+                    test = existing
+                    inserted_id = existing["_id"]
+                    created_new = False
+                else:
+                    inserted_id = result.upserted_id
         else:
             result = await db.tests.insert_one(test)
             inserted_id = result.inserted_id
         
-        await create_audit_log(
-            str(current_user["_id"]),
-            "create",
-            "test",
-            str(inserted_id),
-            {"title": test_data.title, "type": test_data.test_type},
-            request.client.host if request.client else None
-        )
+        if created_new:
+            await create_audit_log(
+                str(current_user["_id"]),
+                "create",
+                "test",
+                str(inserted_id),
+                {"title": test_data.title, "type": test_data.test_type},
+                request.client.host if request.client else None
+            )
         
         # Resolve both sides of group membership. Some legacy/partially synced
         # records list the group only on the student profile, so relying on the
         # group's student_ids alone can silently produce zero recipients.
+        notification_delivery = {
+            "student_notifications": 0,
+            "parent_notifications": 0,
+            "already_delivered": 0,
+            "skipped_by_preference": 0,
+            "missing_students": 0,
+            "errors": 0,
+        }
         try:
             student_ids = list(await get_active_group_student_ids(db, test_data.group_id))
             if student_ids:
                 from notification_helpers import notify_test_scheduled
                 test_date_str = test_data.test_date.strftime("%B %d, %Y at %I:%M %p")
-                background_tasks.add_task(
-                    notify_test_scheduled, db,
+                notification_delivery = await notify_test_scheduled(
+                    db,
                     student_ids=student_ids,
                     test_title=test_data.title,
                     test_date=test_date_str,
@@ -156,10 +175,23 @@ async def create_test(
                 )
         except Exception as e:
             import logging
-            logging.error(f"Error sending test notifications: {e}")
-        
-        test["id"] = str(inserted_id)
-        return serialize_doc(test)
+            notification_delivery["errors"] += 1
+            logging.exception(f"Error sending test notifications: {e}")
+
+        await db.tests.update_one(
+            {"_id": inserted_id},
+            {"$set": {
+                "notification_delivery": notification_delivery,
+                "notification_delivery_updated_at": datetime.utcnow(),
+            }},
+        )
+
+        # Always serialize the persisted record. update_one/upsert does not add
+        # _id to the in-memory object, which previously caused a 500 after save.
+        persisted_test = await db.tests.find_one({"_id": inserted_id})
+        if not persisted_test:
+            raise HTTPException(status_code=500, detail="Created test could not be loaded")
+        return serialize_doc(persisted_test)
         
     except HTTPException:
         raise

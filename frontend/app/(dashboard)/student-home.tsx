@@ -18,6 +18,7 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface StudentProfile {
   id: string;
@@ -174,6 +175,30 @@ export default function StudentHomeScreen() {
     useCallback(() => {
       loadStudentData();
     }, [loadStudentData])
+  );
+
+  const refreshStudentMembership = useCallback(async () => {
+    try {
+      const [studentsRes, groupsRes] = await Promise.all([
+        api.get('/students'),
+        api.get('/groups'),
+      ]);
+      const currentUserId = user?.id || user?._id;
+      const currentProfile = studentsRes.data.find(
+        (student: StudentProfile) => student.user_id === currentUserId
+      ) || studentsRes.data[0] || null;
+      setProfile(currentProfile);
+      setGroups(groupsRes.data);
+    } catch (error) {
+      console.error('Error refreshing student group membership:', error);
+    }
+  }, [user?.id, user?._id]);
+
+  useLiveRefresh(
+    refreshStudentMembership,
+    Boolean(user),
+    `student-membership:${user?.id || user?._id || ''}`,
+    3000,
   );
 
   const loadAvailableSlots = useCallback(async () => {
