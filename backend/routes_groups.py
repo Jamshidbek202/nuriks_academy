@@ -163,6 +163,21 @@ async def get_groups(
             ]
         
         groups = await db.groups.find(query).skip(skip).limit(limit).to_list(limit)
+        teacher_ids = {
+            group.get("teacher_id")
+            for group in groups
+            if ObjectId.is_valid(group.get("teacher_id"))
+        }
+        teacher_names = {}
+        if teacher_ids:
+            assigned_teachers = await db.teachers.find({
+                "_id": {"$in": [ObjectId(tid) for tid in teacher_ids]}
+            }).to_list(len(teacher_ids))
+            teacher_names = {
+                str(teacher["_id"]): f"{teacher.get('first_name', '')} {teacher.get('last_name', '')}".strip()
+                for teacher in assigned_teachers
+            }
+
         all_student_ids = {
             sid
             for group in groups
@@ -180,6 +195,7 @@ async def get_groups(
         result = []
         for group in groups:
             group_data = serialize_doc(group)
+            group_data["teacher_name"] = teacher_names.get(group_data.get("teacher_id"))
             group_data["student_ids"] = [
                 sid for sid in group_data.get("student_ids", [])
                 if sid in active_student_ids

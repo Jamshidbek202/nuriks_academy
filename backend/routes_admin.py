@@ -2,7 +2,7 @@
 Routes for System Settings, Feature Flags, Analytics, News, Audit Logs
 Super Admin only endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
@@ -333,13 +333,26 @@ class NewsCreate(BaseModel):
     content: str
     target_audience: str = "all"  # all, students, parents, teachers
     is_published: bool = False
-    send_notification: bool = False
+    # Retained for compatibility with existing clients. Published news now
+    # always notifies its target audience; recipient preferences still apply.
+    send_notification: bool = True
 
 class NewsUpdate(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     target_audience: Optional[str] = None
     is_published: Optional[bool] = None
+
+NEWS_AUDIENCE_ROLES = {
+    "all": ["student", "parent", "teacher", "support", "manager", "super_admin"],
+    "students": ["student"],
+    "parents": ["parent"],
+    "teachers": ["teacher"],
+    "staff": ["teacher", "support", "manager", "super_admin"],
+}
+
+def get_news_target_roles(target_audience: str) -> List[str]:
+    return NEWS_AUDIENCE_ROLES.get(target_audience, NEWS_AUDIENCE_ROLES["all"])
 
 @router.get("/news")
 async def get_news(
@@ -370,6 +383,7 @@ async def get_news(
 async def create_news(
     news_data: NewsCreate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create a news article (Admin only)"""
@@ -399,23 +413,16 @@ async def create_news(
             request.client.host if request.client else None
         )
         
-        # Send push notification if send_notification is True
-        if news_data.send_notification and news_data.is_published:
-            try:
-                from notification_helpers import notify_news_posted
-                # Map target_audience to roles
-                role_mapping = {
-                    "all": ["student", "parent", "teacher", "support", "manager", "super_admin"],
-                    "students": ["student"],
-                    "parents": ["parent"],
-                    "teachers": ["teacher"],
-                    "staff": ["teacher", "support", "manager"]
-                }
-                target_roles = role_mapping.get(news_data.target_audience, role_mapping["all"])
-                await notify_news_posted(db, news_data.title, target_roles)
-            except Exception as e:
-                import logging
-                logging.error(f"Error sending news notifications: {e}")
+        # Inbox records drive the website toast, while the same delivery helper
+        # optionally sends mobile push. It enforces each recipient's preference.
+        if news_data.is_published:
+            from notification_helpers import notify_news_posted
+            background_tasks.add_task(
+                notify_news_posted,
+                db,
+                news_data.title,
+                get_news_target_roles(news_data.target_audience),
+            )
         
         news["id"] = str(result.inserted_id)
         return serialize_doc(news)
@@ -427,6 +434,7 @@ async def update_news(
     news_id: str,
     news_data: NewsUpdate,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Update a news article"""
@@ -460,6 +468,18 @@ async def update_news(
         )
         
         updated = await db.news.find_one({"_id": ObjectId(news_id)})
+
+        # Publishing a draft is an announcement too. Notify exactly on the
+        # unpublished -> published transition so ordinary edits do not spam.
+        if news_data.is_published and not existing.get("is_published"):
+            from notification_helpers import notify_news_posted
+            background_tasks.add_task(
+                notify_news_posted,
+                db,
+                updated.get("title", existing.get("title", "Academy news")),
+                get_news_target_roles(updated.get("target_audience", "all")),
+            )
+
         return serialize_doc(updated)
     except HTTPException:
         raise
@@ -475,6 +495,9 @@ async def delete_news(
     """Delete a news article"""
     from server import db, create_audit_log
     require_admin(current_user)
+
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=400, detail="Invalid news ID")
     
     try:
         existing = await db.news.find_one({"_id": ObjectId(news_id)})

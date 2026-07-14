@@ -40,6 +40,7 @@ interface Test {
   test_date: string;
   max_score: number;
   results: TestResult[];
+  is_pending?: boolean;
 }
 
 interface Group {
@@ -180,27 +181,52 @@ export default function TestsScreen() {
       return;
     }
 
+    const submittedForm = { ...formData };
+    const submittedGroup = selectedGroup;
+    const activeFilter = selectedTestType;
+    const shouldShowInCurrentFilter = activeFilter === 'all' || submittedForm.test_type === activeFilter;
+    const optimisticId = `pending-${creationKey.current || Date.now()}`;
+    const optimisticTest: Test = {
+      id: optimisticId,
+      test_type: submittedForm.test_type,
+      group_id: submittedGroup.id,
+      course_id: submittedGroup.course_id,
+      teacher_id: '',
+      title: submittedForm.title,
+      test_date: submittedForm.test_date + 'T00:00:00',
+      max_score: maxScore,
+      results: [],
+      is_pending: true,
+    };
+
+    setIsCreating(true);
+    testsRequestId.current += 1;
+    if (shouldShowInCurrentFilter) {
+      setTests((current) => [optimisticTest, ...current]);
+    }
+    setModalVisible(false);
+    resetForm();
+
     try {
-      setIsCreating(true);
-      const groupId = selectedGroup.id;
-      const activeFilter = selectedTestType;
       const response = await api.post('/tests', {
-        test_type: formData.test_type,
-        group_id: selectedGroup.id,
-        course_id: selectedGroup.course_id,
-        title: formData.title,
-        test_date: formData.test_date + 'T00:00:00',
+        test_type: submittedForm.test_type,
+        group_id: submittedGroup.id,
+        course_id: submittedGroup.course_id,
+        title: submittedForm.title,
+        test_date: submittedForm.test_date + 'T00:00:00',
         max_score: maxScore,
       }, { headers: { 'Idempotency-Key': creationKey.current } });
       testsRequestId.current += 1;
-      if (activeFilter === 'all' || response.data.test_type === activeFilter) {
-        setTests((current) => [response.data, ...current]);
+      if (shouldShowInCurrentFilter) {
+        setTests((current) => current.map((test) =>
+          test.id === optimisticId ? response.data : test
+        ));
       }
-      setModalVisible(false);
-      resetForm();
       Alert.alert('Success', 'Test created successfully');
-      void loadTests(groupId, activeFilter);
     } catch (error: any) {
+      setTests((current) => current.filter((test) => test.id !== optimisticId));
+      setFormData(submittedForm);
+      setModalVisible(true);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
     } finally {
       setIsCreating(false);
@@ -421,7 +447,8 @@ export default function TestsScreen() {
             return (
               <TouchableOpacity
                 key={test.id}
-                style={styles.testCard}
+                style={[styles.testCard, test.is_pending && styles.pendingTestCard]}
+                disabled={test.is_pending}
                 onPress={() => { setSelectedTest(test); setDetailModalVisible(true); }}
               >
                 <View style={styles.testHeader}>
@@ -431,7 +458,9 @@ export default function TestsScreen() {
                       {test.test_type === 'mid_test' ? 'Mid Test' : 'End of Course'}
                     </Text>
                   </View>
-                  <Text style={styles.testDate}>{formatDate(test.test_date)}</Text>
+                  <Text style={styles.testDate}>
+                    {test.is_pending ? 'Creating…' : formatDate(test.test_date)}
+                  </Text>
                 </View>
 
                 <Text style={styles.testTitle}>{test.title}</Text>
@@ -671,6 +700,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
+  pendingTestCard: { opacity: 0.7 },
   filters: { padding: SIZES.md, maxWidth: 720, width: '100%' },
   filterItem: { marginBottom: SIZES.sm },
   filterLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },

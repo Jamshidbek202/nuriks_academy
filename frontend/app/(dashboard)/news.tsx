@@ -10,6 +10,7 @@ import {
   Modal,
   Alert,
   TextInput,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
@@ -42,12 +43,12 @@ export default function NewsScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingNews, setEditingNews] = useState<NewsItem | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deletingNewsId, setDeletingNewsId] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: '',
     content: '',
     target_audience: 'all',
     is_published: false,
-    send_notification: false,
   });
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export default function NewsScreen() {
 
   const openCreateModal = () => {
     setEditingNews(null);
-    setFormData({ title: '', content: '', target_audience: 'all', is_published: false, send_notification: false });
+    setFormData({ title: '', content: '', target_audience: 'all', is_published: false });
     setModalVisible(true);
   };
 
@@ -79,7 +80,6 @@ export default function NewsScreen() {
       content: item.content,
       target_audience: item.target_audience,
       is_published: item.is_published,
-      send_notification: false,
     });
     setModalVisible(true);
   };
@@ -107,22 +107,35 @@ export default function NewsScreen() {
     }
   };
 
-  const handleDelete = (id: string) => {
-    Alert.alert('Delete News', 'Are you sure you want to delete this news?', [
+  const deleteNews = async (id: string) => {
+    if (deletingNewsId) return;
+    setDeletingNewsId(id);
+    try {
+      await api.delete(`/admin/news/${id}`);
+      setNews((currentNews) => currentNews.filter((item) => item.id !== id));
+      Alert.alert('Success', 'News deleted successfully');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete news');
+    } finally {
+      setDeletingNewsId(null);
+    }
+  };
+
+  const handleDelete = (item: NewsItem) => {
+    const message = `Delete “${item.title}”? This cannot be undone.`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) {
+        void deleteNews(item.id);
+      }
+      return;
+    }
+
+    Alert.alert('Delete News', message, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.delete(`/admin/news/${id}`);
-            setNews((currentNews) => currentNews.filter((item) => item.id !== id));
-            Alert.alert('Success', 'News deleted successfully');
-            await loadNews();
-          } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.detail || 'Failed to delete news');
-          }
-        },
+        onPress: () => void deleteNews(item.id),
       },
     ]);
   };
@@ -202,8 +215,16 @@ export default function NewsScreen() {
                   <Ionicons name={item.is_published ? 'eye-off-outline' : 'eye-outline'} size={20} color={COLORS.info} />
                   <Text style={[styles.actionText, { color: COLORS.info }]}>{item.is_published ? 'Unpublish' : 'Publish'}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.actionButton} onPress={() => handleDelete(item.id)}>
-                  <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  disabled={deletingNewsId === item.id}
+                  onPress={() => handleDelete(item)}
+                >
+                  {deletingNewsId === item.id ? (
+                    <ActivityIndicator size="small" color={COLORS.error} />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                  )}
                   <Text style={[styles.actionText, { color: COLORS.error }]}>Delete</Text>
                 </TouchableOpacity>
               </View>
@@ -253,11 +274,11 @@ export default function NewsScreen() {
                 <Text style={styles.checkboxLabel}>Publish immediately</Text>
               </View>
               
-              <View style={styles.checkboxRow}>
-                <TouchableOpacity style={[styles.checkbox, formData.send_notification && styles.checkboxChecked]} onPress={() => setFormData({ ...formData, send_notification: !formData.send_notification })}>
-                  {formData.send_notification && <Ionicons name="checkmark" size={16} color={COLORS.marbleDark} />}
-                </TouchableOpacity>
-                <Text style={styles.checkboxLabel}>Send push notification</Text>
+              <View style={styles.notificationNote}>
+                <Ionicons name="notifications-outline" size={20} color={COLORS.info} />
+                <Text style={styles.notificationNoteText}>
+                  Publishing notifies the selected audience according to each user&apos;s notification preferences.
+                </Text>
               </View>
               
               <Button title={saving ? 'Saving...' : (editingNews ? 'Update News' : 'Create News')} onPress={handleSave} disabled={saving} style={{ marginTop: SIZES.md }} />
@@ -312,4 +333,6 @@ const styles = StyleSheet.create({
   checkbox: { width: 24, height: 24, borderRadius: 4, borderWidth: 2, borderColor: COLORS.marbleGray, justifyContent: 'center', alignItems: 'center' },
   checkboxChecked: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
   checkboxLabel: { fontSize: SIZES.fontMd, color: COLORS.textPrimary },
+  notificationNote: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.info + '12' },
+  notificationNoteText: { flex: 1, fontSize: SIZES.fontSm, lineHeight: 19, color: COLORS.textSecondary },
 });

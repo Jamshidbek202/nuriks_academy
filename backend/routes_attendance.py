@@ -204,6 +204,8 @@ async def get_group_attendance(
         
         attendance = await db.attendance.find(query).sort("date", -1).to_list(1000)
         return [serialize_doc(a) for a in attendance]
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

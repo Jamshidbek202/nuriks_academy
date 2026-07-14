@@ -195,6 +195,7 @@ class GroupBase(BaseModel):
 
 class Group(GroupBase):
     id: str
+    teacher_name: Optional[str] = None
     student_ids: List[str] = []
     status: GroupStatus = GroupStatus.ACTIVE
     created_at: datetime = Field(default_factory=datetime.utcnow)

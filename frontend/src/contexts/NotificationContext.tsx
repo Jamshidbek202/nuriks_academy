@@ -37,6 +37,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const appState = useRef(AppState.currentState);
   const router = useRouter();
   const { user, pushToken } = useAuth();
+  const userId = user?.id || user?._id;
   const knownWebNotificationIds = useRef(new Set<string>());
   const webInboxInitialized = useRef(false);
 
@@ -76,7 +77,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, [pushToken]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !user) {
+    if (Platform.OS !== 'web' || !userId) {
       setWebToasts([]);
       knownWebNotificationIds.current.clear();
       webInboxInitialized.current = false;
@@ -115,7 +116,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [user]);
+  }, [userId]);
 
   const handleAppStateChange = async (nextAppState: AppStateStatus) => {
     if (appState.current.match(/inactive|background/) && nextAppState === 'active') {

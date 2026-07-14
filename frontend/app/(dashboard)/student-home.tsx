@@ -11,7 +11,7 @@ import {
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -21,6 +21,7 @@ import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications
 
 interface StudentProfile {
   id: string;
+  user_id: string;
   student_id: string;
   first_name: string;
   last_name: string;
@@ -102,15 +103,14 @@ export default function StudentHomeScreen() {
   // Notification modal
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
 
-  useEffect(() => {
-    loadStudentData();
-  }, []);
-
-  const loadStudentData = async () => {
+  const loadStudentData = useCallback(async () => {
     try {
       // Get student profile (filtered by backend for student role)
       const studentsRes = await api.get('/students');
-      const studentProfile = studentsRes.data[0];
+      const currentUserId = user?.id || user?._id;
+      const studentProfile = studentsRes.data.find(
+        (student: StudentProfile) => student.user_id === currentUserId
+      ) || studentsRes.data[0];
       setProfile(studentProfile);
 
       if (studentProfile) {
@@ -168,7 +168,13 @@ export default function StudentHomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [user?.id, user?._id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadStudentData();
+    }, [loadStudentData])
+  );
 
   const loadAvailableSlots = useCallback(async () => {
     if (!selectedStaff || !selectedDate) return;

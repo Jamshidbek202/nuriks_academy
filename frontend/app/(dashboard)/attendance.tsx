@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
+import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
@@ -87,17 +88,6 @@ export default function AttendanceScreen() {
   // Today's attendance for current group
   const [todayAttendance, setTodayAttendance] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    loadGroups();
-    loadStudents();
-  }, []);
-
-  useEffect(() => {
-    if (selectedGroup) {
-      loadGroupAttendance();
-    }
-  }, [selectedGroup, selectedDate]);
-
   const loadGroups = async () => {
     try {
       const response = await api.get('/groups');
@@ -113,16 +103,16 @@ export default function AttendanceScreen() {
     }
   };
 
-  const loadStudents = async () => {
+  const loadStudents = useCallback(async () => {
     try {
       const response = await api.get('/students');
       setStudents(response.data);
     } catch (error) {
       console.error('Error loading students:', error);
     }
-  };
+  }, []);
 
-  const loadGroupAttendance = async () => {
+  const loadGroupAttendance = useCallback(async () => {
     if (!selectedGroup) return;
 
     try {
@@ -144,7 +134,29 @@ export default function AttendanceScreen() {
     } finally {
       setRefreshing(false);
     }
-  };
+  }, [selectedDate, selectedGroup]);
+
+  useEffect(() => {
+    loadGroups();
+    loadStudents();
+  }, [loadStudents]);
+
+  useEffect(() => {
+    if (selectedGroup) {
+      loadGroupAttendance();
+    }
+  }, [loadGroupAttendance, selectedGroup]);
+
+  // Tabs stay mounted. Refresh records whenever the attendance screen becomes
+  // active so student/parent accounts immediately see marks made elsewhere.
+  useFocusEffect(
+    useCallback(() => {
+      loadStudents();
+      if (selectedGroup) {
+        loadGroupAttendance();
+      }
+    }, [loadGroupAttendance, loadStudents, selectedGroup])
+  );
 
   const loadStudentHistory = async (studentId: string) => {
     try {
@@ -394,6 +406,9 @@ export default function AttendanceScreen() {
       {/* Student List */}
       <ScrollView
         style={styles.studentList}
+        contentContainerStyle={styles.studentListContent}
+        nestedScrollEnabled
+        showsVerticalScrollIndicator
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -842,7 +857,12 @@ const styles = StyleSheet.create({
   },
   studentList: {
     flex: 1,
+    minHeight: 0,
     paddingHorizontal: SIZES.md,
+  },
+  studentListContent: {
+    flexGrow: 1,
+    paddingBottom: SIZES.xxl,
   },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,

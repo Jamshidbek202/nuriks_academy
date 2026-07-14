@@ -52,6 +52,16 @@ class NotificationDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(result)
         self.assertEqual(db.notifications.inserted, [])
 
+    async def test_disabled_news_preference_prevents_web_inbox_delivery(self):
+        db = FakeDatabase({"user_id": "user-1", "news_announcements": False})
+        result = await create_user_notification(
+            db, "user-1", "Academy news", "New announcement",
+            "news_announcement", {}, send_push=False,
+        )
+
+        self.assertIsNone(result)
+        self.assertEqual(db.notifications.inserted, [])
+
 
 if __name__ == "__main__":
     unittest.main()

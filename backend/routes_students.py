@@ -234,20 +234,10 @@ async def get_students(
             if not student:
                 return []
 
-            group_ids = set(student.get("group_ids", []))
-            groups_by_membership = await db.groups.find({"student_ids": str(student["_id"])}).to_list(100)
-            group_ids.update(str(group["_id"]) for group in groups_by_membership)
-
-            groups = await db.groups.find({"_id": {"$in": [ObjectId(gid) for gid in group_ids if ObjectId.is_valid(gid)]}}).to_list(100)
-            classmate_ids = {
-                sid
-                for group in groups
-                for sid in group.get("student_ids", [])
-                if ObjectId.is_valid(sid)
-            }
-            classmate_ids.add(str(student["_id"]))
-
-            query["_id"] = {"$in": [ObjectId(sid) for sid in classmate_ids]}
+            # A student-facing profile request must be deterministic and private.
+            # Returning classmates made screens that selected the first record show
+            # another student's name and also exposed unnecessary profile data.
+            query["_id"] = student["_id"]
         
         students = await db.students.find(query).skip(skip).limit(limit).to_list(limit)
         return [serialize_doc(s) for s in students]

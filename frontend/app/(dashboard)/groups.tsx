@@ -32,6 +32,7 @@ interface Group {
   name: string;
   course_id: string;
   teacher_id: string;
+  teacher_name?: string;
   student_ids: string[];
   schedule: Schedule[];
   start_date?: string;
@@ -298,9 +299,9 @@ export default function GroupsScreen() {
     setIsEditing(false);
   };
 
-  const getTeacherName = (teacherId: string) => {
+  const getTeacherName = (teacherId: string, teacherName?: string) => {
     const teacher = teachers.find((t) => t.id === teacherId);
-    return teacher ? `${teacher.first_name} ${teacher.last_name}` : 'Unknown';
+    return teacher ? `${teacher.first_name} ${teacher.last_name}` : teacherName || 'Unknown';
   };
 
   const getCourseName = (courseId: string) => {
@@ -345,7 +346,7 @@ export default function GroupsScreen() {
   const filteredGroups = groups.filter(
     (group) =>
       group.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      getTeacherName(group.teacher_id).toLowerCase().includes(searchQuery.toLowerCase())
+      getTeacherName(group.teacher_id, group.teacher_name).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const selectedCourse = courses.find((c) => c.id === formData.course_id);
@@ -425,7 +426,7 @@ export default function GroupsScreen() {
                 </View>
                 <Text style={styles.groupCourse}>{getCourseName(group.course_id)}</Text>
                 <Text style={styles.groupTeacher}>
-                  <Ionicons name="person" size={12} color={COLORS.textTertiary} /> {getTeacherName(group.teacher_id)}
+                  <Ionicons name="person" size={12} color={COLORS.textTertiary} /> {getTeacherName(group.teacher_id, group.teacher_name)}
                 </Text>
               </View>
             </View>
@@ -526,7 +527,7 @@ export default function GroupsScreen() {
                     <View style={styles.infoItem}>
                       <Ionicons name="person" size={20} color={COLORS.gold} />
                       <Text style={styles.infoTitle}>Teacher</Text>
-                      <Text style={styles.infoValue}>{getTeacherName(selectedGroup.teacher_id)}</Text>
+                      <Text style={styles.infoValue}>{getTeacherName(selectedGroup.teacher_id, selectedGroup.teacher_name)}</Text>
                     </View>
                     <View style={styles.infoItem}>
                       <Ionicons name="people" size={20} color={COLORS.gold} />
