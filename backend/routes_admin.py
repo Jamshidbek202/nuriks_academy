@@ -373,6 +373,8 @@ async def get_news(
                 query["target_audience"] = {"$in": ["all", "parents"]}
             elif current_user["role"] == "teacher":
                 query["target_audience"] = {"$in": ["all", "teachers"]}
+            elif current_user["role"] == "support":
+                query["target_audience"] = {"$in": ["all", "staff"]}
         
         news = await db.news.find(query).sort("created_at", -1).to_list(100)
         return [serialize_doc(n) for n in news]
@@ -422,6 +424,7 @@ async def create_news(
                 db,
                 news_data.title,
                 get_news_target_roles(news_data.target_audience),
+                str(result.inserted_id),
             )
         
         news["id"] = str(result.inserted_id)
@@ -478,6 +481,7 @@ async def update_news(
                 db,
                 updated.get("title", existing.get("title", "Academy news")),
                 get_news_target_roles(updated.get("target_audience", "all")),
+                news_id,
             )
 
         return serialize_doc(updated)
@@ -505,6 +509,22 @@ async def delete_news(
             raise HTTPException(status_code=404, detail="News not found")
         
         await db.news.delete_one({"_id": ObjectId(news_id)})
+
+        # Retracting news also retracts its inbox/toast entries. The title
+        # fallback removes legacy notifications created before news_id was
+        # attached to notification data.
+        legacy_title = existing.get("title", "")
+        legacy_message = legacy_title[:100] + ("..." if len(legacy_title) > 100 else "")
+        await db.notifications.delete_many({
+            "type": "news_announcement",
+            "$or": [
+                {"data.news_id": news_id},
+                {
+                    "data.news_id": {"$exists": False},
+                    "message": legacy_message,
+                },
+            ],
+        })
         
         await create_audit_log(
             str(current_user["_id"]),

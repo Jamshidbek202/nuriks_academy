@@ -82,6 +82,8 @@ export default function TestsScreen() {
   const [isCreating, setIsCreating] = useState(false);
   const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
   const creationKey = useRef('');
+  const createSubmissionInFlight = useRef(false);
+  const createModalBlockedUntil = useRef(0);
   const testsRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
@@ -164,7 +166,7 @@ export default function TestsScreen() {
   );
 
   const handleCreateTest = async () => {
-    if (isCreating) return;
+    if (isCreating || createSubmissionInFlight.current) return;
     if (!selectedGroup || !formData.title || !formData.test_date) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
@@ -199,6 +201,8 @@ export default function TestsScreen() {
       is_pending: true,
     };
 
+    createSubmissionInFlight.current = true;
+    createModalBlockedUntil.current = Date.now() + 1500;
     setIsCreating(true);
     testsRequestId.current += 1;
     if (shouldShowInCurrentFilter) {
@@ -222,7 +226,6 @@ export default function TestsScreen() {
           test.id === optimisticId ? response.data : test
         ));
       }
-      Alert.alert('Success', 'Test created successfully');
     } catch (error: any) {
       setTests((current) => current.filter((test) => test.id !== optimisticId));
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
@@ -231,8 +234,19 @@ export default function TestsScreen() {
       // teacher is not prompted to submit the same test a second time.
       void loadTests(submittedGroup.id, activeFilter);
     } finally {
+      createSubmissionInFlight.current = false;
+      createModalBlockedUntil.current = Date.now() + 750;
       setIsCreating(false);
     }
+  };
+
+  const openCreateModal = () => {
+    if (createSubmissionInFlight.current || Date.now() < createModalBlockedUntil.current) {
+      return;
+    }
+    resetForm();
+    creationKey.current = `${Date.now()}-${Math.random()}`;
+    setModalVisible(true);
   };
 
   const deleteTest = async (test: Test) => {
@@ -392,7 +406,7 @@ export default function TestsScreen() {
           <Text style={styles.headerSubtitle}>Mid & End of Course Tests</Text>
         </View>
         {canManageTests && (
-          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); creationKey.current = `${Date.now()}-${Math.random()}`; setModalVisible(true); }}>
+          <TouchableOpacity style={styles.addButton} disabled={isCreating} onPress={openCreateModal}>
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}

@@ -69,7 +69,14 @@ async def notify_homework_assigned(db, student_ids: List[str], homework_title: s
         except Exception as e:
             logger.error(f"Error sending homework notification to {student_id}: {e}")
 
-async def notify_test_scheduled(db, student_ids: List[str], test_title: str, test_date: str, test_type: str = "test"):
+async def notify_test_scheduled(
+    db,
+    student_ids: List[str],
+    test_title: str,
+    test_date: str,
+    test_type: str = "test",
+    test_id: Optional[str] = None,
+):
     """
     Send notification when a test is scheduled
     Also notifies parents
@@ -87,7 +94,11 @@ async def notify_test_scheduled(db, student_ids: List[str], test_title: str, tes
             
             await _deliver(
                 db, user_id, f"{emoji} {type_label} Scheduled", f"'{test_title}' on {test_date}",
-                "test_scheduled", {"test_type": test_type, "student_id": student_id}, "test_notifications",
+                "test_scheduled", {
+                    "test_type": test_type,
+                    "student_id": student_id,
+                    **({"test_id": test_id} if test_id else {}),
+                }, "test_notifications",
             )
             
             # Notify parent
@@ -97,7 +108,10 @@ async def notify_test_scheduled(db, student_ids: List[str], test_title: str, tes
                 await _deliver(
                     db, parent["user_id"], f"{emoji} Test for Your Child",
                     f"'{test_title}' for {student_name} on {test_date}",
-                    "test_scheduled", {"student_id": student_id}, "test_notifications",
+                    "test_scheduled", {
+                        "student_id": student_id,
+                        **({"test_id": test_id} if test_id else {}),
+                    }, "test_notifications",
                 )
         except Exception as e:
             logger.error(f"Error sending test notification to {student_id}: {e}")
@@ -128,7 +142,12 @@ async def notify_payment_received(db, parent_user_id: str, student_name: str, am
     except Exception as e:
         logger.error(f"Error sending payment confirmation to {parent_user_id}: {e}")
 
-async def notify_news_posted(db, news_title: str, target_roles: Optional[List[str]] = None):
+async def notify_news_posted(
+    db,
+    news_title: str,
+    target_roles: Optional[List[str]] = None,
+    news_id: Optional[str] = None,
+):
     """
     Send notification when news is posted
     By default, sends to all roles
@@ -140,7 +159,7 @@ async def notify_news_posted(db, news_title: str, target_roles: Optional[List[st
             await _deliver(
                 db, str(user["_id"]), "📰 News from Nurik's Academy",
                 news_title[:100] + ("..." if len(news_title) > 100 else ""),
-                "news_announcement", {}, "news_announcements",
+                "news_announcement", ({"news_id": news_id} if news_id else {}), "news_announcements",
             )
     except Exception as e:
         logger.error(f"Error sending news notification: {e}")

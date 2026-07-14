@@ -65,6 +65,43 @@ PREFERENCE_BY_TYPE = {
     "admin_broadcast": "admin_broadcasts",
 }
 
+async def remove_stale_news_notifications(db, user_id: str, notifications: list) -> list:
+    """Remove retracted news from a user's inbox, including legacy entries."""
+    news_notifications = [
+        notification for notification in notifications
+        if notification.get("type") == "news_announcement"
+    ]
+    if not news_notifications:
+        return notifications
+
+    published_news = await db.news.find({"is_published": True}).to_list(5000)
+    published_ids = {str(item["_id"]) for item in published_news}
+    published_messages = {
+        item.get("title", "")[:100] + ("..." if len(item.get("title", "")) > 100 else "")
+        for item in published_news
+    }
+
+    stale_ids = []
+    for notification in news_notifications:
+        news_id = (notification.get("data") or {}).get("news_id")
+        is_live = (
+            str(news_id) in published_ids
+            if news_id
+            else notification.get("message") in published_messages
+        )
+        if not is_live:
+            stale_ids.append(notification["_id"])
+
+    if not stale_ids:
+        return notifications
+
+    await db.notifications.delete_many({
+        "_id": {"$in": stale_ids},
+        "user_id": str(user_id),
+    })
+    stale_id_set = set(stale_ids)
+    return [notification for notification in notifications if notification["_id"] not in stale_id_set]
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     from auth import get_current_user
@@ -252,6 +289,9 @@ async def get_my_notifications(
     notifications = await db.notifications.find(query).sort(
         "created_at", -1 if sort == "newest" else 1
     ).skip(max(skip, 0)).limit(safe_limit).to_list(safe_limit)
+    notifications = await remove_stale_news_notifications(
+        db, str(current_user["_id"]), notifications
+    )
     for notification in notifications:
         notification.setdefault("category", NOTIFICATION_CATEGORIES.get(notification.get("type"), "system"))
     return [serialize_doc(notification) for notification in notifications]
@@ -259,8 +299,14 @@ async def get_my_notifications(
 @router.get("/unread-count")
 async def get_unread_notification_count(current_user: dict = Depends(get_current_user_dep)):
     from server import db
+    user_id = str(current_user["_id"])
+    news_notifications = await db.notifications.find({
+        "user_id": user_id,
+        "type": "news_announcement",
+    }).to_list(5000)
+    await remove_stale_news_notifications(db, user_id, news_notifications)
     count = await db.notifications.count_documents({
-        "user_id": str(current_user["_id"]), "is_read": False,
+        "user_id": user_id, "is_read": False,
     })
     return {"count": count}
 

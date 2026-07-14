@@ -138,21 +138,22 @@ async def create_test(
             request.client.host if request.client else None
         )
         
-        # Send notifications to students in the group
+        # Resolve both sides of group membership. Some legacy/partially synced
+        # records list the group only on the student profile, so relying on the
+        # group's student_ids alone can silently produce zero recipients.
         try:
-            group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
-            if group:
-                student_ids = group.get("student_ids", [])
-                if student_ids:
-                    from notification_helpers import notify_test_scheduled
-                    test_date_str = test_data.test_date.strftime("%B %d, %Y at %I:%M %p")
-                    background_tasks.add_task(
-                        notify_test_scheduled, db,
-                        student_ids=student_ids,
-                        test_title=test_data.title,
-                        test_date=test_date_str,
-                        test_type=test_data.test_type
-                    )
+            student_ids = list(await get_active_group_student_ids(db, test_data.group_id))
+            if student_ids:
+                from notification_helpers import notify_test_scheduled
+                test_date_str = test_data.test_date.strftime("%B %d, %Y at %I:%M %p")
+                background_tasks.add_task(
+                    notify_test_scheduled, db,
+                    student_ids=student_ids,
+                    test_title=test_data.title,
+                    test_date=test_date_str,
+                    test_type=test_data.test_type,
+                    test_id=str(inserted_id),
+                )
         except Exception as e:
             import logging
             logging.error(f"Error sending test notifications: {e}")

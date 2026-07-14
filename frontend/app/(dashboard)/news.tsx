@@ -37,6 +37,7 @@ const AUDIENCE_OPTIONS = [
 
 export default function NewsScreen() {
   const { user } = useAuth();
+  const canManageNews = user?.role === 'super_admin' || user?.role === 'manager';
   const [news, setNews] = useState<NewsItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -157,16 +158,6 @@ export default function NewsScreen() {
     return AUDIENCE_OPTIONS.find(o => o.value === audience)?.label || audience;
   };
 
-  if (user?.role !== 'super_admin' && user?.role !== 'manager') {
-    return (
-      <View style={styles.accessDenied}>
-        <Ionicons name="lock-closed" size={64} color={COLORS.error} />
-        <Text style={styles.accessDeniedText}>Access Denied</Text>
-        <Text style={styles.accessDeniedSub}>Admin access required</Text>
-      </View>
-    );
-  }
-
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -179,12 +170,16 @@ export default function NewsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>News Management</Text>
-          <Text style={styles.subtitle}>Create and manage announcements</Text>
+          <Text style={styles.title}>{canManageNews ? 'News Management' : 'Academy News'}</Text>
+          <Text style={styles.subtitle}>
+            {canManageNews ? 'Create and manage announcements' : 'Announcements from Nurik’s Academy'}
+          </Text>
         </View>
-        <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canManageNews && (
+          <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <ScrollView
@@ -206,7 +201,7 @@ export default function NewsScreen() {
               <Text style={styles.newsTitle}>{item.title}</Text>
               <Text style={styles.newsContent} numberOfLines={3}>{item.content}</Text>
               <Text style={styles.newsDate}>{formatDate(item.created_at)}</Text>
-              <View style={styles.newsActions}>
+              {canManageNews && <View style={styles.newsActions}>
                 <TouchableOpacity style={styles.actionButton} onPress={() => openEditModal(item)}>
                   <Ionicons name="create-outline" size={20} color={COLORS.gold} />
                   <Text style={styles.actionText}>Edit</Text>
@@ -227,14 +222,16 @@ export default function NewsScreen() {
                   )}
                   <Text style={[styles.actionText, { color: COLORS.error }]}>Delete</Text>
                 </TouchableOpacity>
-              </View>
+              </View>}
             </View>
           ))
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="newspaper-outline" size={64} color={COLORS.textTertiary} />
-            <Text style={styles.emptyText}>No news articles</Text>
-            <Text style={styles.emptySubtext}>Create your first announcement</Text>
+            <Text style={styles.emptyText}>{canManageNews ? 'No news articles' : 'No announcements'}</Text>
+            <Text style={styles.emptySubtext}>
+              {canManageNews ? 'Create your first announcement' : 'New academy announcements will appear here.'}
+            </Text>
           </View>
         )}
         <View style={{ height: 100 }} />
