@@ -225,9 +225,11 @@ export default function TestsScreen() {
       Alert.alert('Success', 'Test created successfully');
     } catch (error: any) {
       setTests((current) => current.filter((test) => test.id !== optimisticId));
-      setFormData(submittedForm);
-      setModalVisible(true);
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create test');
+      // The server may have saved the test before a later response step failed.
+      // Keep the completed form closed and reconcile from the server so the
+      // teacher is not prompted to submit the same test a second time.
+      void loadTests(submittedGroup.id, activeFilter);
     } finally {
       setIsCreating(false);
     }
