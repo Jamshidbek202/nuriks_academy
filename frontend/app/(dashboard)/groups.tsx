@@ -70,6 +70,7 @@ export default function GroupsScreen() {
   const canCreateGroup = ['super_admin', 'manager'].includes(user?.role || '');
   const canEditGroup = ['super_admin', 'manager'].includes(user?.role || '');
   const canManageGroupStudents = ['super_admin', 'manager'].includes(user?.role || '');
+  const canDeleteGroup = user?.role === 'super_admin';
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -84,6 +85,7 @@ export default function GroupsScreen() {
   const [students, setStudents] = useState<Student[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const pendingRemoval = useRef<{ groupId: string; studentId: string } | null>(null);
 
   const [formData, setFormData] = useState({
@@ -305,6 +307,40 @@ export default function GroupsScreen() {
         style: 'destructive',
         onPress: () => void removeStudentFromGroup(student),
       },
+    ]);
+  };
+
+  const deleteGroup = async (group: Group) => {
+    if (deletingGroupId) return;
+    setDeletingGroupId(group.id);
+    const previousGroups = groups;
+    setGroups((current) => current.filter((item) => item.id !== group.id));
+    setSelectedGroup(null);
+    setDetailModalVisible(false);
+
+    try {
+      await api.delete(`/groups/${group.id}`);
+      await Promise.all([loadGroups(), loadStudents()]);
+      Alert.alert('Success', 'Group deleted successfully');
+    } catch (error: any) {
+      setGroups(previousGroups);
+      setSelectedGroup(group);
+      setDetailModalVisible(true);
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete group');
+    } finally {
+      setDeletingGroupId(null);
+    }
+  };
+
+  const handleDeleteGroup = (group: Group) => {
+    const message = `Delete ${group.name}? All lessons, attendance, homework and tests for this group will also be deleted.`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) void deleteGroup(group);
+      return;
+    }
+    Alert.alert('Delete Group', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => void deleteGroup(group) },
     ]);
   };
 
@@ -567,6 +603,18 @@ export default function GroupsScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Group Details</Text>
               <View style={styles.modalHeaderActions}>
+                {selectedGroup && canDeleteGroup && (
+                  <TouchableOpacity
+                    disabled={deletingGroupId === selectedGroup.id}
+                    onPress={() => handleDeleteGroup(selectedGroup)}
+                  >
+                    {deletingGroupId === selectedGroup.id ? (
+                      <ActivityIndicator size="small" color={COLORS.error} />
+                    ) : (
+                      <Ionicons name="trash-outline" size={24} color={COLORS.error} />
+                    )}
+                  </TouchableOpacity>
+                )}
                 {selectedGroup && canEditGroup && (
                   <TouchableOpacity onPress={() => openEditModal(selectedGroup)}>
                     <Ionicons name="create-outline" size={24} color={COLORS.gold} />

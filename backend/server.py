@@ -97,6 +97,7 @@ async def startup_event():
     await db.tests.create_index("creation_key", unique=True, sparse=True)
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("is_read", 1)])
+    await db.lesson_feedback.create_index([("entry_id", 1), ("student_id", 1)], unique=True)
     try:
         reconciliation = await reconcile_archived_student_accounts(db)
         logger.info("Student account reconciliation completed: %s", reconciliation)

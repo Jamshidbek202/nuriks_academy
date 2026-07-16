@@ -159,6 +159,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="chats" options={{ title: 'Chats', tabBarIcon: createTabIcon('chatbubbles') }} />
         <Tabs.Screen name="homework" options={{ title: 'Homework', tabBarIcon: createTabIcon('book') }} />
         <Tabs.Screen name="tests" options={{ title: 'Tests', tabBarIcon: createTabIcon('clipboard') }} />
+        <Tabs.Screen name="progress" options={{ title: 'Grades', tabBarIcon: createTabIcon('analytics') }} />
         <Tabs.Screen name="profile" options={{ title: 'Profile', tabBarIcon: createTabIcon('person-circle') }} />
         {/* Hidden screens */}
         <Tabs.Screen name="students" options={{ href: null }} />
@@ -168,7 +169,6 @@ export default function DashboardLayout() {
         <Tabs.Screen name="attendance" options={{ href: null }} />
         <Tabs.Screen name="journal" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />

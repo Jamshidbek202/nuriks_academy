@@ -368,6 +368,26 @@ async def grade_homework(
             {"student_id": grade_data.student_id, "grade": grade_data.grade},
             request.client.host if request.client else None
         )
+
+        from notification_helpers import notify_grade_posted
+        parent_user_id = None
+        parent_id = student.get("parent_id")
+        if parent_id and ObjectId.is_valid(str(parent_id)):
+            parent = await db.parents.find_one({"_id": ObjectId(str(parent_id))})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        if not parent_user_id:
+            parent = await db.parents.find_one({"student_ids": grade_data.student_id})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        await notify_grade_posted(
+            db,
+            student["user_id"],
+            homework.get("title", "Homework"),
+            f"{grade_data.grade:g}/100",
+            parent_user_id,
+            {"homework_id": grade_data.homework_id, "student_id": grade_data.student_id},
+        )
         
         return {"message": "Homework graded successfully"}
         

@@ -177,6 +177,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       case 'attendance':
         router.push('/(dashboard)/attendance');
         break;
+
+      case 'grade':
+        router.push('/(dashboard)/progress');
+        break;
         
       default:
         // Default to dashboard

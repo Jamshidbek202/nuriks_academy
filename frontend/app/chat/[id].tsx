@@ -19,7 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 
 const API_URL = Constants.expoConfig?.extra?.EXPO_PUBLIC_BACKEND_URL || process.env.EXPO_PUBLIC_BACKEND_URL || 'http://localhost:8001';
 const WS_URL = API_URL.replace('http', 'ws');
@@ -450,10 +450,6 @@ export default function ConversationScreen() {
           <Text style={styles.headerRole}>{otherParticipant?.role?.replace('_', ' ')}</Text>
         </View>
         
-        {/* Future: Video call button */}
-        <TouchableOpacity style={styles.videoButton} disabled>
-          <Ionicons name="videocam" size={24} color={COLORS.textTertiary} />
-        </TouchableOpacity>
       </View>
 
       {/* Messages */}
@@ -560,9 +556,6 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontSm,
     color: COLORS.gold,
     textTransform: 'capitalize',
-  },
-  videoButton: {
-    padding: SIZES.sm,
   },
   messagesContainer: {
     flex: 1,

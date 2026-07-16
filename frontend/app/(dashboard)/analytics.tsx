@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 const { width } = Dimensions.get('window');
 
@@ -20,7 +21,17 @@ interface Analytics {
   revenue: { monthly: number; previous_month: number; change_percent: number };
   attendance: { rate: number; total_records: number; present: number };
   tests: { mid_test_average: number; end_test_average: number; total_mid_tests: number; total_end_tests: number };
-  teachers: { total: number };
+  teachers: {
+    total: number;
+    performance?: {
+      teacher_id: string;
+      teacher_name: string;
+      average_rating: number;
+      progress_percent: number;
+      feedback_count: number;
+      lessons_logged: number;
+    }[];
+  };
   support: { total_bookings: number; completed: number; pending: number };
   leads: { total: number; converted: number; conversion_rate: number };
   monthly_trends: { month: string; revenue: number; new_students: number }[];
@@ -31,10 +42,6 @@ export default function AnalyticsScreen() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-
-  useEffect(() => {
-    loadAnalytics();
-  }, []);
 
   const loadAnalytics = async () => {
     try {
@@ -47,6 +54,8 @@ export default function AnalyticsScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadAnalytics, true, 'admin-analytics', 3000);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', { style: 'decimal' }).format(amount) + ' UZS';
@@ -142,6 +151,32 @@ export default function AnalyticsScreen() {
             <Text style={styles.testCount}>{analytics?.tests.total_end_tests || 0} tests</Text>
           </View>
         </View>
+
+        {user?.role === 'super_admin' && (
+          <>
+            <Text style={styles.sectionTitle}>Teacher Progress</Text>
+            <View style={styles.teacherPerformanceCard}>
+              {(analytics?.teachers.performance || []).length > 0 ? (
+                analytics?.teachers.performance?.map((teacher) => (
+                  <View key={teacher.teacher_id} style={styles.teacherPerformanceRow}>
+                    <View style={styles.teacherPerformanceInfo}>
+                      <Text style={styles.teacherPerformanceName}>{teacher.teacher_name || 'Teacher'}</Text>
+                      <Text style={styles.teacherPerformanceMeta}>
+                        {teacher.average_rating}/5 · {teacher.feedback_count} reviews · {teacher.lessons_logged} lessons
+                      </Text>
+                      <View style={styles.teacherProgressTrack}>
+                        <View style={[styles.teacherProgressFill, { width: `${teacher.progress_percent}%` }]} />
+                      </View>
+                    </View>
+                    <Text style={styles.teacherPerformancePercent}>{teacher.progress_percent}%</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={styles.emptyMetricText}>No lesson feedback yet</Text>
+              )}
+            </View>
+          </>
+        )}
 
         {/* Support Sessions */}
         <Text style={styles.sectionTitle}>Support Session Statistics</Text>
@@ -248,6 +283,15 @@ const styles = StyleSheet.create({
   testType: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   testAvg: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.gold, marginVertical: SIZES.sm },
   testCount: { fontSize: SIZES.fontXs, color: COLORS.textTertiary },
+  teacherPerformanceCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, paddingHorizontal: SIZES.md, ...SHADOWS.small },
+  teacherPerformanceRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: SIZES.md, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
+  teacherPerformanceInfo: { flex: 1, marginRight: SIZES.md },
+  teacherPerformanceName: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
+  teacherPerformanceMeta: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 3 },
+  teacherProgressTrack: { height: 6, backgroundColor: COLORS.marbleGray, borderRadius: 3, overflow: 'hidden', marginTop: SIZES.sm },
+  teacherProgressFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 3 },
+  teacherPerformancePercent: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.gold },
+  emptyMetricText: { color: COLORS.textTertiary, textAlign: 'center', paddingVertical: SIZES.lg },
   supportCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, flexDirection: 'row', justifyContent: 'space-around', ...SHADOWS.small },
   supportStat: { alignItems: 'center' },
   supportValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginVertical: SIZES.xs },

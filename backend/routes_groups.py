@@ -272,6 +272,65 @@ async def update_group(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.delete("/{group_id}")
+async def delete_group(
+    group_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Permanently delete a group and its group-scoped records (Super Admin only)."""
+    from server import db, create_audit_log
+
+    if current_user["role"] != "super_admin":
+        raise HTTPException(status_code=403, detail="Only Super Admin can delete groups")
+    if not ObjectId.is_valid(group_id):
+        raise HTTPException(status_code=400, detail="Invalid group ID")
+
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    try:
+        # Remove denormalized membership references first so every role stops
+        # seeing the group as soon as its next live refresh completes.
+        await db.teachers.update_many(
+            {"group_ids": group_id},
+            {"$pull": {"group_ids": group_id}}
+        )
+        await db.students.update_many(
+            {"group_ids": group_id},
+            {"$pull": {"group_ids": group_id}}
+        )
+
+        # Group-owned academic records cannot be used after the group is gone.
+        for collection in (
+            db.teacher_journal,
+            db.lesson_feedback,
+            db.attendance,
+            db.attendance_records,
+            db.homework,
+            db.tests,
+        ):
+            await collection.delete_many({"group_id": group_id})
+
+        result = await db.groups.delete_one({"_id": ObjectId(group_id)})
+        if result.deleted_count != 1:
+            raise HTTPException(status_code=409, detail="Group could not be deleted")
+
+        await create_audit_log(
+            str(current_user["_id"]),
+            "delete",
+            "group",
+            group_id,
+            {"name": group.get("name")},
+            request.client.host if request.client else None
+        )
+        return {"message": "Group deleted successfully", "group_id": group_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/{group_id}/students/{student_id}")
 async def add_student_to_group(
     group_id: str,

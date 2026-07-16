@@ -280,21 +280,29 @@ async def notify_lesson_reminder(db, student_ids: List[str], lesson_name: str, s
         except Exception as e:
             logger.error(f"Error sending lesson reminder to {student_id}: {e}")
 
-async def notify_grade_posted(db, student_user_id: str, subject: str, grade: str, parent_user_id: Optional[str] = None):
+async def notify_grade_posted(
+    db,
+    student_user_id: str,
+    subject: str,
+    grade: str,
+    parent_user_id: Optional[str] = None,
+    data: Optional[dict] = None,
+):
     """
     Send notification when a grade is posted
     """
     try:
+        notification_data = {"subject": subject, **(data or {})}
         await _deliver(
             db, student_user_id, "📊 New Grade Posted",
-            f"You received {grade} in {subject}", "grade", {"subject": subject},
+            f"You received {grade} in {subject}", "grade", notification_data,
         )
         
         # Notify parent
         if parent_user_id:
             await _deliver(
                 db, parent_user_id, "📊 Child's Grade Posted",
-                f"Your child received {grade} in {subject}", "grade", {"subject": subject},
+                f"Your child received {grade} in {subject}", "grade", notification_data,
             )
     except Exception as e:
         logger.error(f"Error sending grade notification: {e}")

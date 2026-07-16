@@ -93,6 +93,8 @@ export default function NotificationsScreen() {
       router.push('/(dashboard)/attendance');
     } else if (notification.type === 'certificate') {
       router.push('/(dashboard)/certificates');
+    } else if (notification.type === 'grade') {
+      router.push('/(dashboard)/progress');
     } else if (notification.category === 'academic') {
       router.push('/(dashboard)/tests');
     } else if (notification.category === 'payments') {

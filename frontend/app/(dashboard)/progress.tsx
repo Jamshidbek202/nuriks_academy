@@ -8,12 +8,15 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Student {
   id: string;
@@ -41,6 +44,19 @@ interface Progress {
     submitted: number;
     completion_rate: number;
   };
+  lesson_grades: LessonGrade[];
+}
+
+interface LessonGrade {
+  entry_id: string;
+  group_id: string;
+  teacher_id: string;
+  lesson_date: string;
+  lesson_number: number;
+  topic: string;
+  grade: number;
+  notes?: string;
+  feedback?: { rating: number; comment?: string; updated_at: string } | null;
 }
 
 interface Group {
@@ -60,6 +76,11 @@ export default function ProgressScreen() {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [studentProgress, setStudentProgress] = useState<Progress | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
+  const [feedbackVisible, setFeedbackVisible] = useState(false);
+  const [selectedLesson, setSelectedLesson] = useState<LessonGrade | null>(null);
+  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [savingFeedback, setSavingFeedback] = useState(false);
 
   useEffect(() => {
     loadGroups();
@@ -70,9 +91,9 @@ export default function ProgressScreen() {
     try {
       const response = await api.get('/groups');
       setGroups(response.data);
-      if (response.data.length > 0) {
-        setSelectedGroup(response.data[0]);
-      }
+      setSelectedGroup((current) =>
+        response.data.find((group: Group) => group.id === current?.id) || response.data[0] || null
+      );
     } catch (error) {
       console.error('Error loading groups:', error);
     } finally {
@@ -91,8 +112,8 @@ export default function ProgressScreen() {
     }
   };
 
-  const loadStudentProgress = async (studentId: string) => {
-    setProgressLoading(true);
+  const loadStudentProgress = async (studentId: string, showLoading = true) => {
+    if (showLoading) setProgressLoading(true);
     try {
       const response = await api.get(`/tests/progress/${studentId}`);
       setStudentProgress(response.data);
@@ -100,7 +121,43 @@ export default function ProgressScreen() {
       console.error('Error loading progress:', error);
       setStudentProgress(null);
     } finally {
-      setProgressLoading(false);
+      if (showLoading) setProgressLoading(false);
+    }
+  };
+
+  useLiveRefresh(
+    () => {
+      void loadGroups();
+      void loadStudents();
+      if (selectedStudent) void loadStudentProgress(selectedStudent.id, false);
+    },
+    true,
+    selectedStudent?.id || 'progress',
+    3000,
+  );
+
+  const openFeedback = (lesson: LessonGrade) => {
+    setSelectedLesson(lesson);
+    setFeedbackRating(lesson.feedback?.rating || 5);
+    setFeedbackComment(lesson.feedback?.comment || '');
+    setFeedbackVisible(true);
+  };
+
+  const submitFeedback = async () => {
+    if (!selectedLesson || !selectedStudent || savingFeedback) return;
+    setSavingFeedback(true);
+    try {
+      await api.post(`/journal/${selectedLesson.entry_id}/feedback`, {
+        rating: feedbackRating,
+        comment: feedbackComment.trim() || null,
+      });
+      await loadStudentProgress(selectedStudent.id, false);
+      setFeedbackVisible(false);
+      Alert.alert('Thank you', 'Your lesson feedback was saved');
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to save feedback');
+    } finally {
+      setSavingFeedback(false);
     }
   };
 
@@ -112,7 +169,9 @@ export default function ProgressScreen() {
 
   const getGroupStudents = () => {
     if (!selectedGroup) return [];
-    return students.filter(s => selectedGroup.student_ids.includes(s.id));
+    return students.filter(s =>
+      selectedGroup.student_ids.includes(s.id) || s.group_ids.includes(selectedGroup.id)
+    );
   };
 
   const getProgressColor = (rate: number) => {
@@ -128,11 +187,6 @@ export default function ProgressScreen() {
     const homework = progress.homework.completion_rate;
     
     // Weighted average: Attendance 20%, Mid Test 25%, End Test 35%, Homework 20%
-    const testAvg = progress.tests.mid_tests_taken > 0 || progress.tests.end_tests_taken > 0
-      ? (midTest * progress.tests.mid_tests_taken + endTest * progress.tests.end_tests_taken) / 
-        Math.max(progress.tests.mid_tests_taken + progress.tests.end_tests_taken, 1)
-      : 0;
-    
     return Math.round((attendance * 0.2) + (midTest * 0.25) + (endTest * 0.35) + (homework * 0.2));
   };
 
@@ -395,6 +449,37 @@ export default function ProgressScreen() {
                         </Text>
                       </View>
                     </View>
+
+                    <Text style={styles.lessonGradesTitle}>Lesson Grades</Text>
+                    {(studentProgress.lesson_grades || []).length > 0 ? (
+                      studentProgress.lesson_grades.map((lesson) => (
+                        <View key={lesson.entry_id} style={styles.lessonGradeCard}>
+                          <View style={styles.lessonGradeHeader}>
+                            <View style={styles.lessonGradeInfo}>
+                              <Text style={styles.lessonGradeTopic}>{lesson.topic}</Text>
+                              <Text style={styles.lessonGradeMeta}>
+                                Lesson #{lesson.lesson_number} · {new Date(lesson.lesson_date).toLocaleDateString()}
+                              </Text>
+                            </View>
+                            <View style={styles.lessonGradeBadge}>
+                              <Text style={styles.lessonGradeValue}>{lesson.grade}/5</Text>
+                            </View>
+                          </View>
+                          {lesson.notes ? <Text style={styles.lessonGradeNotes}>{lesson.notes}</Text> : null}
+                          {lesson.feedback ? (
+                            <Text style={styles.feedbackStatus}>Your feedback: {lesson.feedback.rating}/5</Text>
+                          ) : null}
+                          {user?.role === 'student' && (
+                            <TouchableOpacity style={styles.feedbackButton} onPress={() => openFeedback(lesson)}>
+                              <Ionicons name="chatbubble-ellipses-outline" size={16} color={COLORS.gold} />
+                              <Text style={styles.feedbackButtonText}>{lesson.feedback ? 'Edit feedback' : 'Leave lesson feedback'}</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      ))
+                    ) : (
+                      <Text style={styles.noLessonGrades}>No lesson grades have been posted yet</Text>
+                    )}
                   </>
                 ) : (
                   <View style={styles.noProgress}>
@@ -404,6 +489,42 @@ export default function ProgressScreen() {
                 )}
               </ScrollView>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={feedbackVisible} animationType="slide" transparent onRequestClose={() => setFeedbackVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.feedbackModal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Lesson Feedback</Text>
+              <TouchableOpacity onPress={() => setFeedbackVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.feedbackForm}>
+              <Text style={styles.feedbackTopic}>{selectedLesson?.topic}</Text>
+              <Text style={styles.feedbackLabel}>How was this lesson?</Text>
+              <View style={styles.ratingRow}>
+                {[1, 2, 3, 4, 5].map((rating) => (
+                  <TouchableOpacity key={rating} onPress={() => setFeedbackRating(rating)}>
+                    <Ionicons name={rating <= feedbackRating ? 'star' : 'star-outline'} size={34} color={COLORS.gold} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <TextInput
+                style={styles.feedbackInput}
+                value={feedbackComment}
+                onChangeText={setFeedbackComment}
+                placeholder="Optional comment"
+                placeholderTextColor={COLORS.textTertiary}
+                multiline
+                maxLength={1000}
+              />
+              <TouchableOpacity style={styles.saveFeedbackButton} disabled={savingFeedback} onPress={() => void submitFeedback()}>
+                {savingFeedback ? <ActivityIndicator color={COLORS.marbleDark} /> : <Text style={styles.saveFeedbackText}>Save Feedback</Text>}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -465,4 +586,25 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: SIZES.fontSm, fontWeight: '600' },
   noProgress: { alignItems: 'center', paddingVertical: SIZES.xxl },
   noProgressText: { fontSize: SIZES.fontMd, color: COLORS.textTertiary, marginTop: SIZES.md },
+  lessonGradesTitle: { fontSize: SIZES.fontLg, fontWeight: '700', color: COLORS.gold, marginTop: SIZES.lg, marginBottom: SIZES.sm },
+  lessonGradeCard: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm },
+  lessonGradeHeader: { flexDirection: 'row', alignItems: 'center' },
+  lessonGradeInfo: { flex: 1, marginRight: SIZES.sm },
+  lessonGradeTopic: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
+  lessonGradeMeta: { fontSize: SIZES.fontXs, color: COLORS.textTertiary, marginTop: 3 },
+  lessonGradeBadge: { backgroundColor: COLORS.gold, borderRadius: SIZES.radiusFull, paddingHorizontal: SIZES.md, paddingVertical: SIZES.xs },
+  lessonGradeValue: { color: COLORS.marbleDark, fontWeight: '800' },
+  lessonGradeNotes: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.sm },
+  feedbackStatus: { color: COLORS.success, fontSize: SIZES.fontXs, marginTop: SIZES.sm },
+  feedbackButton: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, marginTop: SIZES.md, alignSelf: 'flex-start' },
+  feedbackButtonText: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '600' },
+  noLessonGrades: { color: COLORS.textTertiary, textAlign: 'center', paddingVertical: SIZES.lg },
+  feedbackModal: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, paddingBottom: 40 },
+  feedbackForm: { padding: SIZES.lg },
+  feedbackTopic: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '700', marginBottom: SIZES.lg },
+  feedbackLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginBottom: SIZES.sm },
+  ratingRow: { flexDirection: 'row', justifyContent: 'center', gap: SIZES.sm, marginBottom: SIZES.lg },
+  feedbackInput: { minHeight: 110, borderWidth: 1, borderColor: COLORS.marbleGray, borderRadius: SIZES.radiusMd, padding: SIZES.md, color: COLORS.textPrimary, textAlignVertical: 'top', marginBottom: SIZES.lg },
+  saveFeedbackButton: { minHeight: 48, backgroundColor: COLORS.gold, borderRadius: SIZES.radiusMd, justifyContent: 'center', alignItems: 'center' },
+  saveFeedbackText: { color: COLORS.marbleDark, fontWeight: '700', fontSize: SIZES.fontMd },
 });

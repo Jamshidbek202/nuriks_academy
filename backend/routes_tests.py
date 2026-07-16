@@ -326,6 +326,26 @@ async def grade_test(
             {"student_id": grade_data.student_id, "score": grade_data.score},
             request.client.host if request.client else None
         )
+
+        from notification_helpers import notify_grade_posted
+        parent_user_id = None
+        parent_id = student.get("parent_id")
+        if parent_id and ObjectId.is_valid(str(parent_id)):
+            parent = await db.parents.find_one({"_id": ObjectId(str(parent_id))})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        if not parent_user_id:
+            parent = await db.parents.find_one({"student_ids": grade_data.student_id})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        await notify_grade_posted(
+            db,
+            student["user_id"],
+            test.get("title", "Test"),
+            f"{grade_data.score:g}/{max_score:g} ({percentage:.0f}%)",
+            parent_user_id,
+            {"test_id": grade_data.test_id, "student_id": grade_data.student_id},
+        )
         
         return {"message": "Test graded successfully", "percentage": percentage}
         
@@ -444,6 +464,19 @@ async def get_student_tests(
         group_ids = set(student.get("group_ids", []))
         groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
         group_ids.update(str(group["_id"]) for group in groups_by_membership)
+
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if not teacher:
+                raise HTTPException(status_code=403, detail="Access denied")
+            teacher_id = str(teacher["_id"])
+            teacher_group_ids = set(teacher.get("group_ids", []))
+            teacher_group_ids.update(
+                str(group["_id"])
+                for group in await db.groups.find({"teacher_id": teacher_id}).to_list(100)
+            )
+            if not group_ids.intersection(teacher_group_ids):
+                raise HTTPException(status_code=403, detail="Access denied")
         
         # Get all tests for student's groups
         tests = await db.tests.find(
@@ -536,6 +569,47 @@ async def get_student_progress(
             if any(s["student_id"] == student_id for s in hw.get("submissions", []))
         )
         homework_completion_rate = (submitted_homework / total_homework * 100) if total_homework > 0 else 0
+
+        # Lesson grades are the per-lesson participation scores recorded in the
+        # teacher journal. Include the student's own feedback so the same view
+        # can be updated after a review is submitted.
+        journal_entries = await db.teacher_journal.find({
+            "group_id": {"$in": list(group_ids)},
+            "student_performance.student_id": student_id,
+        }).sort("lesson_date", -1).to_list(100)
+        entry_ids = [str(entry["_id"]) for entry in journal_entries]
+        feedback_by_entry = {}
+        if entry_ids:
+            feedback_rows = await db.lesson_feedback.find({
+                "entry_id": {"$in": entry_ids}, "student_id": student_id,
+            }).to_list(100)
+            feedback_by_entry = {row["entry_id"]: row for row in feedback_rows}
+
+        lesson_grades = []
+        for entry in journal_entries:
+            performance = next(
+                (item for item in entry.get("student_performance", []) if item.get("student_id") == student_id),
+                None,
+            )
+            if not performance:
+                continue
+            entry_id = str(entry["_id"])
+            feedback = feedback_by_entry.get(entry_id)
+            lesson_grades.append({
+                "entry_id": entry_id,
+                "group_id": entry.get("group_id"),
+                "teacher_id": entry.get("teacher_id"),
+                "lesson_date": entry.get("lesson_date"),
+                "lesson_number": entry.get("lesson_number"),
+                "topic": entry.get("topic"),
+                "grade": performance.get("participation"),
+                "notes": performance.get("notes"),
+                "feedback": ({
+                    "rating": feedback.get("rating"),
+                    "comment": feedback.get("comment"),
+                    "updated_at": feedback.get("updated_at"),
+                } if feedback else None),
+            })
         
         return {
             "student_id": student_id,
@@ -554,7 +628,8 @@ async def get_student_progress(
                 "total_assigned": total_homework,
                 "submitted": submitted_homework,
                 "completion_rate": round(homework_completion_rate, 2)
-            }
+            },
+            "lesson_grades": lesson_grades,
         }
         
     except HTTPException:

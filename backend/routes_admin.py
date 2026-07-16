@@ -250,6 +250,33 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
         # Teacher performance (based on student progress)
         teachers = await db.teachers.find({}).to_list(100)
         teacher_count = len(teachers)
+        teacher_performance = []
+        if current_user["role"] == "super_admin":
+            feedback_rows = await db.lesson_feedback.find({}).to_list(5000)
+            journal_rows = await db.teacher_journal.find({}).to_list(5000)
+            feedback_by_teacher = {}
+            lessons_by_teacher = {}
+            for feedback in feedback_rows:
+                teacher_id = feedback.get("teacher_id")
+                if teacher_id:
+                    feedback_by_teacher.setdefault(teacher_id, []).append(feedback.get("rating", 0))
+            for entry in journal_rows:
+                teacher_id = entry.get("teacher_id")
+                if teacher_id:
+                    lessons_by_teacher[teacher_id] = lessons_by_teacher.get(teacher_id, 0) + 1
+            for teacher in teachers:
+                teacher_id = str(teacher["_id"])
+                ratings = feedback_by_teacher.get(teacher_id, [])
+                average_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0
+                teacher_performance.append({
+                    "teacher_id": teacher_id,
+                    "teacher_name": f"{teacher.get('first_name', '')} {teacher.get('last_name', '')}".strip(),
+                    "average_rating": average_rating,
+                    "progress_percent": round(average_rating / 5 * 100, 1),
+                    "feedback_count": len(ratings),
+                    "lessons_logged": lessons_by_teacher.get(teacher_id, 0),
+                })
+            teacher_performance.sort(key=lambda row: (-row["progress_percent"], row["teacher_name"]))
         
         # Support session statistics
         total_bookings = await db.support_bookings.count_documents({})
@@ -309,7 +336,8 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
                 "total_end_tests": len(end_tests)
             },
             "teachers": {
-                "total": teacher_count
+                "total": teacher_count,
+                **({"performance": teacher_performance} if current_user["role"] == "super_admin" else {})
             },
             "support": {
                 "total_bookings": total_bookings,

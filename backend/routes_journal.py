@@ -47,6 +47,10 @@ class JournalEntryCreate(BaseModel):
     homework_assigned: Optional[str] = Field(None, max_length=5000)
     student_performance: List[StudentPerformance] = []
 
+class LessonFeedbackCreate(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=1000)
+
 class JournalEntry(BaseModel):
     id: str
     group_id: str
@@ -59,6 +63,45 @@ class JournalEntry(BaseModel):
     student_performance: List[StudentPerformance] = []
     created_at: datetime
     updated_at: datetime
+
+async def notify_performance_changes(db, entry: dict, previous_performance: Optional[List[dict]] = None):
+    """Notify students and parents only when a lesson grade is new or changed."""
+    from notification_helpers import notify_grade_posted
+
+    previous = {
+        item.get("student_id"): item.get("participation")
+        for item in (previous_performance or [])
+    }
+    for performance in entry.get("student_performance", []):
+        student_id = performance.get("student_id")
+        grade = performance.get("participation")
+        if not student_id or previous.get(student_id) == grade:
+            continue
+        student = await db.students.find_one({"_id": ObjectId(student_id)})
+        if not student or not student.get("user_id"):
+            continue
+        parent_user_id = None
+        parent_id = student.get("parent_id")
+        if parent_id and ObjectId.is_valid(str(parent_id)):
+            parent = await db.parents.find_one({"_id": ObjectId(str(parent_id))})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        if not parent_user_id:
+            parent = await db.parents.find_one({"student_ids": student_id})
+            if parent:
+                parent_user_id = parent.get("user_id")
+        await notify_grade_posted(
+            db,
+            student["user_id"],
+            entry.get("topic") or f"Lesson #{entry.get('lesson_number')}",
+            f"{grade}/5",
+            parent_user_id,
+            {
+                "entry_id": str(entry.get("_id", "")),
+                "group_id": entry.get("group_id"),
+                "student_id": student_id,
+            },
+        )
 
 @router.post("", response_model=JournalEntry)
 async def create_journal_entry(
@@ -76,20 +119,32 @@ async def create_journal_entry(
         entry_data.lesson_date = require_date_window(
             entry_data.lesson_date, past_days=366, label="Lesson date"
         )
+        if not ObjectId.is_valid(entry_data.group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(entry_data.group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
         # Get teacher ID
         teacher_id = None
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
                 teacher_id = str(teacher["_id"])
+                if group.get("teacher_id") != teacher_id and entry_data.group_id not in teacher.get("group_ids", []):
+                    raise HTTPException(status_code=403, detail="You can only edit your own groups")
         else:
-            # For managers/admins, get teacher from group
-            group = await db.groups.find_one({"_id": ObjectId(entry_data.group_id)})
-            if group:
-                teacher_id = group["teacher_id"]
+            teacher_id = group["teacher_id"]
         
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
+
+        active_student_ids = await get_active_group_student_ids(db, entry_data.group_id)
+        submitted_student_ids = [item.student_id for item in entry_data.student_performance]
+        if len(set(submitted_student_ids)) != len(submitted_student_ids):
+            raise HTTPException(status_code=400, detail="Each student can have only one lesson grade")
+        if any(student_id not in active_student_ids for student_id in submitted_student_ids):
+            raise HTTPException(status_code=400, detail="A graded student is not active in this group")
         
         entry = {
             "group_id": entry_data.group_id,
@@ -104,6 +159,8 @@ async def create_journal_entry(
             "updated_at": datetime.utcnow()
         }
         result = await db.teacher_journal.insert_one(entry)
+        entry["_id"] = result.inserted_id
+        await notify_performance_changes(db, entry)
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -114,7 +171,6 @@ async def create_journal_entry(
             request.client.host if request.client else None
         )
         
-        entry["id"] = str(result.inserted_id)
         return serialize_doc(entry)
     except HTTPException:
         raise
@@ -132,6 +188,30 @@ async def get_group_journal(
     from server import db, serialize_doc
     
     try:
+        if not ObjectId.is_valid(group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+
+        visible_student_ids = None
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if not teacher or (group.get("teacher_id") != str(teacher["_id"]) and group_id not in teacher.get("group_ids", [])):
+                raise HTTPException(status_code=403, detail="Access denied")
+        elif current_user["role"] == "student":
+            student = await db.students.find_one({"user_id": str(current_user["_id"])})
+            if not student or (group_id not in student.get("group_ids", []) and str(student["_id"]) not in group.get("student_ids", [])):
+                raise HTTPException(status_code=403, detail="Access denied")
+            visible_student_ids = {str(student["_id"])}
+        elif current_user["role"] == "parent":
+            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+            if not parent:
+                raise HTTPException(status_code=403, detail="Access denied")
+            visible_student_ids = set(parent.get("student_ids", [])) & await get_active_group_student_ids(db, group_id)
+            if not visible_student_ids:
+                raise HTTPException(status_code=403, detail="Access denied")
+
         entries = await db.teacher_journal.find(
             {"group_id": group_id}
         ).sort("lesson_date", -1).skip(skip).limit(limit).to_list(limit)
@@ -143,10 +223,13 @@ async def get_group_journal(
             entry_data["student_performance"] = [
                 performance for performance in entry_data.get("student_performance", [])
                 if performance.get("student_id") in active_student_ids
+                and (visible_student_ids is None or performance.get("student_id") in visible_student_ids)
             ]
             result.append(entry_data)
 
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -167,6 +250,25 @@ async def update_journal_entry(
         entry_data.lesson_date = require_date_window(
             entry_data.lesson_date, past_days=366, label="Lesson date"
         )
+        if not ObjectId.is_valid(entry_id):
+            raise HTTPException(status_code=400, detail="Invalid journal entry ID")
+        existing = await db.teacher_journal.find_one({"_id": ObjectId(entry_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Journal entry not found")
+        if current_user["role"] == "teacher":
+            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+            if not teacher or existing.get("teacher_id") != str(teacher["_id"]):
+                raise HTTPException(status_code=403, detail="You can only edit your own journal entries")
+        if entry_data.group_id != existing.get("group_id"):
+            raise HTTPException(status_code=400, detail="A journal entry cannot be moved to another group")
+
+        active_student_ids = await get_active_group_student_ids(db, entry_data.group_id)
+        submitted_student_ids = [item.student_id for item in entry_data.student_performance]
+        if len(set(submitted_student_ids)) != len(submitted_student_ids):
+            raise HTTPException(status_code=400, detail="Each student can have only one lesson grade")
+        if any(student_id not in active_student_ids for student_id in submitted_student_ids):
+            raise HTTPException(status_code=400, detail="A graded student is not active in this group")
+
         update_data = {
             "lesson_date": entry_data.lesson_date,
             "lesson_number": entry_data.lesson_number,
@@ -182,7 +284,7 @@ async def update_journal_entry(
             {"$set": update_data}
         )
         
-        if result.modified_count == 0:
+        if result.matched_count == 0:
             raise HTTPException(status_code=404, detail="Journal entry not found")
         
         await create_audit_log(
@@ -195,8 +297,55 @@ async def update_journal_entry(
         )
         
         updated = await db.teacher_journal.find_one({"_id": ObjectId(entry_id)})
+        await notify_performance_changes(db, updated, existing.get("student_performance", []))
         return serialize_doc(updated)
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{entry_id}/feedback")
+async def submit_lesson_feedback(
+    entry_id: str,
+    feedback_data: LessonFeedbackCreate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep)
+):
+    """Create or update the signed-in student's feedback for one lesson."""
+    from server import db, serialize_doc, create_audit_log
+
+    if current_user["role"] != "student":
+        raise HTTPException(status_code=403, detail="Only students can submit lesson feedback")
+    if not ObjectId.is_valid(entry_id):
+        raise HTTPException(status_code=400, detail="Invalid journal entry ID")
+
+    entry = await db.teacher_journal.find_one({"_id": ObjectId(entry_id)})
+    student = await db.students.find_one({"user_id": str(current_user["_id"]), "status": {"$ne": "archived"}})
+    if not entry or not student:
+        raise HTTPException(status_code=404, detail="Lesson or student not found")
+    student_id = str(student["_id"])
+    group = await db.groups.find_one({"_id": ObjectId(entry["group_id"])})
+    if not group or (entry["group_id"] not in student.get("group_ids", []) and student_id not in group.get("student_ids", [])):
+        raise HTTPException(status_code=403, detail="You can only review lessons from your groups")
+
+    now = datetime.utcnow()
+    await db.lesson_feedback.update_one(
+        {"entry_id": entry_id, "student_id": student_id},
+        {
+            "$set": {
+                "group_id": entry["group_id"],
+                "teacher_id": entry["teacher_id"],
+                "rating": feedback_data.rating,
+                "comment": feedback_data.comment,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
+    )
+    saved = await db.lesson_feedback.find_one({"entry_id": entry_id, "student_id": student_id})
+    await create_audit_log(
+        str(current_user["_id"]), "lesson_feedback", "journal", entry_id,
+        {"rating": feedback_data.rating}, request.client.host if request.client else None
+    )
+    return serialize_doc(saved)
