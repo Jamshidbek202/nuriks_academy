@@ -538,6 +538,27 @@ export default function GroupsScreen() {
                   <Ionicons name="person" size={12} color={COLORS.textTertiary} /> {getTeacherName(group.teacher_id, group.teacher_name)}
                 </Text>
               </View>
+              {canDeleteGroup && (
+                <TouchableOpacity
+                  style={styles.cardDeleteButton}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete group ${group.name}`}
+                  disabled={deletingGroupId === group.id}
+                  onPress={(event) => {
+                    event.stopPropagation();
+                    handleDeleteGroup(group);
+                  }}
+                >
+                  {deletingGroupId === group.id ? (
+                    <ActivityIndicator size="small" color={COLORS.error} />
+                  ) : (
+                    <>
+                      <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+                      <Text style={styles.cardDeleteText}>Delete</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
 
             <View style={styles.groupStats}>
@@ -733,6 +754,23 @@ export default function GroupsScreen() {
                     <Text style={styles.noDataText}>No students in this group</Text>
                   )}
                 </View>
+
+                {canDeleteGroup && (
+                  <TouchableOpacity
+                    style={styles.deleteGroupButton}
+                    disabled={deletingGroupId === selectedGroup.id}
+                    onPress={() => handleDeleteGroup(selectedGroup)}
+                  >
+                    {deletingGroupId === selectedGroup.id ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="trash-outline" size={20} color="#FFFFFF" />
+                        <Text style={styles.deleteGroupButtonText}>Delete Group</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             )}
           </View>
@@ -1086,6 +1124,21 @@ const styles = StyleSheet.create({
   groupInfo: {
     flex: 1,
   },
+  cardDeleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: SIZES.sm,
+    paddingVertical: SIZES.xs,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.error + '18',
+    marginLeft: SIZES.sm,
+  },
+  cardDeleteText: {
+    fontSize: SIZES.fontXs,
+    fontWeight: '700',
+    color: COLORS.error,
+  },
   groupNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1372,6 +1425,23 @@ const styles = StyleSheet.create({
   },
   removeStudentBtn: {
     padding: SIZES.xs,
+  },
+  deleteGroupButton: {
+    minHeight: 48,
+    marginHorizontal: SIZES.lg,
+    marginTop: SIZES.sm,
+    marginBottom: SIZES.xl,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: COLORS.error,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SIZES.sm,
+  },
+  deleteGroupButtonText: {
+    color: '#FFFFFF',
+    fontSize: SIZES.fontMd,
+    fontWeight: '700',
   },
   studentList: {
     padding: SIZES.lg,
