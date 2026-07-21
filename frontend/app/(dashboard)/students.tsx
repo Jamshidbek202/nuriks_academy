@@ -1,17 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   Alert,
   ActivityIndicator,
   RefreshControl,
   Modal,
   Platform,
 } from 'react-native';
+import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFocusEffect } from 'expo-router';
@@ -297,11 +296,11 @@ export default function StudentsScreen() {
           style={styles.filterPicker}
           dropdownIconColor={COLORS.gold}
         >
-          <Picker.Item label="Current students" value="current" />
-          <Picker.Item label="Active" value="active" />
-          <Picker.Item label="Frozen" value="frozen" />
-          <Picker.Item label="Graduated" value="graduated" />
-          <Picker.Item label="Archived" value="archived" />
+          <LocalizedPickerItem label="Current students" value="current" />
+          <LocalizedPickerItem label="Active" value="active" />
+          <LocalizedPickerItem label="Frozen" value="frozen" />
+          <LocalizedPickerItem label="Graduated" value="graduated" />
+          <LocalizedPickerItem label="Archived" value="archived" />
         </Picker>
       </View>
 

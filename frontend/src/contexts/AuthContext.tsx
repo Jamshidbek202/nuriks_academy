@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import api from '../services/api';
@@ -7,6 +7,8 @@ import {
   registerPushToken,
   unregisterPushToken,
 } from '../services/notifications';
+import { useLanguage } from './LanguageContext';
+import { AppLanguage } from '../i18n/translations';
 
 interface User {
   _id?: string;
@@ -19,6 +21,7 @@ interface User {
   branch_id?: string;
   is_active?: boolean;
   two_factor_enabled?: boolean;
+  language_preference?: AppLanguage;
 }
 
 interface AuthContextType {
@@ -39,14 +42,11 @@ const normalizeUser = (user: User): User => ({
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { setLanguage, isLanguageReady } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    loadStoredAuth();
-  }, []);
 
   // Register push token when user is authenticated
   useEffect(() => {
@@ -81,7 +81,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const loadStoredAuth = async () => {
+  const loadStoredAuth = useCallback(async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
       const storedUser = await AsyncStorage.getItem('user');
@@ -94,6 +94,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           const response = await api.get('/auth/me');
           const currentUser = normalizeUser(response.data);
           setUser(currentUser);
+          if (currentUser.language_preference) {
+            await setLanguage(currentUser.language_preference);
+          }
           await AsyncStorage.setItem('user', JSON.stringify(currentUser));
         } catch (error) {
           console.error('Stored auth token is no longer valid:', error);
@@ -104,7 +107,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(null);
         }
       } else if (storedUser) {
-        setUser(normalizeUser(JSON.parse(storedUser)));
+        const currentUser = normalizeUser(JSON.parse(storedUser));
+        setUser(currentUser);
+        if (currentUser.language_preference) {
+          await setLanguage(currentUser.language_preference);
+        }
       }
       
       if (storedPushToken) {
@@ -115,7 +122,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [setLanguage]);
+
+  useEffect(() => {
+    if (isLanguageReady) loadStoredAuth();
+  }, [isLanguageReady, loadStoredAuth]);
 
   const login = async (loginInput: string, password: string) => {
     try {
@@ -131,6 +142,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       setToken(accessToken);
       setUser(loggedInUser);
+      if (loggedInUser.language_preference) {
+        await setLanguage(loggedInUser.language_preference);
+      }
       api.defaults.headers.common.Authorization = `Bearer ${accessToken}`;
       await AsyncStorage.setItem('token', accessToken);
       await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
@@ -163,6 +177,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await api.get('/auth/me');
       const currentUser = normalizeUser(response.data);
       setUser(currentUser);
+      if (currentUser.language_preference) {
+        await setLanguage(currentUser.language_preference);
+      }
       await AsyncStorage.setItem('user', JSON.stringify(currentUser));
     } catch (error) {
       console.error('Error refreshing user:', error);

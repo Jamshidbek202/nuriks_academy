@@ -1,12 +1,13 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   View,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -45,7 +46,7 @@ interface Receipt {
   status: string;
 }
 
-const uzs = (amount: number) => `${new Intl.NumberFormat('uz-UZ').format(amount || 0)} UZS`;
+const uzs = (amount: number) => `${new Intl.NumberFormat(getActiveLocale()).format(amount || 0)} UZS`;
 
 export default function PaymentsScreen() {
   const { user } = useAuth();
@@ -144,7 +145,7 @@ export default function PaymentsScreen() {
           <View key={receipt.id} style={styles.card}>
             <View style={styles.row}>
               <View style={styles.receiptIcon}><Ionicons name="receipt" size={20} color={COLORS.gold} /></View>
-              <View style={styles.flex}><Text style={styles.cardTitle}>{receipt.receipt_number}</Text><Text style={styles.meta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString()}</Text></View>
+              <View style={styles.flex}><Text style={styles.cardTitle}>{receipt.receipt_number}</Text><Text style={styles.meta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString(getActiveLocale())}</Text></View>
               <Text style={styles.receiptAmount}>{uzs(receipt.amount_uzs)}</Text>
             </View>
             <Text style={styles.meta}>Applied to debt: {uzs(receipt.allocated_amount_uzs)} · advance: {uzs(receipt.advance_amount_uzs)}</Text>

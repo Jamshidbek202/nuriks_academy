@@ -1,15 +1,15 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   RefreshControl,
   Platform,
 } from 'react-native';
+import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
@@ -101,13 +101,13 @@ export default function ChatsScreen() {
     const diffDays = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60 * 24));
     
     if (diffDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleTimeString(getActiveLocale(), { hour: '2-digit', minute: '2-digit' });
     } else if (diffDays === 1) {
       return 'Yesterday';
     } else if (diffDays < 7) {
-      return date.toLocaleDateString([], { weekday: 'short' });
+      return date.toLocaleDateString(getActiveLocale(), { weekday: 'short' });
     } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      return date.toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric' });
     }
   };
 

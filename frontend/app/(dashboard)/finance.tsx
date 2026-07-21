@@ -1,3 +1,4 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -6,10 +7,10 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
@@ -197,10 +198,10 @@ const tabs: { key: FinanceTab; label: string; icon: string }[] = [
   { key: 'closures', label: 'Closures', icon: 'calendar' },
 ];
 
-const uzs = (value?: number) => `${new Intl.NumberFormat('uz-UZ').format(value || 0)} UZS`;
+const uzs = (value?: number) => `${new Intl.NumberFormat(getActiveLocale()).format(value || 0)} UZS`;
 
 const tashkentDateParts = () => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat(getActiveLocale(), {
     timeZone: 'Asia/Tashkent', year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(new Date());
   return Object.fromEntries(parts.map((part) => [part.type, part.value]));
@@ -232,11 +233,11 @@ const parseWholeUzsAllowZero = (value: string) => {
 };
 
 const utcDate = (value: string) => new Date(/[zZ]|[+-]\d\d:\d\d$/.test(value) ? value : `${value}Z`);
-const tashkentDateTime = (value: string) => utcDate(value).toLocaleString('en-GB', {
+const tashkentDateTime = (value: string) => utcDate(value).toLocaleString(getActiveLocale(), {
   timeZone: 'Asia/Tashkent',
   year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit',
 });
-const tashkentTime = (value: string) => utcDate(value).toLocaleTimeString('en-GB', {
+const tashkentTime = (value: string) => utcDate(value).toLocaleTimeString(getActiveLocale(), {
   timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false,
 });
 
@@ -967,8 +968,8 @@ export default function FinanceScreen() {
         <Text style={styles.inputLabel}>Student *</Text>
         <View style={styles.pickerBox}>
           <Picker selectedValue={receiptForm.student_id} onValueChange={(value) => setReceiptForm({ ...receiptForm, student_id: value })} style={styles.picker} dropdownIconColor={COLORS.gold}>
-            <Picker.Item label="Select student" value="" />
-            {students.map((student) => <Picker.Item key={student.id} label={`${student.student_id} · ${student.first_name} ${student.last_name}`} value={student.id} />)}
+            <LocalizedPickerItem label="Select student" value="" />
+            {students.map((student) => <LocalizedPickerItem key={student.id} label={`${student.student_id} · ${student.first_name} ${student.last_name}`} value={student.id} />)}
           </Picker>
         </View>
         <Input label="Amount (whole UZS) *" keyboardType="number-pad" value={receiptForm.amount} onChangeText={(amount) => setReceiptForm({ ...receiptForm, amount })} placeholder="450000" />
@@ -1024,7 +1025,7 @@ export default function FinanceScreen() {
         {visibleReceipts.length === 0 ? <Empty text="No matching receipts." /> : visibleReceipts.slice(0, 50).map((receipt) => (
           <View key={receipt.id} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{receipt.receipt_number}</Text><Text style={styles.goodAmount}>{uzs(receipt.amount_uzs)}</Text></View>
-            <Text style={styles.recordMeta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString()}</Text>
+            <Text style={styles.recordMeta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString(getActiveLocale())}</Text>
             <Text style={styles.recordMeta}>Debt {uzs(receipt.allocated_amount_uzs)} · advance {uzs(receipt.advance_amount_uzs)}</Text>
             {isSuperAdmin && receipt.status === 'posted' && <Button title="Reverse receipt" variant="outline" onPress={() => { setReceiptReversalTarget(receipt); setReceiptReversalReason(''); }} />}
           </View>
@@ -1097,7 +1098,7 @@ export default function FinanceScreen() {
               <Kpi label="Cash removed" value={cashShift.removal_total_uzs} icon="arrow-up" color={COLORS.warning} />
               <Kpi label="Expected now" value={expectedCash} icon="cash" color={COLORS.gold} />
             </View>
-            <Text style={styles.recordMeta}>Opened {new Date(cashShift.opened_at).toLocaleString()}</Text>
+            <Text style={styles.recordMeta}>Opened {new Date(cashShift.opened_at).toLocaleString(getActiveLocale())}</Text>
             <Input label="Counted closing balance (whole UZS)" keyboardType="number-pad" value={shiftForm.closing} onChangeText={(closing) => setShiftForm({ ...shiftForm, closing })} placeholder={String(expectedCash)} />
             <Button title="Close shift and record discrepancy" variant="outline" onPress={closeShift} loading={busy === 'close-shift'} />
           </>
@@ -1206,8 +1207,8 @@ export default function FinanceScreen() {
       </Section>
       {isSuperAdmin && (
         <Section title="Create tariff version" subtitle="Use the exact effective date; this may split one month across two prices by scheduled lesson.">
-          <Text style={styles.inputLabel}>Program</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.program_code} onValueChange={(program_code) => setTariffForm({ ...tariffForm, program_code })} style={styles.picker} dropdownIconColor={COLORS.gold}><Picker.Item label="General" value="general" /><Picker.Item label="Pre-IELTS" value="pre_ielts" /><Picker.Item label="IELTS" value="ielts" /></Picker></View>
-          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.group_format} onValueChange={(group_format) => setTariffForm({ ...tariffForm, group_format })} style={styles.picker} dropdownIconColor={COLORS.gold}><Picker.Item label="Normal group" value="normal" /><Picker.Item label="Mini group" value="mini" /><Picker.Item label="Individual" value="individual" /></Picker></View>
+          <Text style={styles.inputLabel}>Program</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.program_code} onValueChange={(program_code) => setTariffForm({ ...tariffForm, program_code })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="General" value="general" /><LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" /><LocalizedPickerItem label="IELTS" value="ielts" /></Picker></View>
+          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.group_format} onValueChange={(group_format) => setTariffForm({ ...tariffForm, group_format })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
           <Input label="New monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
           <Input label="Effective from" value={tariffForm.effective_from} onChangeText={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
           <Input label="Reason" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
@@ -1216,7 +1217,7 @@ export default function FinanceScreen() {
       )}
       {isSuperAdmin && (
         <Section title="Create teacher-share version" subtitle="This changes future lesson earnings only; finalized payroll remains immutable.">
-          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={teacherShareForm.group_format} onValueChange={(group_format: GroupFormat) => { const current = teacherShares.find((policy) => policy.policy_key === `teacher_share:${group_format}`); setTeacherShareForm({ ...teacherShareForm, group_format, percentage: String((current?.value.basis_points || 0) / 100) }); }} style={styles.picker} dropdownIconColor={COLORS.gold}><Picker.Item label="Normal group" value="normal" /><Picker.Item label="Mini group" value="mini" /><Picker.Item label="Individual" value="individual" /></Picker></View>
+          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={teacherShareForm.group_format} onValueChange={(group_format: GroupFormat) => { const current = teacherShares.find((policy) => policy.policy_key === `teacher_share:${group_format}`); setTeacherShareForm({ ...teacherShareForm, group_format, percentage: String((current?.value.basis_points || 0) / 100) }); }} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
           <Input label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
           <Input label="Effective from" value={teacherShareForm.effective_from} onChangeText={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
           <Input label="Reason" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
@@ -1247,8 +1248,8 @@ export default function FinanceScreen() {
         <Text style={styles.inputLabel}>Group</Text>
         <View style={styles.pickerBox}>
           <Picker selectedValue={selectedGroupId} onValueChange={setSelectedGroupId} style={styles.picker} dropdownIconColor={COLORS.gold}>
-            <Picker.Item label="Select group" value="" />
-            {groups.map((group) => <Picker.Item key={group.id} label={group.name} value={group.id} />)}
+            <LocalizedPickerItem label="Select group" value="" />
+            {groups.map((group) => <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />)}
           </Picker>
         </View>
         <Button title="Generate / refresh scheduled lessons" variant="outline" disabled={!selectedGroupId} loading={busy === 'occurrences'} onPress={generateOccurrences} />
@@ -1291,8 +1292,8 @@ export default function FinanceScreen() {
       <Section title="Add centre closure" subtitle="Matching scheduled lessons remain in the monthly denominator but are not charged and do not create teacher earnings.">
         <Input label="Title" value={closureForm.title} onChangeText={(title) => setClosureForm({ ...closureForm, title })} placeholder="Public holiday" />
         <Input label="Reason" value={closureForm.reason} onChangeText={(reason) => setClosureForm({ ...closureForm, reason })} />
-        <Text style={styles.inputLabel}>Kind</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.kind} onValueChange={(kind) => setClosureForm({ ...closureForm, kind })} style={styles.picker} dropdownIconColor={COLORS.gold}><Picker.Item label="Official holiday" value="holiday" /><Picker.Item label="Unexpected closure" value="unexpected" /></Picker></View>
-        <Text style={styles.inputLabel}>Scope</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.group_id} onValueChange={(group_id) => setClosureForm({ ...closureForm, group_id })} style={styles.picker} dropdownIconColor={COLORS.gold}><Picker.Item label="All centre / branch groups" value="" />{groups.map((group) => <Picker.Item key={group.id} label={group.name} value={group.id} />)}</Picker></View>
+        <Text style={styles.inputLabel}>Kind</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.kind} onValueChange={(kind) => setClosureForm({ ...closureForm, kind })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Official holiday" value="holiday" /><LocalizedPickerItem label="Unexpected closure" value="unexpected" /></Picker></View>
+        <Text style={styles.inputLabel}>Scope</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.group_id} onValueChange={(group_id) => setClosureForm({ ...closureForm, group_id })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="All centre / branch groups" value="" />{groups.map((group) => <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />)}</Picker></View>
         <Input label="Starts (Tashkent local)" value={closureForm.starts_at} onChangeText={(starts_at) => setClosureForm({ ...closureForm, starts_at })} placeholder="YYYY-MM-DDTHH:mm" />
         <Input label="Ends (Tashkent local)" value={closureForm.ends_at} onChangeText={(ends_at) => setClosureForm({ ...closureForm, ends_at })} placeholder="YYYY-MM-DDTHH:mm" />
         <Button title="Add closure" onPress={createClosure} loading={busy === 'closure'} />
@@ -1335,7 +1336,7 @@ function Kpi({ label, value, icon, color }: { label: string; value: number; icon
 }
 
 function MoneyRow({ label, value, strong, negative, valuePrefix = '', valueSuffix = '', raw = false }: { label: string; value: number; strong?: boolean; negative?: boolean; valuePrefix?: string; valueSuffix?: string; raw?: boolean }) {
-  return <View style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, negative && styles.negative]}>{valuePrefix}{raw ? new Intl.NumberFormat('uz-UZ').format(value) : uzs(Math.abs(value))}{valueSuffix}</Text></View>;
+  return <View style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, negative && styles.negative]}>{valuePrefix}{raw ? new Intl.NumberFormat(getActiveLocale()).format(value) : uzs(Math.abs(value))}{valueSuffix}</Text></View>;
 }
 
 function SpendingBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {

@@ -333,6 +333,30 @@ async def get_me(current_user: dict = Depends(get_current_user_dependency)):
         del user_data["two_factor_secret"]
     return user_data
 
+@api_router.put("/auth/preferences/language")
+async def update_language_preference(
+    payload: LanguagePreferenceUpdate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dependency),
+):
+    """Persist the signed-in user's app language across devices."""
+    await db.users.update_one(
+        {"_id": current_user["_id"]},
+        {"$set": {
+            "language_preference": payload.language.value,
+            "updated_at": datetime.utcnow(),
+        }},
+    )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "update_language_preference",
+        "user",
+        str(current_user["_id"]),
+        {"language_preference": payload.language.value},
+        request.client.host if request.client else None,
+    )
+    return {"language_preference": payload.language.value}
+
 # ==================== 2FA ====================
 
 @api_router.post("/auth/2fa/setup", response_model=TwoFactorSetup)

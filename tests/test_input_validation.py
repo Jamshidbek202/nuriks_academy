@@ -8,6 +8,7 @@ from routes_homework import HomeworkCreate
 from routes_journal import JournalEntryCreate
 from routes_payments import CashPaymentCreate
 from routes_tests import TestCreate
+from models import LanguagePreferenceUpdate
 from validation import require_date_string_window, require_date_window
 
 
@@ -36,6 +37,12 @@ class InputValidationTests(unittest.TestCase):
         for factory in factories:
             with self.subTest(factory=factory), self.assertRaises(ValidationError):
                 factory()
+
+    def test_language_preference_accepts_only_supported_languages(self):
+        for language in ("en", "ru", "uz"):
+            self.assertEqual(LanguagePreferenceUpdate(language=language).language.value, language)
+        with self.assertRaises(ValidationError):
+            LanguagePreferenceUpdate(language="de")
 
 
 if __name__ == "__main__":

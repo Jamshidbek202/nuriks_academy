@@ -1,13 +1,14 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -96,7 +97,7 @@ export default function AuditLogsScreen() {
     if (!dateString) return 'Unknown date';
     try {
       const date = new Date(dateString);
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return date.toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     } catch {
       return 'Invalid date';
     }

@@ -1,17 +1,17 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   Image,
   Linking,
 } from 'react-native';
+import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
@@ -319,7 +319,7 @@ export default function ConversationScreen() {
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString(getActiveLocale(), { hour: '2-digit', minute: '2-digit' });
   };
 
   const formatDate = (dateString: string) => {
@@ -333,7 +333,7 @@ export default function ConversationScreen() {
     } else if (date.toDateString() === yesterday.toDateString()) {
       return 'Yesterday';
     } else {
-      return date.toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+      return date.toLocaleDateString(getActiveLocale(), { weekday: 'long', month: 'short', day: 'numeric' });
     }
   };
 

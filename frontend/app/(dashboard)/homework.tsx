@@ -1,7 +1,7 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -11,6 +11,7 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
@@ -261,7 +262,7 @@ export default function HomeworkScreen() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return date.toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const getSubmissionStatus = (homework: Homework) => {
@@ -340,9 +341,9 @@ export default function HomeworkScreen() {
             itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
-            <Picker.Item label="Select a group" value="" />
+            <LocalizedPickerItem label="Select a group" value="" />
             {groups.map((group) => (
-              <Picker.Item key={group.id} label={group.name} value={group.id} />
+              <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />
             ))}
           </Picker>
         </View>

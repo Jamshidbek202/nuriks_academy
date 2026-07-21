@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef } from 'react';
-import { Animated, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Animated, Image, Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Text } from './LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS, SIZES } from '../constants/theme';
 

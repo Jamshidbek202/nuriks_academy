@@ -1,8 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   KeyboardAvoidingView,
@@ -12,6 +10,7 @@ import {
   ActivityIndicator,
   Image,
 } from 'react-native';
+import { Text, TextInput } from '../src/components/LocalizedText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/contexts/AuthContext';

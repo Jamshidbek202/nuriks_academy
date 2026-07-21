@@ -1,16 +1,16 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   Modal,
-  TextInput,
   Alert,
 } from 'react-native';
+import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
@@ -222,9 +222,9 @@ export default function ProgressScreen() {
             itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
-            <Picker.Item label="Select a group" value="" />
+            <LocalizedPickerItem label="Select a group" value="" />
             {groups.map((group) => (
-              <Picker.Item key={group.id} label={group.name} value={group.id} />
+              <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />
             ))}
           </Picker>
         </View>
@@ -458,7 +458,7 @@ export default function ProgressScreen() {
                             <View style={styles.lessonGradeInfo}>
                               <Text style={styles.lessonGradeTopic}>{lesson.topic}</Text>
                               <Text style={styles.lessonGradeMeta}>
-                                Lesson #{lesson.lesson_number} · {new Date(lesson.lesson_date).toLocaleDateString()}
+                                Lesson #{lesson.lesson_number} · {new Date(lesson.lesson_date).toLocaleDateString(getActiveLocale())}
                               </Text>
                             </View>
                             <View style={styles.lessonGradeBadge}>

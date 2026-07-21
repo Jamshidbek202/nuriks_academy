@@ -1,7 +1,7 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -11,6 +11,7 @@ import {
   Modal,
   Platform,
 } from 'react-native';
+import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -173,7 +174,7 @@ export default function CertificatesScreen() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return date.toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   if (loading) {
@@ -286,9 +287,9 @@ export default function CertificatesScreen() {
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
-                  <Picker.Item label="Select student" value="" />
+                  <LocalizedPickerItem label="Select student" value="" />
                   {students.map((student) => (
-                    <Picker.Item
+                    <LocalizedPickerItem
                       key={student.id}
                       label={`${student.first_name} ${student.last_name} (${student.student_id})`}
                       value={student.id}
@@ -306,9 +307,9 @@ export default function CertificatesScreen() {
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
-                  <Picker.Item label="Select course" value="" />
+                  <LocalizedPickerItem label="Select course" value="" />
                   {courses.map((course) => (
-                    <Picker.Item key={course.id} label={course.name} value={course.id} />
+                    <LocalizedPickerItem key={course.id} label={course.name} value={course.id} />
                   ))}
                 </Picker>
               </View>

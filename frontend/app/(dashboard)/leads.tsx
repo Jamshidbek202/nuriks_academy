@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   Platform,
   ActivityIndicator,
   RefreshControl,
   Modal,
   Alert,
 } from 'react-native';
+import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
@@ -375,9 +374,9 @@ export default function LeadsScreen() {
                     itemStyle={styles.pickerItem}
                     dropdownIconColor={COLORS.gold}
                   >
-                    <Picker.Item label="Select course" value="" />
+                    <LocalizedPickerItem label="Select course" value="" />
                     {courses.map((course: any) => (
-                      <Picker.Item key={course.id} label={course.name} value={course.name} />
+                      <LocalizedPickerItem key={course.id} label={course.name} value={course.name} />
                     ))}
                   </Picker>
                 </View>
@@ -394,7 +393,7 @@ export default function LeadsScreen() {
                     dropdownIconColor={COLORS.gold}
                   >
                     {LEAD_SOURCES.map((source) => (
-                      <Picker.Item key={source} label={source.replace('_', ' ')} value={source} />
+                      <LocalizedPickerItem key={source} label={source.replace('_', ' ')} value={source} />
                     ))}
                   </Picker>
                 </View>

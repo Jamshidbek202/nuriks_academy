@@ -1,5 +1,7 @@
+import { getActiveLocale } from '../i18n/translations';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, StyleProp, StyleSheet, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Modal, StyleProp, StyleSheet, TouchableOpacity, View, ViewStyle } from 'react-native';
+import { Text } from './LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS, SIZES } from '../constants/theme';
 
@@ -13,8 +15,6 @@ interface CalendarDatePickerProps {
   style?: StyleProp<ViewStyle>;
   mode?: 'date' | 'month';
 }
-
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 function parseDate(value?: string) {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
@@ -47,6 +47,9 @@ export function CalendarDatePicker({
   const [visibleMonth, setVisibleMonth] = useState(() => selectedDate || parseDate(minimumDate) || new Date());
   const minimum = parseDate(minimumDate);
   const maximum = parseDate(maximumDate);
+  const weekdays = Array.from({ length: 7 }, (_, day) => (
+    new Intl.DateTimeFormat(getActiveLocale(), { weekday: 'short' }).format(new Date(2026, 0, 4 + day))
+  ));
 
   useEffect(() => {
     if (visible) {
@@ -85,7 +88,7 @@ export function CalendarDatePicker({
     if (canMoveYear(offset)) setVisibleMonth(new Date(visibleMonth.getFullYear() + offset, 0, 1));
   };
 
-  const formattedValue = selectedDate?.toLocaleDateString('en-US', mode === 'month'
+  const formattedValue = selectedDate?.toLocaleDateString(getActiveLocale(), mode === 'month'
     ? { month: 'long', year: 'numeric' }
     : { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
 
@@ -108,7 +111,7 @@ export function CalendarDatePicker({
                 <Ionicons name="chevron-back" size={24} color={(mode === 'month' ? canMoveYear(-1) : canMoveTo(-1)) ? COLORS.textPrimary : COLORS.textTertiary} />
               </TouchableOpacity>
               <Text style={styles.monthTitle}>
-                {mode === 'month' ? visibleMonth.getFullYear() : visibleMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                {mode === 'month' ? visibleMonth.getFullYear() : visibleMonth.toLocaleDateString(getActiveLocale(), { month: 'long', year: 'numeric' })}
               </Text>
               <TouchableOpacity disabled={mode === 'month' ? !canMoveYear(1) : !canMoveTo(1)} onPress={() => mode === 'month' ? moveYear(1) : moveMonth(1)} style={styles.iconButton}>
                 <Ionicons name="chevron-forward" size={24} color={(mode === 'month' ? canMoveYear(1) : canMoveTo(1)) ? COLORS.textPrimary : COLORS.textTertiary} />
@@ -130,14 +133,14 @@ export function CalendarDatePicker({
                       onPress={() => { onChange(monthValue); setVisible(false); }}
                     >
                       <Text style={[styles.dayText, disabled && styles.disabled, value === monthValue && styles.selectedDayText]}>
-                        {candidate.toLocaleDateString('en-US', { month: 'short' })}
+                        {candidate.toLocaleDateString(getActiveLocale(), { month: 'short' })}
                       </Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
             ) : <View style={styles.grid}>
-              {WEEKDAYS.map((day) => <Text key={day} style={styles.weekday}>{day}</Text>)}
+              {weekdays.map((day) => <Text key={day} style={styles.weekday}>{day}</Text>)}
               {days.map((date) => {
                 const dateValue = toDateString(date);
                 const disabled = Boolean((minimum && date < minimum) || (maximum && date > maximum));

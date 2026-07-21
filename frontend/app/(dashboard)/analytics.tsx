@@ -1,13 +1,14 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
   Dimensions,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -58,7 +59,7 @@ export default function AnalyticsScreen() {
   useLiveRefresh(loadAnalytics, true, 'admin-analytics', 3000);
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'decimal' }).format(amount) + ' UZS';
+    return new Intl.NumberFormat(getActiveLocale(), { style: 'decimal' }).format(amount) + ' UZS';
   };
 
   if (user?.role !== 'super_admin' && user?.role !== 'manager') {

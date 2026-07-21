@@ -1,7 +1,7 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -9,9 +9,9 @@ import {
   RefreshControl,
   Modal,
   Alert,
-  TextInput,
   Platform,
 } from 'react-native';
+import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -151,7 +151,7 @@ export default function NewsScreen() {
   };
 
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return new Date(dateString).toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric', year: 'numeric' });
   };
 
   const getAudienceLabel = (audience: string) => {

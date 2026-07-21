@@ -1,7 +1,7 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
+import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { useFocusEffect } from 'expo-router';
@@ -236,7 +237,7 @@ export default function AttendanceScreen() {
 
   const getSelectedDateDay = () => {
     const date = new Date(`${selectedDate}T00:00:00`);
-    return date.toLocaleDateString('en-US', { weekday: 'long' });
+    return date.toLocaleDateString(getActiveLocale(), { weekday: 'long' });
   };
 
   const hasClassOnSelectedDate = () => {
@@ -284,7 +285,7 @@ export default function AttendanceScreen() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
+    return date.toLocaleDateString(getActiveLocale(), {
       weekday: 'short',
       month: 'short',
       day: 'numeric',
@@ -342,9 +343,9 @@ export default function AttendanceScreen() {
             itemStyle={styles.pickerItem}
             dropdownIconColor={COLORS.gold}
           >
-            <Picker.Item label="Select a group" value="" />
+            <LocalizedPickerItem label="Select a group" value="" />
             {groups.map((group) => (
-              <Picker.Item key={group.id} label={group.name} value={group.id} />
+              <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />
             ))}
           </Picker>
         </View>

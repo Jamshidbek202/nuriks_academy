@@ -14,6 +14,11 @@ class UserRole(str, Enum):
     PARENT = "parent"
     STUDENT = "student"
 
+class AppLanguage(str, Enum):
+    ENGLISH = "en"
+    RUSSIAN = "ru"
+    UZBEK = "uz"
+
 class StudentStatus(str, Enum):
     ACTIVE = "active"
     FROZEN = "frozen"
@@ -84,6 +89,10 @@ class UserBase(BaseModel):
     full_name: str
     role: UserRole
     branch_id: Optional[str] = None
+    language_preference: AppLanguage = AppLanguage.ENGLISH
+
+class LanguagePreferenceUpdate(BaseModel):
+    language: AppLanguage
 
 class UserCreate(UserBase):
     password: str

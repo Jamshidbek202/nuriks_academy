@@ -1,13 +1,14 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -186,7 +187,7 @@ export default function NotificationsScreen() {
                   {!notification.is_read && <View style={styles.unreadDot} />}
                 </View>
                 <Text style={styles.notificationMessage} numberOfLines={2}>{notification.message}</Text>
-                <Text style={styles.notificationTime}>{new Date(notification.created_at).toLocaleString()}</Text>
+                <Text style={styles.notificationTime}>{new Date(notification.created_at).toLocaleString(getActiveLocale())}</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={COLORS.textTertiary} />
             </TouchableOpacity>

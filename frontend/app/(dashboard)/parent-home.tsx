@@ -1,7 +1,7 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -9,6 +9,7 @@ import {
   RefreshControl,
   Modal,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
@@ -113,11 +114,11 @@ export default function ParentHomeScreen() {
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return date.toLocaleDateString(getActiveLocale(), { month: 'short', day: 'numeric' });
   };
 
   const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat('uz-UZ').format(amount) + ' UZS';
+    return new Intl.NumberFormat(getActiveLocale()).format(amount) + ' UZS';
   };
 
   const getStatusColor = (status: string) => {

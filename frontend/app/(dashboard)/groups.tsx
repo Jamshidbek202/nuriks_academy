@@ -1,17 +1,17 @@
+import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  TextInput,
   Alert,
   ActivityIndicator,
   RefreshControl,
   Modal,
   Platform,
 } from 'react-native';
+import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
@@ -83,7 +83,7 @@ interface Student {
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
 const tashkentDate = () => {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = new Intl.DateTimeFormat(getActiveLocale(), {
     timeZone: 'Asia/Tashkent',
     year: 'numeric',
     month: '2-digit',
@@ -94,7 +94,7 @@ const tashkentDate = () => {
 };
 
 const formatUzs = (amount?: number) =>
-  amount == null ? 'Not configured' : `${new Intl.NumberFormat('uz-UZ').format(amount)} UZS`;
+  amount == null ? 'Not configured' : `${new Intl.NumberFormat(getActiveLocale()).format(amount)} UZS`;
 
 export default function GroupsScreen() {
   const { user } = useAuth();
@@ -1005,9 +1005,9 @@ export default function GroupsScreen() {
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
-                  <Picker.Item label="Select course" value="" />
+                  <LocalizedPickerItem label="Select course" value="" />
                   {courses.map((course) => (
-                    <Picker.Item key={course.id} label={course.name} value={course.id} />
+                    <LocalizedPickerItem key={course.id} label={course.name} value={course.id} />
                   ))}
                 </Picker>
               </View>
@@ -1023,9 +1023,9 @@ export default function GroupsScreen() {
                       itemStyle={styles.pickerItem}
                       dropdownIconColor={COLORS.gold}
                     >
-                      <Picker.Item label="Select level" value="" />
+                      <LocalizedPickerItem label="Select level" value="" />
                       {selectedCourse.levels.map((level) => (
-                        <Picker.Item key={level} label={level} value={level} />
+                        <LocalizedPickerItem key={level} label={level} value={level} />
                       ))}
                     </Picker>
                   </View>
@@ -1049,9 +1049,9 @@ export default function GroupsScreen() {
                       itemStyle={styles.pickerItem}
                       dropdownIconColor={COLORS.gold}
                     >
-                      <Picker.Item label="Select teacher" value="" />
+                      <LocalizedPickerItem label="Select teacher" value="" />
                       {teachers.map((teacher) => (
-                        <Picker.Item
+                        <LocalizedPickerItem
                           key={teacher.id}
                           label={`${teacher.first_name} ${teacher.last_name}`}
                           value={teacher.id}
@@ -1076,9 +1076,9 @@ export default function GroupsScreen() {
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
-                  <Picker.Item label="General English" value="general" />
-                  <Picker.Item label="Pre-IELTS" value="pre_ielts" />
-                  <Picker.Item label="IELTS" value="ielts" />
+                  <LocalizedPickerItem label="General English" value="general" />
+                  <LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" />
+                  <LocalizedPickerItem label="IELTS" value="ielts" />
                 </Picker>
               </View>
 
@@ -1091,15 +1091,15 @@ export default function GroupsScreen() {
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
                 >
-                  <Picker.Item label="Normal group" value="normal" />
-                  <Picker.Item
+                  <LocalizedPickerItem label="Normal group" value="normal" />
+                  <LocalizedPickerItem
                     label={isEditing && selectedGroup?.group_format === 'normal'
                       ? 'Mini group (normal groups cannot downgrade)'
                       : 'Mini group'}
                     value="mini"
                     enabled={!(isEditing && selectedGroup?.group_format === 'normal')}
                   />
-                  <Picker.Item label="Individual" value="individual" />
+                  <LocalizedPickerItem label="Individual" value="individual" />
                 </Picker>
               </View>
 
@@ -1149,7 +1149,7 @@ export default function GroupsScreen() {
                       dropdownIconColor={COLORS.gold}
                     >
                       {DAYS.map((day) => (
-                        <Picker.Item key={day} label={day} value={day} />
+                        <LocalizedPickerItem key={day} label={day} value={day} />
                       ))}
                     </Picker>
                   </View>

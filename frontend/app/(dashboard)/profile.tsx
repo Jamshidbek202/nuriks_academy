@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   View,
-  Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -11,13 +10,17 @@ import {
   Pressable,
   Switch,
   Linking,
+  Alert,
 } from 'react-native';
+import { Text } from '../../src/components/LocalizedText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLanguage } from '../../src/contexts/LanguageContext';
+import { AppLanguage, LANGUAGE_LABELS } from '../../src/i18n/translations';
 import {
   getNotificationPreferences,
   updateNotificationPreferences,
@@ -94,10 +97,13 @@ const NOTIFICATION_OPTIONS: Record<
 
 export default function ProfileScreen() {
   const { user, logout, pushToken } = useAuth();
+  const { language, setLanguage, t } = useLanguage();
   const router = useRouter();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [languageSaving, setLanguageSaving] = useState<AppLanguage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [helpChatLoading, setHelpChatLoading] = useState(false);
   const [receptionPhone, setReceptionPhone] = useState('+998901234567');
@@ -221,6 +227,25 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleLanguageChange = async (nextLanguage: AppLanguage) => {
+    if (nextLanguage === language) {
+      setShowLanguageModal(false);
+      return;
+    }
+    setLanguageSaving(nextLanguage);
+    try {
+      await api.put('/auth/preferences/language', { language: nextLanguage });
+      setShowLanguageModal(false);
+      setLanguageSaving(null);
+      await setLanguage(nextLanguage);
+    } catch (error) {
+      console.error('Error saving language preference:', error);
+      Alert.alert('Error', 'Could not save language preference');
+    } finally {
+      setLanguageSaving(null);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <LinearGradient
@@ -236,7 +261,7 @@ export default function ProfileScreen() {
           <Text style={styles.name}>{user?.full_name || 'User'}</Text>
           <View style={styles.roleBadge}>
             <Text style={styles.roleText}>
-              {user?.role?.replace('_', ' ').toUpperCase() || 'GUEST'}
+              {t(user?.role?.replace('_', ' ') || 'Guest').toUpperCase()}
             </Text>
           </View>
         </View>
@@ -264,6 +289,14 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
               </TouchableOpacity>
             )}
+            <TouchableOpacity style={styles.menuItem} onPress={() => setShowLanguageModal(true)}>
+              <Ionicons name="language" size={24} color={COLORS.gold} />
+              <View style={styles.menuTextContent}>
+                <Text style={[styles.menuText, styles.menuTextNested]}>App language</Text>
+                <Text style={styles.menuSubtitle}>{LANGUAGE_LABELS[language]}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.menuItem} onPress={() => setShowNotificationModal(true)}>
               <Ionicons name="notifications" size={24} color={COLORS.info} />
               <Text style={styles.menuText}>Notifications</Text>
@@ -291,6 +324,54 @@ export default function ProfileScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <Modal
+        visible={showLanguageModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLanguageModal(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setShowLanguageModal(false)}>
+          <Pressable style={styles.languageModalContent} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.notificationModalHeader}>
+              <View style={styles.languageTitleContent}>
+                <Text style={styles.modalTitle}>App language</Text>
+                <Text style={styles.notificationModalSubtitle}>
+                  Choose the language used throughout the app
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowLanguageModal(false)} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {(['en', 'ru', 'uz'] as AppLanguage[]).map((option) => {
+              const selected = option === language;
+              return (
+                <TouchableOpacity
+                  key={option}
+                  style={[styles.languageOption, selected && styles.languageOptionSelected]}
+                  onPress={() => handleLanguageChange(option)}
+                  disabled={languageSaving !== null}
+                >
+                  <View style={styles.languageCodeBadge}>
+                    <Text style={styles.languageCode}>{option.toUpperCase()}</Text>
+                  </View>
+                  <Text style={styles.languageOptionText}>{LANGUAGE_LABELS[option]}</Text>
+                  {languageSaving === option ? (
+                    <ActivityIndicator color={COLORS.gold} />
+                  ) : (
+                    <Ionicons
+                      name={selected ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={24}
+                      color={selected ? COLORS.gold : COLORS.textTertiary}
+                    />
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {/* Logout Confirmation Modal */}
       <Modal
@@ -606,10 +687,21 @@ const styles = StyleSheet.create({
     borderBottomColor: COLORS.marbleGray,
   },
   menuText: {
-    flex: 1,
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
     marginLeft: SIZES.md,
+  },
+  menuTextNested: {
+    marginLeft: 0,
+  },
+  menuTextContent: {
+    flex: 1,
+    marginLeft: SIZES.md,
+  },
+  menuSubtitle: {
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontSm,
+    marginTop: 2,
   },
   logoutButton: {
     flexDirection: 'row',
@@ -644,6 +736,53 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     alignItems: 'center',
     ...SHADOWS.large,
+  },
+  languageModalContent: {
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    padding: SIZES.lg,
+    width: '100%',
+    maxWidth: 460,
+    ...SHADOWS.large,
+  },
+  languageTitleContent: {
+    flex: 1,
+    paddingRight: SIZES.md,
+  },
+  languageOption: {
+    minHeight: 62,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+    borderRadius: SIZES.radiusMd,
+    paddingHorizontal: SIZES.md,
+    marginTop: SIZES.sm,
+    backgroundColor: COLORS.backgroundLight,
+  },
+  languageOptionSelected: {
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.gold + '12',
+  },
+  languageCodeBadge: {
+    width: 42,
+    height: 34,
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.marbleGray,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: SIZES.md,
+  },
+  languageCode: {
+    color: COLORS.gold,
+    fontWeight: '800',
+    fontSize: SIZES.fontSm,
+  },
+  languageOptionText: {
+    flex: 1,
+    color: COLORS.textPrimary,
+    fontSize: SIZES.fontMd,
+    fontWeight: '600',
   },
   modalIconContainer: {
     width: 80,
