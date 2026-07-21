@@ -127,6 +127,24 @@ async def mark_attendance(
             {"student_id": attendance_data.student_id, "status": attendance_data.status},
             request.client.host if request.client else None
         )
+
+        if not existing or existing.get("status") != attendance_data.status.value:
+            from notification_helpers import notify_attendance_marked
+
+            parent = None
+            if student.get("parent_id"):
+                parent_id = student["parent_id"]
+                parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
+                parent = await db.parents.find_one({"_id": parent_key})
+            if not parent:
+                parent = await db.parents.find_one({"student_ids": str(student["_id"])})
+            await notify_attendance_marked(
+                db,
+                student.get("user_id", str(student["_id"])),
+                attendance_data.status.value,
+                attendance_day.date().isoformat(),
+                parent.get("user_id") if parent else None,
+            )
         
         record = await db.attendance.find_one({"_id": result_id})
         return serialize_doc(record)

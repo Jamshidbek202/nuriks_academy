@@ -1,102 +1,117 @@
+"""Asia/Tashkent scheduler for draft generation and shadow finance controls.
+
+The scheduler never finalizes invoices, posts money, sends provider SMS, or
+enables a freeze outside the active billing policy. Human approval remains
+required for finalization and the default operation mode is shadow.
 """
-Payment Reminder Scheduler
-Runs daily at 17:00 starting from the 5th of each month
-Sends reminders to students with unpaid monthly fees
-"""
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from datetime import datetime
+
+from datetime import datetime, timedelta
 import logging
+from zoneinfo import ZoneInfo
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from finance_accounting import generate_recurring_expense_obligations
+from finance_controls import evaluate_finance_freezes, queue_due_reminders
+from finance_ledger import generate_draft_invoices
+from finance_models import ACADEMY_TIMEZONE
+from finance_service import generate_lesson_occurrences
+
 
 logger = logging.getLogger(__name__)
+ACADEMY_TZ = ZoneInfo(ACADEMY_TIMEZONE)
 
-async def send_payment_reminders(db):
-    """Send payment reminders to students with unpaid fees"""
+
+async def run_daily_finance_controls(db):
+    as_of = datetime.now(ACADEMY_TZ).date()
     try:
-        current_day = datetime.utcnow().day
-        
-        # Only send reminders from 5th onwards
-        if current_day < 5:
-            logger.info("Not time for payment reminders yet (before 5th)")
-            return
-        
-        current_month = datetime.utcnow().strftime("%Y-%m")
-        logger.info(f"Checking for unpaid students for month: {current_month}")
-        
-        # Get all active students
-        students = await db.students.find({"status": "active"}).to_list(1000)
-        
-        unpaid_count = 0
-        for student in students:
-            # Check if student has completed payment for current month
-            payment = await db.payments.find_one({
-                "student_id": str(student["_id"]),
-                "month": current_month,
-                "payment_status": "completed"
-            })
-            
-            if not payment:
-                from routes_notifications import create_user_notification
-                data = {"student_id": str(student["_id"]), "month": current_month}
-                await create_user_notification(
-                    db, student["user_id"], "Payment Reminder",
-                    f"Your payment for {current_month} is pending. Please complete your payment as soon as possible.",
-                    "payment_reminder", data, preference_key="payment_reminders",
-                )
-                
-                # Also notify parent if exists
-                if student.get("parent_id"):
-                    from bson import ObjectId
-                    parent_id = student["parent_id"]
-                    parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
-                    parent = await db.parents.find_one({"_id": parent_key})
-                    if parent:
-                        await create_user_notification(
-                            db, parent["user_id"], "Payment Reminder",
-                            f"Payment for {student['first_name']} {student['last_name']} for {current_month} is pending.",
-                            "payment_reminder", data, preference_key="payment_reminders",
-                        )
-                else:
-                    parent = await db.parents.find_one({"student_ids": str(student["_id"])})
-                    if parent and parent.get("user_id"):
-                        await create_user_notification(
-                            db, parent["user_id"], "Payment Reminder",
-                            f"Payment for {student['first_name']} {student['last_name']} for {current_month} is pending.",
-                            "payment_reminder", data, preference_key="payment_reminders",
-                        )
-                
-                unpaid_count += 1
-        
-        logger.info(f"Sent payment reminders to {unpaid_count} students/parents")
-        
-    except Exception as e:
-        logger.error(f"Error sending payment reminders: {str(e)}")
+        await queue_due_reminders(db, as_of)
+    except Exception:
+        logger.exception("Daily finance reminder queueing failed safely")
+    try:
+        await evaluate_finance_freezes(
+            db,
+            as_of,
+            "system-finance-scheduler",
+            f"scheduler:freeze-evaluation:{as_of.isoformat()}",
+        )
+    except Exception:
+        logger.exception("Daily finance freeze evaluation failed safely")
+
+
+async def generate_current_month_lesson_occurrences(db):
+    now = datetime.now(ACADEMY_TZ)
+    month = now.strftime("%Y-%m")
+    try:
+        configured_group_ids = await db.group_finance_versions.distinct("group_id", {
+            "effective_from": {"$lte": now.date().isoformat()}
+        })
+        from bson import ObjectId
+
+        for group_id in configured_group_ids:
+            try:
+                if not ObjectId.is_valid(group_id):
+                    continue
+                group = await db.groups.find_one({"_id": ObjectId(group_id), "status": "active"})
+                if group:
+                    await generate_lesson_occurrences(
+                        db, group, month, "system-finance-scheduler"
+                    )
+            except Exception:
+                logger.exception("Lesson occurrence generation failed for group %s", group_id)
+    except Exception:
+        logger.exception("Monthly lesson occurrence generation failed safely")
+
+
+async def generate_previous_month_drafts_and_expenses(db):
+    now = datetime.now(ACADEMY_TZ)
+    previous_month_day = now.replace(day=1) - timedelta(days=1)
+    service_month = previous_month_day.strftime("%Y-%m")
+    try:
+        await generate_draft_invoices(
+            db, service_month, None, "system-finance-scheduler"
+        )
+    except Exception:
+        logger.exception("Monthly invoice draft generation failed safely")
+    try:
+        await generate_recurring_expense_obligations(
+            db, service_month, None, "system-finance-scheduler"
+        )
+    except Exception:
+        logger.exception("Monthly recurring expense generation failed safely")
+
 
 def start_scheduler(db):
-    """Start the payment reminder scheduler"""
-    scheduler = AsyncIOScheduler()
-    
-    # Schedule payment reminders daily at 17:00 (5:00 PM)
+    scheduler = AsyncIOScheduler(timezone=ACADEMY_TZ)
     scheduler.add_job(
-        send_payment_reminders,
-        'cron',
-        hour=17,
-        minute=0,
+        run_daily_finance_controls,
+        "cron",
+        hour=0,
+        minute=15,
         args=[db],
-        id='payment_reminders',
-        replace_existing=True
+        id="finance_daily_controls",
+        replace_existing=True,
     )
-    
-    # For testing: also run every hour (comment out in production)
-    # scheduler.add_job(
-    #     send_payment_reminders,
-    #     'interval',
-    #     hours=1,
-    #     args=[db],
-    #     id='payment_reminders_hourly',
-    #     replace_existing=True
-    # )
-    
+    scheduler.add_job(
+        generate_current_month_lesson_occurrences,
+        "cron",
+        day=1,
+        hour=0,
+        minute=1,
+        args=[db],
+        id="finance_monthly_lesson_generation",
+        replace_existing=True,
+    )
+    scheduler.add_job(
+        generate_previous_month_drafts_and_expenses,
+        "cron",
+        day=1,
+        hour=0,
+        minute=10,
+        args=[db],
+        id="finance_monthly_drafts",
+        replace_existing=True,
+    )
     scheduler.start()
-    logger.info("Payment reminder scheduler started (runs daily at 17:00)")
-    
+    logger.info("Finance scheduler started in %s", ACADEMY_TIMEZONE)
     return scheduler

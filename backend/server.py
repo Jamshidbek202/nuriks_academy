@@ -60,6 +60,7 @@ from routes_admin import router as admin_router
 from routes_chat import router as chat_router
 from routes_support_staff import router as support_staff_router
 from routes_notifications import router as notifications_router
+from routes_finance import router as finance_router
 
 # Include all routers
 api_router.include_router(students_router)
@@ -78,6 +79,7 @@ api_router.include_router(support_staff_router)
 api_router.include_router(admin_router)
 api_router.include_router(chat_router)
 api_router.include_router(notifications_router)
+api_router.include_router(finance_router)
 
 logger.info("All route modules loaded and registered")
 
@@ -92,12 +94,22 @@ from database import client
 @app.on_event("startup")
 async def startup_event():
     global scheduler
+    from finance_service import ensure_finance_indexes
+    from finance_ledger import ensure_finance_ledger_indexes
+    from finance_accounting import ensure_accounting_indexes
+    from finance_controls import ensure_finance_control_indexes
+
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
     await db.tests.create_index("creation_key", unique=True, sparse=True)
+    await db.users.create_index("login", unique=True)
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("is_read", 1)])
     await db.lesson_feedback.create_index([("entry_id", 1), ("student_id", 1)], unique=True)
+    await ensure_finance_indexes(db)
+    await ensure_finance_ledger_indexes(db)
+    await ensure_accounting_indexes(db)
+    await ensure_finance_control_indexes(db)
     try:
         reconciliation = await reconcile_archived_student_accounts(db)
         logger.info("Student account reconciliation completed: %s", reconciliation)

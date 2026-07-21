@@ -6,8 +6,17 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from models import Group, GroupBase, GroupStatus
 from auth import get_current_user
+from finance_domain import enrollment_format_transition, validate_schedule_no_overlaps
+from finance_models import ACADEMY_TIMEZONE, GroupFinanceVersionCreate, GroupFormat, ProgramCode
+from finance_service import (
+    active_group_finance_version,
+    create_group_finance_version,
+    record_group_membership_end,
+    record_group_membership_start,
+)
 
 router = APIRouter(prefix="/groups", tags=["Groups"])
 security = HTTPBearer()
@@ -15,6 +24,11 @@ security = HTTPBearer()
 VALID_SCHEDULE_DAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
 
 def validate_group_data(group_data: GroupBase) -> None:
+    if not group_data.schedule:
+        raise HTTPException(
+            status_code=400,
+            detail="At least one exact weekly schedule slot is required",
+        )
     for session in group_data.schedule:
         if session.day.lower() not in VALID_SCHEDULE_DAYS:
             raise HTTPException(status_code=400, detail="Schedule contains an invalid weekday")
@@ -37,6 +51,15 @@ def validate_group_data(group_data: GroupBase) -> None:
         raise HTTPException(status_code=400, detail="Group end date must be after its start date")
     if start_date and end_date and end_date - start_date > timedelta(days=3650):
         raise HTTPException(status_code=400, detail="A group date range cannot exceed 10 years")
+    try:
+        validate_schedule_no_overlaps([session.model_dump() for session in group_data.schedule])
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    if bool(group_data.program_code) != bool(group_data.group_format):
+        raise HTTPException(
+            status_code=400,
+            detail="Program and group format must be selected together for finance setup",
+        )
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
@@ -56,9 +79,30 @@ async def create_group(
     
     try:
         validate_group_data(group_data)
+        if not group_data.program_code or not group_data.group_format:
+            raise HTTPException(
+                status_code=400,
+                detail="Program and group format are required for financial billing",
+            )
         teacher_id = group_data.teacher_id
-        if not await db.teachers.find_one({"_id": ObjectId(teacher_id)}):
+        target_branch_id = group_data.branch_id or current_user.get("branch_id")
+        if (
+            current_user["role"] == "manager"
+            and group_data.branch_id
+            and group_data.branch_id != current_user.get("branch_id")
+        ):
+            raise HTTPException(status_code=403, detail="Managers can only create groups in their branch")
+        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
+        if current_user["role"] == "manager" and teacher.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Teacher belongs to another branch")
+        if (
+            target_branch_id
+            and teacher.get("branch_id")
+            and teacher.get("branch_id") != target_branch_id
+        ):
+            raise HTTPException(status_code=409, detail="Teacher and group must belong to the same branch")
 
         group = {
             "name": group_data.name,
@@ -69,7 +113,11 @@ async def create_group(
             "start_date": group_data.start_date,
             "end_date": group_data.end_date,
             "status": "active",
-            "branch_id": group_data.branch_id or current_user.get("branch_id"),
+            "branch_id": target_branch_id,
+            "program_code": group_data.program_code.value if group_data.program_code else None,
+            "group_format": group_data.group_format.value if group_data.group_format else None,
+            "finance_setup_status": "pending",
+            "finance_latest_version": None,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
@@ -80,6 +128,41 @@ async def create_group(
             {"_id": ObjectId(teacher_id)},
             {"$push": {"group_ids": str(result.inserted_id)}}
         )
+
+        if group_data.program_code and group_data.group_format:
+            effective_from = (
+                group_data.finance_effective_from
+                or (group_data.start_date.date() if group_data.start_date else None)
+                or datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
+            )
+            version_payload = GroupFinanceVersionCreate(
+                program_code=group_data.program_code,
+                group_format=group_data.group_format,
+                effective_from=effective_from,
+                schedule=[session.model_dump() for session in group_data.schedule],
+                reason=group_data.finance_change_reason or "Initial group finance configuration",
+            )
+            group["_id"] = result.inserted_id
+            try:
+                version = await create_group_finance_version(
+                    db, group, version_payload, str(current_user["_id"])
+                )
+            except Exception:
+                await db.teachers.update_one(
+                    {"_id": ObjectId(teacher_id)},
+                    {"$pull": {"group_ids": str(result.inserted_id)}},
+                )
+                await db.groups.delete_one({"_id": result.inserted_id})
+                raise
+            group["finance_setup_status"] = "configured"
+            group["finance_latest_version"] = version["version"]
+            group["finance_occurrence_refresh_status"] = version.get(
+                "occurrence_refresh", {}
+            ).get("status")
+            if version.get("occurrence_refresh", {}).get("error"):
+                group["finance_occurrence_refresh_error"] = version[
+                    "occurrence_refresh"
+                ]["error"]
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -226,9 +309,32 @@ async def update_group(
         existing = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")
+        if current_user["role"] == "manager" and existing.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Managers can only update groups in their branch")
+        if (
+            current_user["role"] == "manager"
+            and group_data.branch_id
+            and group_data.branch_id != current_user.get("branch_id")
+        ):
+            raise HTTPException(status_code=403, detail="Managers cannot move groups between branches")
 
-        if not await db.teachers.find_one({"_id": ObjectId(group_data.teacher_id)}):
+        teacher = await db.teachers.find_one({"_id": ObjectId(group_data.teacher_id)})
+        if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
+        if current_user["role"] == "manager" and teacher.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Teacher belongs to another branch")
+
+        target_branch_id = (
+            group_data.branch_id
+            or existing.get("branch_id")
+            or current_user.get("branch_id")
+        )
+        if (
+            target_branch_id
+            and teacher.get("branch_id")
+            and teacher.get("branch_id") != target_branch_id
+        ):
+            raise HTTPException(status_code=409, detail="Teacher and group must belong to the same branch")
 
         update_data = {
             "name": group_data.name,
@@ -237,9 +343,52 @@ async def update_group(
             "schedule": [s.dict() for s in group_data.schedule],
             "start_date": group_data.start_date,
             "end_date": group_data.end_date,
-            "branch_id": group_data.branch_id or existing.get("branch_id") or current_user.get("branch_id"),
+            "branch_id": target_branch_id,
             "updated_at": datetime.utcnow()
         }
+
+        active_version = await active_group_finance_version(
+            db, group_id, datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
+        )
+        selected_program = group_data.program_code or (
+            ProgramCode(active_version["program_code"]) if active_version else None
+        )
+        selected_format = group_data.group_format or (
+            GroupFormat(active_version["group_format"]) if active_version else None
+        )
+        should_version_finance = bool(selected_program and selected_format) and (
+            not active_version
+            or active_version.get("program_code") != selected_program.value
+            or active_version.get("group_format") != selected_format.value
+            or active_version.get("schedule") != [s.model_dump() for s in group_data.schedule]
+            or existing.get("teacher_id") != group_data.teacher_id
+        )
+        if should_version_finance:
+            effective_from = group_data.finance_effective_from or datetime.now(
+                ZoneInfo(ACADEMY_TIMEZONE)
+            ).date()
+            finance_payload = GroupFinanceVersionCreate(
+                program_code=selected_program,
+                group_format=selected_format,
+                effective_from=effective_from,
+                schedule=[session.model_dump() for session in group_data.schedule],
+                reason=group_data.finance_change_reason or "Authorized group configuration update",
+            )
+            version_group = {
+                **existing,
+                "teacher_id": group_data.teacher_id,
+                "branch_id": update_data["branch_id"],
+                "start_date": group_data.start_date,
+                "end_date": group_data.end_date,
+            }
+            try:
+                await create_group_finance_version(
+                    db, version_group, finance_payload, str(current_user["_id"])
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=409, detail=str(error))
+        update_data["program_code"] = selected_program.value if selected_program else None
+        update_data["group_format"] = selected_format.value if selected_format else None
 
         await db.groups.update_one(
             {"_id": ObjectId(group_id)},
@@ -289,6 +438,20 @@ async def delete_group(
     group = await db.groups.find_one({"_id": ObjectId(group_id)})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+
+    has_financial_history = False
+    for collection_name in (
+        "group_finance_versions", "lesson_occurrences", "finance_invoice_lines"
+    ):
+        collection = getattr(db, collection_name, None)
+        if collection is not None and await collection.find_one({"group_id": group_id}):
+            has_financial_history = True
+            break
+    if has_financial_history:
+        raise HTTPException(
+            status_code=409,
+            detail="Groups with financial history cannot be permanently deleted; cancel the group instead",
+        )
 
     try:
         # Remove denormalized membership references first so every role stops
@@ -345,12 +508,43 @@ async def add_student_to_group(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if not ObjectId.is_valid(group_id) or not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=400, detail="Invalid group or student ID")
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        if current_user["role"] == "manager" and group.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Managers can only manage groups in their branch")
+        if student_id in group.get("student_ids", []):
+            raise HTTPException(status_code=409, detail="Student is already in this group")
         student = await db.students.find_one({
             "_id": ObjectId(student_id),
             "status": {"$ne": "archived"}
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        if current_user["role"] == "manager" and student.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Student belongs to another branch")
+        if (
+            group.get("branch_id")
+            and student.get("branch_id")
+            and group.get("branch_id") != student.get("branch_id")
+        ):
+            raise HTTPException(status_code=409, detail="Student and group must belong to the same branch")
+
+        effective_moment = datetime.now(timezone.utc)
+        effective_from = effective_moment.astimezone(
+            ZoneInfo(ACADEMY_TIMEZONE)
+        ).date()
+        active_version = await active_group_finance_version(db, group_id, effective_from)
+        if active_version:
+            try:
+                enrollment_format_transition(
+                    GroupFormat(active_version["group_format"]),
+                    len(set(group.get("student_ids", [])) | {student_id}),
+                )
+            except ValueError as error:
+                raise HTTPException(status_code=409, detail=str(error))
 
         # Add to group
         await db.groups.update_one(
@@ -359,10 +553,34 @@ async def add_student_to_group(
         )
         
         # Add to student
-        await db.students.update_one(
-            {"_id": ObjectId(student_id)},
-            {"$addToSet": {"group_ids": group_id}}
-        )
+        try:
+            await db.students.update_one(
+                {"_id": ObjectId(student_id)},
+                {"$addToSet": {"group_ids": group_id}}
+            )
+        except Exception:
+            await db.groups.update_one(
+                {"_id": ObjectId(group_id)}, {"$pull": {"student_ids": student_id}}
+            )
+            raise
+
+        try:
+            membership_result = await record_group_membership_start(
+                db,
+                group,
+                student_id,
+                effective_from,
+                str(current_user["_id"]),
+                effective_at=effective_moment,
+            )
+        except ValueError as error:
+            await db.groups.update_one(
+                {"_id": ObjectId(group_id)}, {"$pull": {"student_ids": student_id}}
+            )
+            await db.students.update_one(
+                {"_id": ObjectId(student_id)}, {"$pull": {"group_ids": group_id}}
+            )
+            raise HTTPException(status_code=409, detail=str(error))
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -373,7 +591,16 @@ async def add_student_to_group(
             request.client.host if request.client else None
         )
         
-        return {"message": "Student added to group successfully"}
+        return {
+            "message": "Student added to group successfully",
+            "finance_membership": bool(membership_result.get("membership")),
+            "format_transition": (
+                membership_result["format_transition"].get("group_format")
+                if membership_result.get("format_transition") else None
+            ),
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -397,6 +624,10 @@ async def remove_student_from_group(
         group = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
+        if current_user["role"] == "manager" and group.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Managers can only manage groups in their branch")
+        if student_id not in group.get("student_ids", []):
+            raise HTTPException(status_code=409, detail="Student is not in this group")
 
         student = await db.students.find_one({"_id": ObjectId(student_id)})
         if not student:
@@ -427,6 +658,25 @@ async def remove_student_from_group(
                     {"$addToSet": {"student_ids": student_id}},
                 )
             raise HTTPException(status_code=409, detail="Group membership could not be updated")
+
+        try:
+            effective_moment = datetime.now(timezone.utc)
+            await record_group_membership_end(
+                db,
+                group_id,
+                student_id,
+                effective_moment.astimezone(ZoneInfo(ACADEMY_TIMEZONE)).date(),
+                str(current_user["_id"]),
+                effective_at=effective_moment,
+            )
+        except ValueError as error:
+            await db.groups.update_one(
+                {"_id": ObjectId(group_id)}, {"$addToSet": {"student_ids": student_id}}
+            )
+            await db.students.update_one(
+                {"_id": ObjectId(student_id)}, {"$addToSet": {"group_ids": group_id}}
+            )
+            raise HTTPException(status_code=409, detail=str(error))
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -439,10 +689,25 @@ async def remove_student_from_group(
         
         updated_group = await db.groups.find_one({"_id": ObjectId(group_id)})
         updated_student = await db.students.find_one({"_id": ObjectId(student_id)})
+        active_version = await active_group_finance_version(
+            db, group_id, datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
+        )
+        remaining_count = len(updated_group.get("student_ids", []))
+        warning = None
+        if (
+            active_version
+            and active_version.get("group_format") == GroupFormat.NORMAL.value
+            and remaining_count <= 4
+        ):
+            warning = (
+                "Normal group remains normal. Consider manually transferring students "
+                "to a compatible group."
+            )
         return {
             "message": "Student removed from group successfully",
             "group": serialize_doc(updated_group),
             "student": serialize_doc(updated_student),
+            "warning": warning,
         }
     except HTTPException:
         raise

@@ -6,7 +6,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
-import api from './api';
+import { api } from './api';
 
 // Configure notification handler
 Notifications.setNotificationHandler({
@@ -25,6 +25,7 @@ export interface NotificationPreferences {
   homework_notifications: boolean;
   test_notifications: boolean;
   lesson_reminders: boolean;
+  attendance_notifications: boolean;
   news_announcements: boolean;
   admin_broadcasts: boolean;
 }
@@ -146,6 +147,7 @@ export async function getNotificationPreferences(): Promise<NotificationPreferen
       homework_notifications: true,
       test_notifications: true,
       lesson_reminders: true,
+      attendance_notifications: true,
       news_announcements: true,
       admin_broadcasts: true,
     };

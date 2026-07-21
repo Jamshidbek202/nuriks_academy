@@ -37,6 +37,7 @@ class NotificationPreferences(BaseModel):
     homework_notifications: bool = True
     test_notifications: bool = True
     lesson_reminders: bool = True
+    attendance_notifications: bool = True
     news_announcements: bool = True
     admin_broadcasts: bool = True
 
@@ -59,6 +60,7 @@ PREFERENCE_BY_TYPE = {
     "homework_assigned": "homework_notifications",
     "test_scheduled": "test_notifications",
     "lesson_reminder": "lesson_reminders",
+    "attendance": "attendance_notifications",
     "payment_reminder": "payment_reminders",
     "payment_received": "payment_reminders",
     "news_announcement": "news_announcements",
@@ -121,7 +123,8 @@ async def create_user_notification(
     user_id = str(user_id)
     preference_key = preference_key or PREFERENCE_BY_TYPE.get(notification_type)
     prefs = await db.notification_preferences.find_one({"user_id": user_id})
-    if preference_key and prefs and not prefs.get(preference_key, True):
+    mandatory_financial = notification_type in {"payment_reminder", "payment_received"}
+    if not mandatory_financial and preference_key and prefs and not prefs.get(preference_key, True):
         return None
 
     now = datetime.utcnow()
@@ -230,10 +233,11 @@ async def get_notification_preferences(
     
     return {
         "chat_notifications": prefs.get("chat_notifications", True),
-        "payment_reminders": prefs.get("payment_reminders", True),
+        "payment_reminders": True,
         "homework_notifications": prefs.get("homework_notifications", True),
         "test_notifications": prefs.get("test_notifications", True),
         "lesson_reminders": prefs.get("lesson_reminders", True),
+        "attendance_notifications": prefs.get("attendance_notifications", True),
         "news_announcements": prefs.get("news_announcements", True),
         "admin_broadcasts": prefs.get("admin_broadcasts", True)
     }
@@ -252,6 +256,7 @@ async def update_notification_preferences(
         {"user_id": user_id},
         {"$set": {
             **prefs.dict(),
+            "payment_reminders": True,
             "updated_at": datetime.utcnow()
         }},
         upsert=True
@@ -519,11 +524,6 @@ async def get_notification_history(
 
 async def send_payment_reminder(db, user_id: str, student_name: str, amount: float, due_date: str):
     """Send payment reminder notification"""
-    # Check user preferences
-    prefs = await db.notification_preferences.find_one({"user_id": user_id})
-    if prefs and not prefs.get("payment_reminders", True):
-        return
-    
     tokens = await get_user_tokens(user_id, db)
     if tokens:
         await send_expo_push_notification(

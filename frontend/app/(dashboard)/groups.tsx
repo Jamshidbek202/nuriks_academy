@@ -41,6 +41,23 @@ interface Group {
   status: string;
   branch_id?: string;
   level?: string;
+  program_code?: ProgramCode;
+  group_format?: GroupFormat;
+  finance_setup_status?: string;
+  finance_occurrence_refresh_status?: string;
+  finance_occurrence_refresh_error?: string;
+}
+
+type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
+type GroupFormat = 'normal' | 'mini' | 'individual';
+
+interface PricingPolicy {
+  policy_key: string;
+  effective_from: string;
+  value: {
+    monthly_price_uzs?: number;
+    basis_points?: number;
+  };
 }
 
 interface Teacher {
@@ -65,6 +82,20 @@ interface Student {
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+const tashkentDate = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tashkent',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
+
+const formatUzs = (amount?: number) =>
+  amount == null ? 'Not configured' : `${new Intl.NumberFormat('uz-UZ').format(amount)} UZS`;
+
 export default function GroupsScreen() {
   const { user } = useAuth();
   const canCreateGroup = ['super_admin', 'manager'].includes(user?.role || '');
@@ -83,6 +114,8 @@ export default function GroupsScreen() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [pricingPolicies, setPricingPolicies] = useState<PricingPolicy[]>([]);
+  const [teacherSharePolicies, setTeacherSharePolicies] = useState<PricingPolicy[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
@@ -94,6 +127,10 @@ export default function GroupsScreen() {
     teacher_id: '',
     level: '',
     schedule: [] as Schedule[],
+    program_code: 'general' as ProgramCode,
+    group_format: 'normal' as GroupFormat,
+    finance_effective_from: tashkentDate(),
+    finance_change_reason: 'Authorized group configuration update',
   });
 
   const [scheduleForm, setScheduleForm] = useState({
@@ -106,7 +143,26 @@ export default function GroupsScreen() {
   useEffect(() => {
     loadTeachers();
     loadCourses();
+    if (canCreateGroup) loadPricing(tashkentDate());
+    // These loaders are deliberately run once when the tab mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (canCreateGroup && /^\d{4}-\d{2}-\d{2}$/.test(formData.finance_effective_from)) {
+      void loadPricing(formData.finance_effective_from);
+    }
+  }, [canCreateGroup, formData.finance_effective_from]);
+
+  const loadPricing = async (onDate: string) => {
+    try {
+      const response = await api.get('/finance/pricing/current', { params: { on_date: onDate } });
+      setPricingPolicies(response.data.tariffs || []);
+      setTeacherSharePolicies(response.data.teacher_shares || []);
+    } catch (error) {
+      console.error('Error loading finance pricing:', error);
+    }
+  };
 
   // Keep every role's group membership view current while the tab is open.
   useLiveRefresh(
@@ -184,8 +240,23 @@ export default function GroupsScreen() {
   };
 
   const handleCreateGroup = async () => {
-    if (!formData.name || !formData.course_id || (user?.role !== 'teacher' && !formData.teacher_id)) {
-      Alert.alert('Error', 'Please fill in required fields (Name, Course, Teacher)');
+    if (
+      !formData.name || !formData.course_id || !formData.teacher_id
+      || !formData.program_code || !formData.group_format
+      || formData.schedule.length === 0
+    ) {
+      Alert.alert(
+        'Missing billing information',
+        'Name, course, teacher, program, format, and at least one exact schedule slot are required.',
+      );
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.finance_effective_from)) {
+      Alert.alert('Invalid effective date', 'Use YYYY-MM-DD.');
+      return;
+    }
+    if (!selectedTariff || !selectedTeacherShare) {
+      Alert.alert('Pricing is not configured', 'A super admin must configure this tariff and teacher share first.');
       return;
     }
 
@@ -201,8 +272,23 @@ export default function GroupsScreen() {
   };
 
   const handleUpdateGroup = async () => {
-    if (!selectedGroup || !formData.name || !formData.course_id || !formData.teacher_id) {
-      Alert.alert('Error', 'Please fill in required fields (Name, Course, Teacher)');
+    if (
+      !selectedGroup || !formData.name || !formData.course_id || !formData.teacher_id
+      || !formData.program_code || !formData.group_format
+      || formData.schedule.length === 0
+    ) {
+      Alert.alert(
+        'Missing billing information',
+        'Name, course, teacher, program, format, and at least one exact schedule slot are required.',
+      );
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.finance_effective_from)) {
+      Alert.alert('Invalid effective date', 'Use YYYY-MM-DD.');
+      return;
+    }
+    if (!selectedTariff || !selectedTeacherShare) {
+      Alert.alert('Pricing is not configured', 'A super admin must configure this tariff and teacher share first.');
       return;
     }
 
@@ -391,6 +477,10 @@ export default function GroupsScreen() {
       teacher_id: group.teacher_id,
       level: group.level || '',
       schedule: group.schedule || [],
+      program_code: group.program_code || 'general',
+      group_format: group.group_format || 'normal',
+      finance_effective_from: tashkentDate(),
+      finance_change_reason: 'Authorized group configuration update',
     });
     setDetailModalVisible(false);
     setModalVisible(true);
@@ -403,6 +493,10 @@ export default function GroupsScreen() {
       teacher_id: '',
       level: '',
       schedule: [],
+      program_code: 'general',
+      group_format: 'normal',
+      finance_effective_from: tashkentDate(),
+      finance_change_reason: 'Authorized group configuration update',
     });
     setSelectedGroup(null);
     setIsEditing(false);
@@ -459,6 +553,12 @@ export default function GroupsScreen() {
   );
 
   const selectedCourse = courses.find((c) => c.id === formData.course_id);
+  const selectedTariff = pricingPolicies.find(
+    (row) => row.policy_key === `tariff:${formData.program_code}:${formData.group_format}`,
+  );
+  const selectedTeacherShare = teacherSharePolicies.find(
+    (row) => row.policy_key === `teacher_share:${formData.group_format}`,
+  );
 
   if (loading) {
     return (
@@ -657,6 +757,14 @@ export default function GroupsScreen() {
                     </Text>
                   </View>
                 </View>
+                {selectedGroup.finance_occurrence_refresh_status === 'required' && (
+                  <View style={styles.financeWarning}>
+                    <Ionicons name="warning" size={20} color={COLORS.warning} />
+                    <Text style={styles.financeWarningText}>
+                      Lesson calendar refresh is required before invoicing. {selectedGroup.finance_occurrence_refresh_error || ''}
+                    </Text>
+                  </View>
+                )}
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Group Information</Text>
@@ -675,6 +783,13 @@ export default function GroupsScreen() {
                       <Ionicons name="people" size={20} color={COLORS.gold} />
                       <Text style={styles.infoTitle}>Students</Text>
                       <Text style={styles.infoValue}>{getGroupStudents(selectedGroup.student_ids || []).length}</Text>
+                    </View>
+                    <View style={styles.infoItem}>
+                      <Ionicons name="cash" size={20} color={COLORS.gold} />
+                      <Text style={styles.infoTitle}>Billing</Text>
+                      <Text style={styles.infoValue}>
+                        {selectedGroup.program_code?.replace('_', '-') || 'Not configured'} · {selectedGroup.group_format || '—'}
+                      </Text>
                     </View>
                     {selectedGroup.level && (
                       <View style={styles.infoItem}>
@@ -947,7 +1062,82 @@ export default function GroupsScreen() {
                 </>
               )}
 
-              <Text style={styles.formLabel}>Schedule</Text>
+              <Text style={styles.formSectionTitle}>Billing setup</Text>
+              <Text style={styles.formHint}>
+                Program, format, price date, and schedule are versioned. Existing finalized bills never change.
+              </Text>
+
+              <Text style={styles.formLabel}>Program *</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={formData.program_code}
+                  onValueChange={(value: ProgramCode) => setFormData({ ...formData, program_code: value })}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                  dropdownIconColor={COLORS.gold}
+                >
+                  <Picker.Item label="General English" value="general" />
+                  <Picker.Item label="Pre-IELTS" value="pre_ielts" />
+                  <Picker.Item label="IELTS" value="ielts" />
+                </Picker>
+              </View>
+
+              <Text style={styles.formLabel}>Class format *</Text>
+              <View style={styles.pickerContainer}>
+                <Picker
+                  selectedValue={formData.group_format}
+                  onValueChange={(value: GroupFormat) => setFormData({ ...formData, group_format: value })}
+                  style={styles.picker}
+                  itemStyle={styles.pickerItem}
+                  dropdownIconColor={COLORS.gold}
+                >
+                  <Picker.Item label="Normal group" value="normal" />
+                  <Picker.Item
+                    label={isEditing && selectedGroup?.group_format === 'normal'
+                      ? 'Mini group (normal groups cannot downgrade)'
+                      : 'Mini group'}
+                    value="mini"
+                    enabled={!(isEditing && selectedGroup?.group_format === 'normal')}
+                  />
+                  <Picker.Item label="Individual" value="individual" />
+                </Picker>
+              </View>
+
+              <View style={styles.financePreview}>
+                <View style={styles.financePreviewRow}>
+                  <Text style={styles.financePreviewLabel}>Effective monthly price</Text>
+                  <Text style={styles.financePreviewValue}>
+                    {formatUzs(selectedTariff?.value.monthly_price_uzs)}
+                  </Text>
+                </View>
+                <View style={styles.financePreviewRow}>
+                  <Text style={styles.financePreviewLabel}>Teacher share</Text>
+                  <Text style={styles.financePreviewValue}>
+                    {selectedTeacherShare?.value.basis_points == null
+                      ? 'Not configured'
+                      : `${selectedTeacherShare.value.basis_points / 100}%`}
+                  </Text>
+                </View>
+                <Text style={styles.financePreviewFootnote}>
+                  Final monthly amount is calculated per scheduled lesson using the price effective on that lesson.
+                </Text>
+              </View>
+
+              <Input
+                label="Finance effective date *"
+                value={formData.finance_effective_from}
+                onChangeText={(text) => setFormData({ ...formData, finance_effective_from: text })}
+                placeholder="YYYY-MM-DD"
+              />
+
+              <Input
+                label="Reason for configuration *"
+                value={formData.finance_change_reason}
+                onChangeText={(text) => setFormData({ ...formData, finance_change_reason: text })}
+                placeholder="Why this setup or change is effective"
+              />
+
+              <Text style={styles.formLabel}>Exact weekly schedule *</Text>
               <View style={styles.scheduleFormContainer}>
                 <View style={styles.scheduleFormRow}>
                   <View style={[styles.pickerContainer, { flex: 1 }]}>
@@ -1461,6 +1651,65 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     marginBottom: SIZES.xs,
     marginTop: SIZES.sm,
+  },
+  formSectionTitle: {
+    fontSize: SIZES.fontLg,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+    marginTop: SIZES.lg,
+    marginBottom: SIZES.xs,
+  },
+  formHint: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+    marginBottom: SIZES.sm,
+  },
+  financePreview: {
+    backgroundColor: COLORS.gold + '12',
+    borderWidth: 1,
+    borderColor: COLORS.gold + '55',
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    marginBottom: SIZES.md,
+  },
+  financeWarning: {
+    flexDirection: 'row',
+    gap: SIZES.sm,
+    backgroundColor: COLORS.warning + '18',
+    borderWidth: 1,
+    borderColor: COLORS.warning + '66',
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    marginBottom: SIZES.md,
+  },
+  financeWarningText: {
+    flex: 1,
+    color: COLORS.warning,
+    fontSize: SIZES.fontSm,
+    lineHeight: 20,
+  },
+  financePreviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: SIZES.sm,
+    marginBottom: SIZES.sm,
+  },
+  financePreviewLabel: {
+    flex: 1,
+    fontSize: SIZES.fontSm,
+    color: COLORS.textSecondary,
+  },
+  financePreviewValue: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
+    color: COLORS.gold,
+    textAlign: 'right',
+  },
+  financePreviewFootnote: {
+    fontSize: SIZES.fontXs,
+    color: COLORS.textTertiary,
+    lineHeight: 17,
   },
   pickerContainer: {
     backgroundColor: COLORS.backgroundLight,

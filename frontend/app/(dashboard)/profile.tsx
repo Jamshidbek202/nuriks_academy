@@ -33,6 +33,7 @@ const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPrefsType = {
   homework_notifications: true,
   test_notifications: true,
   lesson_reminders: true,
+  attendance_notifications: true,
   news_announcements: true,
   admin_broadcasts: true,
 };
@@ -51,7 +52,7 @@ const NOTIFICATION_OPTIONS: Record<
     icon: 'wallet-outline',
     title: 'Payment Reminders',
     description: 'Upcoming and overdue payment notices',
-    roles: ['parent', 'manager', 'super_admin'],
+    roles: ['student', 'parent', 'manager', 'super_admin'],
   },
   homework_notifications: {
     icon: 'book-outline',
@@ -70,6 +71,12 @@ const NOTIFICATION_OPTIONS: Record<
     title: 'Lesson Reminders',
     description: 'Class and booking reminders',
     roles: ['student', 'parent', 'teacher', 'support', 'manager', 'super_admin'],
+  },
+  attendance_notifications: {
+    icon: 'checkbox-outline',
+    title: 'Attendance',
+    description: 'Attendance records and absence notices',
+    roles: ['student', 'parent', 'teacher', 'manager', 'super_admin'],
   },
   news_announcements: {
     icon: 'newspaper-outline',
@@ -375,7 +382,10 @@ export default function ProfileScreen() {
                     </View>
                     <Switch
                       value={notificationPreferences[key]}
-                      onValueChange={() => handleNotificationToggle(key)}
+                      onValueChange={() => {
+                        if (key !== 'payment_reminders') handleNotificationToggle(key);
+                      }}
+                      disabled={key === 'payment_reminders'}
                       trackColor={{ false: COLORS.marbleGray, true: COLORS.goldDark }}
                       thumbColor={notificationPreferences[key] ? COLORS.gold : COLORS.textTertiary}
                       ios_backgroundColor={COLORS.marbleGray}

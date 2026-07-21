@@ -14,6 +14,12 @@ from validation import require_month_window
 router = APIRouter(prefix="/payments", tags=["Payments"])
 security = HTTPBearer()
 
+
+def require_card_payments_enabled() -> None:
+    # Cash-only operation was explicitly approved for the pilot.  This is a
+    # code-level gate so stray provider credentials cannot activate callbacks.
+    raise HTTPException(status_code=503, detail="Card payments are not enabled")
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     return await get_current_user(credentials, db)
@@ -107,8 +113,13 @@ async def create_cash_payment(
     request: Request,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Record cash payment (Manager or Super Admin only)"""
+    """Legacy endpoint retained only to give old clients an explicit migration error."""
     from server import db, serialize_doc, create_audit_log
+
+    raise HTTPException(
+        status_code=410,
+        detail="Legacy cash posting is disabled; use /api/finance/receipts/cash with an open cash shift",
+    )
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -171,6 +182,7 @@ async def init_click_payment(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Initialize Click payment"""
+    require_card_payments_enabled()
     from server import db
     import os
     
@@ -226,6 +238,7 @@ async def init_click_payment(
 @router.post("/click/callback")
 async def click_payment_callback(request: Request):
     """Handle Click payment callback"""
+    require_card_payments_enabled()
     from server import db, serialize_doc
     import hashlib
     
@@ -287,6 +300,7 @@ async def init_payme_payment(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Initialize Payme payment"""
+    require_card_payments_enabled()
     from server import db
     import os
     import base64
@@ -347,6 +361,7 @@ async def init_payme_payment(
 @router.post("/payme/callback")
 async def payme_payment_callback(request: Request):
     """Handle Payme payment callback (Merchant API)"""
+    require_card_payments_enabled()
     from server import db
     
     try:

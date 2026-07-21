@@ -12,6 +12,7 @@ from auth import get_current_user, get_password_hash
 
 router = APIRouter(prefix="/leads", tags=["CRM"])
 security = HTTPBearer()
+LEAD_OPERATION_ROLES = {"super_admin", "manager", "reception"}
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
@@ -20,10 +21,10 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
 
 def require_lead_access(current_user: dict, lead: dict):
     """Restrict managers to CRM records belonging to their own branch."""
-    if current_user.get("role") not in ["super_admin", "manager"]:
+    if current_user.get("role") not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     if (
-        current_user.get("role") == "manager"
+        current_user.get("role") != "super_admin"
         and lead.get("branch_id") != current_user.get("branch_id")
     ):
         raise HTTPException(status_code=403, detail="Lead belongs to another branch")
@@ -39,6 +40,7 @@ class LeadCreate(BaseModel):
     source: str
     notes: Optional[str] = Field(None, max_length=5000)
     branch_id: Optional[str] = None
+    referred_by_student_id: Optional[str] = None
 
 class LeadUpdate(BaseModel):
     first_name: Optional[str] = None
@@ -52,6 +54,7 @@ class LeadUpdate(BaseModel):
     notes: Optional[str] = None
     trial_lesson_date: Optional[datetime] = None
     assigned_to: Optional[str] = None
+    referred_by_student_id: Optional[str] = None
 
 # ==================== CREATE LEAD ====================
 
@@ -64,16 +67,22 @@ async def create_lead(
     """Create a new lead"""
     from server import db, serialize_doc, create_audit_log
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     if (
-        current_user["role"] == "manager"
+        current_user["role"] != "super_admin"
         and lead_data.branch_id
         and lead_data.branch_id != current_user.get("branch_id")
     ):
         raise HTTPException(status_code=403, detail="Cannot create a lead for another branch")
     
     try:
+        if lead_data.referred_by_student_id:
+            if not ObjectId.is_valid(lead_data.referred_by_student_id) or not await db.students.find_one({
+                "_id": ObjectId(lead_data.referred_by_student_id),
+                "status": {"$ne": "archived"},
+            }):
+                raise HTTPException(status_code=404, detail="Referring student not found")
         # Get next lead ID
         result = await db.counters.find_one_and_update(
             {"_id": "lead_id"},
@@ -102,6 +111,7 @@ async def create_lead(
                 if current_user["role"] == "super_admin"
                 else current_user.get("branch_id")
             ),
+            "referred_by_student_id": lead_data.referred_by_student_id,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }
@@ -140,7 +150,7 @@ async def get_leads(
     """Get all leads with filters"""
     from server import db, serialize_doc
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -179,7 +189,7 @@ async def get_lead(
     """Get lead by ID"""
     from server import db, serialize_doc
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -209,7 +219,7 @@ async def update_lead(
     """Update lead"""
     from server import db, serialize_doc, create_audit_log
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -222,6 +232,12 @@ async def update_lead(
         
         # Build update dict from non-None values
         update_data = {k: v for k, v in lead_data.dict().items() if v is not None}
+        if update_data.get("referred_by_student_id"):
+            referrer_id = update_data["referred_by_student_id"]
+            if not ObjectId.is_valid(referrer_id) or not await db.students.find_one({
+                "_id": ObjectId(referrer_id), "status": {"$ne": "archived"}
+            }):
+                raise HTTPException(status_code=404, detail="Referring student not found")
         update_data["updated_at"] = datetime.utcnow()
         
         await db.leads.update_one(
@@ -311,7 +327,7 @@ async def convert_lead_to_student(
     """Convert lead to student"""
     from server import db, serialize_doc, create_audit_log
     
-    if current_user["role"] not in ["super_admin", "manager"]:
+    if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -426,6 +442,7 @@ async def convert_lead_to_student(
             "status": "active",
             "enrollment_date": datetime.utcnow(),
             "branch_id": student_branch_id,
+            "referred_by_student_id": lead.get("referred_by_student_id"),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
         }

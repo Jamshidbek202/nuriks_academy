@@ -1,12 +1,14 @@
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
+from finance_models import GroupFormat, ProgramCode
 
 # Enums
 class UserRole(str, Enum):
     SUPER_ADMIN = "super_admin"
     MANAGER = "manager"
+    RECEPTION = "reception"
     TEACHER = "teacher"
     SUPPORT = "support"
     PARENT = "parent"
@@ -192,12 +194,20 @@ class GroupBase(BaseModel):
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
     branch_id: Optional[str] = None
+    program_code: Optional[ProgramCode] = None
+    group_format: Optional[GroupFormat] = None
+    finance_effective_from: Optional[date] = None
+    finance_change_reason: Optional[str] = None
 
 class Group(GroupBase):
     id: str
     teacher_name: Optional[str] = None
     student_ids: List[str] = []
     status: GroupStatus = GroupStatus.ACTIVE
+    finance_setup_status: str = "pending"
+    finance_latest_version: Optional[int] = None
+    finance_occurrence_refresh_status: Optional[str] = None
+    finance_occurrence_refresh_error: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class AttendanceBase(BaseModel):

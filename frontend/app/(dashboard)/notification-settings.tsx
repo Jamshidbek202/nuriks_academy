@@ -31,11 +31,12 @@ export default function NotificationPreferencesScreen() {
     homework_notifications: true,
     test_notifications: true,
     lesson_reminders: true,
+    attendance_notifications: true,
     news_announcements: true,
     admin_broadcasts: true,
   });
   const [hasChanges, setHasChanges] = useState(false);
-  const { user, pushToken } = useAuth();
+  const { pushToken } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
@@ -103,12 +104,14 @@ export default function NotificationPreferencesScreen() {
     description,
     value,
     onToggle,
+    locked = false,
   }: {
     icon: string;
     title: string;
     description: string;
     value: boolean;
     onToggle: () => void;
+    locked?: boolean;
   }) => (
     <View style={styles.preferenceItem}>
       <View style={styles.preferenceIcon}>
@@ -121,6 +124,7 @@ export default function NotificationPreferencesScreen() {
       <Switch
         value={value}
         onValueChange={onToggle}
+        disabled={locked}
         trackColor={{ false: COLORS.marbleGray, true: COLORS.goldDark }}
         thumbColor={value ? COLORS.gold : COLORS.textTertiary}
         ios_backgroundColor={COLORS.marbleGray}
@@ -188,9 +192,10 @@ export default function NotificationPreferencesScreen() {
           <PreferenceItem
             icon="wallet-outline"
             title="Payment Reminders"
-            description="Get notified about upcoming and overdue payments"
+            description="Required: invoices, receipts, upcoming payments, and overdue balances"
             value={preferences.payment_reminders}
-            onToggle={() => handleToggle('payment_reminders')}
+            onToggle={() => undefined}
+            locked
           />
 
           <PreferenceItem
@@ -215,6 +220,14 @@ export default function NotificationPreferencesScreen() {
             description="Get reminders before lessons start"
             value={preferences.lesson_reminders}
             onToggle={() => handleToggle('lesson_reminders')}
+          />
+
+          <PreferenceItem
+            icon="checkbox-outline"
+            title="Attendance Notifications"
+            description="Get notified about attendance records"
+            value={preferences.attendance_notifications}
+            onToggle={() => handleToggle('attendance_notifications')}
           />
 
           <PreferenceItem
