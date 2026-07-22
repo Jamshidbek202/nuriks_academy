@@ -1,7 +1,9 @@
 """
 Routes for Attendance Management
 """
-from fastapi import APIRouter, HTTPException, Depends, Request
+import logging
+
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
@@ -12,6 +14,7 @@ from validation import require_date_window
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 security = HTTPBearer()
+logger = logging.getLogger(__name__)
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
@@ -25,14 +28,66 @@ def group_has_class_on_day(group: dict, attendance_day: datetime) -> bool:
     weekday = attendance_day.strftime("%A").lower()
     return any(str(item.get("day", "")).lower() == weekday for item in schedule)
 
+
+async def complete_attendance_side_effects(
+    db,
+    student: dict,
+    record_id: str,
+    status: str,
+    attendance_date: str,
+    previous_status: Optional[str],
+    actor_id: str,
+    client_ip: Optional[str],
+) -> None:
+    """Keep audit and notification failures outside the attendance save result."""
+    try:
+        from server import create_audit_log
+        await create_audit_log(
+            actor_id,
+            "mark_attendance",
+            "attendance",
+            record_id,
+            {"student_id": str(student["_id"]), "status": status},
+            client_ip,
+        )
+    except Exception:
+        logger.exception("Could not write attendance audit log")
+
+    if previous_status == status:
+        return
+
+    try:
+        from notification_helpers import notify_attendance_marked
+
+        parent = None
+        if student.get("parent_id"):
+            parent_id = student["parent_id"]
+            parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
+            parent = await db.parents.find_one({"_id": parent_key})
+        if not parent:
+            parent = await db.parents.find_one({"student_ids": str(student["_id"])})
+        await notify_attendance_marked(
+            db,
+            student.get("user_id", str(student["_id"])),
+            status,
+            attendance_date,
+            parent.get("user_id") if parent else None,
+        )
+    except Exception:
+        logger.exception(
+            "Could not deliver attendance notification for student %s",
+            student.get("_id"),
+        )
+
 @router.post("", response_model=Attendance)
 async def mark_attendance(
     attendance_data: AttendanceBase,
     request: Request,
+    background_tasks: BackgroundTasks,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Mark attendance for a student"""
-    from server import db, serialize_doc, create_audit_log
+    from server import db, serialize_doc
     
     current_role = str(current_user.get("role", "")).lower()
 
@@ -41,9 +96,21 @@ async def mark_attendance(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
+        if not ObjectId.is_valid(attendance_data.group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        if not ObjectId.is_valid(attendance_data.student_id):
+            raise HTTPException(status_code=400, detail="Invalid student ID")
         group = await db.groups.find_one({"_id": ObjectId(attendance_data.group_id)})
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
+        if (
+            current_role == "manager"
+            and group.get("branch_id") != current_user.get("branch_id")
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="Managers can only mark attendance in their branch",
+            )
 
         # Get teacher ID
         teacher_id = None
@@ -58,7 +125,7 @@ async def mark_attendance(
                     raise HTTPException(status_code=403, detail="You can only mark attendance for your own groups")
         else:
             # For managers/admins, get teacher from group
-            teacher_id = group["teacher_id"]
+            teacher_id = group.get("teacher_id")
         
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
@@ -119,34 +186,23 @@ async def mark_attendance(
             result = await db.attendance.insert_one(attendance)
             result_id = result.inserted_id
         
-        await create_audit_log(
-            str(current_user["_id"]),
-            "mark_attendance",
-            "attendance",
-            str(result_id),
-            {"student_id": attendance_data.student_id, "status": attendance_data.status},
-            request.client.host if request.client else None
-        )
-
-        if not existing or existing.get("status") != attendance_data.status.value:
-            from notification_helpers import notify_attendance_marked
-
-            parent = None
-            if student.get("parent_id"):
-                parent_id = student["parent_id"]
-                parent_key = ObjectId(parent_id) if ObjectId.is_valid(str(parent_id)) else parent_id
-                parent = await db.parents.find_one({"_id": parent_key})
-            if not parent:
-                parent = await db.parents.find_one({"student_ids": str(student["_id"])})
-            await notify_attendance_marked(
-                db,
-                student.get("user_id", str(student["_id"])),
-                attendance_data.status.value,
-                attendance_day.date().isoformat(),
-                parent.get("user_id") if parent else None,
-            )
-        
         record = await db.attendance.find_one({"_id": result_id})
+        if not record:
+            raise HTTPException(status_code=500, detail="Saved attendance record could not be loaded")
+        previous_status = existing.get("status") if existing else None
+        if hasattr(previous_status, "value"):
+            previous_status = previous_status.value
+        background_tasks.add_task(
+            complete_attendance_side_effects,
+            db,
+            student,
+            str(result_id),
+            attendance_data.status.value,
+            attendance_day.date().isoformat(),
+            previous_status,
+            str(current_user["_id"]),
+            request.client.host if request.client else None,
+        )
         return serialize_doc(record)
     except HTTPException:
         raise

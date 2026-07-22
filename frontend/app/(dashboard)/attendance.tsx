@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Modal,
+  useWindowDimensions,
 } from 'react-native';
 import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -47,6 +48,7 @@ interface Student {
   student_id: string;
   first_name: string;
   last_name: string;
+  group_ids?: string[];
 }
 
 interface Schedule {
@@ -68,19 +70,19 @@ const ATTENDANCE_STATUSES = [
   { value: 'present', label: 'Present', color: COLORS.success, icon: 'checkmark-circle' },
   { value: 'absent', label: 'Absent', color: COLORS.error, icon: 'close-circle' },
   { value: 'late', label: 'Late', color: COLORS.warning, icon: 'time' },
-];
+] as const;
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const isPhoneLayout = width < 600;
   const canMarkAttendance = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [selectedDate, setSelectedDate] = useState(todayDateString());
-  const [markingModalVisible, setMarkingModalVisible] = useState(false);
   const [historyModalVisible, setHistoryModalVisible] = useState(false);
   const [statsModalVisible, setStatsModalVisible] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
@@ -89,6 +91,11 @@ export default function AttendanceScreen() {
 
   // Today's attendance for current group
   const [todayAttendance, setTodayAttendance] = useState<Record<string, string>>({});
+  const [markingStudentIds, setMarkingStudentIds] = useState<Set<string>>(new Set());
+  const [isBulkMarking, setIsBulkMarking] = useState(false);
+  const markingStudentIdsRef = useRef<Set<string>>(new Set());
+  const attendanceContextRef = useRef('');
+  const selectedGroupId = selectedGroup?.id;
 
   const loadGroups = async () => {
     try {
@@ -118,28 +125,29 @@ export default function AttendanceScreen() {
   }, []);
 
   const loadGroupAttendance = useCallback(async () => {
-    if (!selectedGroup) return;
+    if (!selectedGroupId) return;
+    const requestedContext = `${selectedGroupId}:${selectedDate}`;
 
     try {
-      const response = await api.get(`/attendance/group/${selectedGroup.id}`, {
+      const response = await api.get(`/attendance/group/${selectedGroupId}`, {
         params: {
           start_date: `${selectedDate}T00:00:00`,
           end_date: `${selectedDate}T23:59:59`,
         },
       });
-      setAttendanceRecords(response.data);
-
       const attendanceMap: Record<string, string> = {};
       response.data.forEach((r: AttendanceRecord) => {
         attendanceMap[r.student_id] = r.status;
       });
-      setTodayAttendance(attendanceMap);
+      if (attendanceContextRef.current === requestedContext) {
+        setTodayAttendance(attendanceMap);
+      }
     } catch (error) {
       console.error('Error loading attendance:', error);
     } finally {
       setRefreshing(false);
     }
-  }, [selectedDate, selectedGroup]);
+  }, [selectedDate, selectedGroupId]);
 
   useEffect(() => {
     loadGroups();
@@ -147,10 +155,12 @@ export default function AttendanceScreen() {
   }, [loadStudents]);
 
   useEffect(() => {
-    if (selectedGroup) {
-      loadGroupAttendance();
+    attendanceContextRef.current = selectedGroupId ? `${selectedGroupId}:${selectedDate}` : '';
+    setTodayAttendance({});
+    if (selectedGroupId) {
+      void loadGroupAttendance();
     }
-  }, [loadGroupAttendance, selectedGroup]);
+  }, [loadGroupAttendance, selectedDate, selectedGroupId]);
 
   // Tabs stay mounted. Refresh records whenever the attendance screen becomes
   // active so student/parent accounts immediately see marks made elsewhere.
@@ -198,41 +208,83 @@ export default function AttendanceScreen() {
     }
   };
 
-  const markAttendance = async (studentId: string, status: string) => {
-    if (!selectedGroup) return;
+  const markAttendance = async (
+    studentId: string,
+    status: AttendanceRecord['status'],
+    showError = true,
+  ): Promise<boolean> => {
+    if (!selectedGroup || markingStudentIdsRef.current.has(studentId)) return false;
     if (!canMarkAttendance) {
-      Alert.alert('Access denied', 'Only teachers, managers, and admins can mark attendance.');
-      return;
+      if (showError) Alert.alert('Access denied', 'Only teachers, managers, and admins can mark attendance.');
+      return false;
     }
     if (!hasClassOnSelectedDate()) {
-      Alert.alert('No class scheduled', 'This group does not have a class on the selected date.');
-      return;
+      if (showError) Alert.alert('No class scheduled', 'This group does not have a class on the selected date.');
+      return false;
     }
+
+    const submittedGroupId = selectedGroup.id;
+    const submittedDate = selectedDate;
+    const submittedContext = `${submittedGroupId}:${submittedDate}`;
+    const previousStatus = todayAttendance[studentId];
+    markingStudentIdsRef.current.add(studentId);
+    setMarkingStudentIds(new Set(markingStudentIdsRef.current));
+    setTodayAttendance((current) => ({ ...current, [studentId]: status }));
 
     try {
       await api.post('/attendance', {
         student_id: studentId,
-        group_id: selectedGroup.id,
-        date: selectedDate + 'T00:00:00',
-        status: status,
+        group_id: submittedGroupId,
+        date: submittedDate + 'T00:00:00',
+        status,
       });
-
-      // Update local state
-      setTodayAttendance((prev) => ({
-        ...prev,
-        [studentId]: status,
-      }));
-
-      // Reload attendance for fresh data
-      loadGroupAttendance();
+      return true;
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to mark attendance');
+      if (attendanceContextRef.current === submittedContext) {
+        setTodayAttendance((current) => {
+          const next = { ...current };
+          if (previousStatus) next[studentId] = previousStatus;
+          else delete next[studentId];
+          return next;
+        });
+      }
+      if (showError) {
+        Alert.alert('Error', error.response?.data?.detail || 'Failed to mark attendance');
+      }
+      return false;
+    } finally {
+      markingStudentIdsRef.current.delete(studentId);
+      setMarkingStudentIds(new Set(markingStudentIdsRef.current));
     }
   };
 
   const getGroupStudents = () => {
     if (!selectedGroup) return [];
-    return students.filter((s) => selectedGroup.student_ids.includes(s.id));
+    return students.filter((student) => (
+      selectedGroup.student_ids.includes(student.id)
+      || student.group_ids?.includes(selectedGroup.id)
+    ));
+  };
+
+  const markRemainingPresent = async () => {
+    const unmarkedStudents = getGroupStudents().filter(
+      (student) => !todayAttendance[student.id],
+    );
+    if (unmarkedStudents.length === 0 || isBulkMarking) return;
+
+    setIsBulkMarking(true);
+    const results = await Promise.all(
+      unmarkedStudents.map((student) => markAttendance(student.id, 'present', false)),
+    );
+    const failedCount = results.filter((saved) => !saved).length;
+    setIsBulkMarking(false);
+
+    if (failedCount > 0) {
+      Alert.alert(
+        'Some marks were not saved',
+        'Some attendance records could not be saved. Please try those students again.',
+      );
+    }
   };
 
   const getSelectedDateDay = () => {
@@ -266,12 +318,6 @@ export default function AttendanceScreen() {
     setSelectedStudent(student);
     loadStudentHistory(student.id);
     setStatsModalVisible(true);
-  };
-
-  const openHistoryModal = (student: Student) => {
-    setSelectedStudent(student);
-    loadStudentHistory(student.id);
-    setHistoryModalVisible(true);
   };
 
   const changeDate = (days: number) => {
@@ -314,20 +360,39 @@ export default function AttendanceScreen() {
 
   const groupStudents = getGroupStudents();
   const todayStats = getTodayStats();
+  const markedCount = todayStats.present + todayStats.absent + todayStats.late;
+  const unmarkedCount = Math.max(0, todayStats.total - markedCount);
   const hasClassToday = hasClassOnSelectedDate();
   const selectedDateSessions = getSelectedDateSessions();
 
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, isPhoneLayout && styles.headerPhone]}>
         <View>
-          <Text style={styles.headerTitle}>Attendance</Text>
+          <Text style={[styles.headerTitle, isPhoneLayout && styles.headerTitlePhone]}>Attendance</Text>
           <Text style={styles.headerSubtitle}>
             {canMarkAttendance ? 'Mark and track student attendance' : 'View attendance records'}
           </Text>
         </View>
       </View>
+
+      <ScrollView
+        style={styles.pageScroll}
+        contentContainerStyle={styles.pageScrollContent}
+        showsVerticalScrollIndicator
+        keyboardShouldPersistTaps="handled"
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              void loadGroupAttendance();
+            }}
+            tintColor={COLORS.gold}
+          />
+        }
+      >
 
       {/* Group Selector */}
       <View style={styles.groupSelector}>
@@ -418,23 +483,40 @@ export default function AttendanceScreen() {
         </View>
       )}
 
+      {selectedGroup && hasClassToday && groupStudents.length > 0 && (
+        <View style={styles.markingToolbar}>
+          <View style={styles.markingProgress}>
+            <Text style={styles.markingProgressLabel}>Marked:</Text>
+            <Text style={styles.markingProgressValue}>{markedCount}/{todayStats.total}</Text>
+          </View>
+          {canMarkAttendance && unmarkedCount > 0 ? (
+            <TouchableOpacity
+              style={styles.markRemainingButton}
+              onPress={() => void markRemainingPresent()}
+              disabled={isBulkMarking}
+              accessibilityRole="button"
+              accessibilityLabel={markedCount === 0 ? 'Mark all present' : 'Mark remaining present'}
+            >
+              {isBulkMarking ? (
+                <ActivityIndicator size="small" color={COLORS.marbleDark} />
+              ) : (
+                <Ionicons name="checkmark-done" size={18} color={COLORS.marbleDark} />
+              )}
+              <Text style={styles.markRemainingText}>
+                {markedCount === 0 ? 'Mark all present' : 'Mark remaining present'}
+              </Text>
+            </TouchableOpacity>
+          ) : markedCount === todayStats.total ? (
+            <View style={styles.allMarkedBadge}>
+              <Ionicons name="checkmark-circle" size={18} color={COLORS.success} />
+              <Text style={styles.allMarkedText}>All students are marked</Text>
+            </View>
+          ) : null}
+        </View>
+      )}
+
       {/* Student List */}
-      <ScrollView
-        style={styles.studentList}
-        contentContainerStyle={styles.studentListContent}
-        nestedScrollEnabled
-        showsVerticalScrollIndicator
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadGroupAttendance();
-            }}
-            tintColor={COLORS.gold}
-          />
-        }
-      >
+      <View style={styles.studentList}>
         {selectedGroup ? (
           !hasClassToday ? (
             <View style={styles.emptyState}>
@@ -446,9 +528,12 @@ export default function AttendanceScreen() {
             </View>
           ) : groupStudents.length > 0 ? (
             groupStudents.map((student) => (
-              <View key={student.id} style={styles.studentCard}>
+              <View
+                key={student.id}
+                style={[styles.studentCard, isPhoneLayout && styles.studentCardPhone]}
+              >
                 <TouchableOpacity
-                  style={styles.studentInfo}
+                  style={[styles.studentInfo, isPhoneLayout && styles.studentInfoPhone]}
                   onPress={() => openStudentStats(student)}
                 >
                   <View style={styles.studentAvatar}>
@@ -466,28 +551,50 @@ export default function AttendanceScreen() {
                 </TouchableOpacity>
 
                 {canMarkAttendance ? (
-                  <View style={styles.attendanceButtons}>
+                  <View style={[styles.attendanceButtons, isPhoneLayout && styles.attendanceButtonsPhone]}>
                     {ATTENDANCE_STATUSES.map((status) => (
                       <TouchableOpacity
                         key={status.value}
                         style={[
                           styles.statusButton,
+                          isPhoneLayout && styles.statusButtonPhone,
                           todayAttendance[student.id] === status.value && {
                             backgroundColor: status.color,
                             borderColor: status.color,
                           },
                         ]}
-                        onPress={() => markAttendance(student.id, status.value)}
+                        onPress={() => void markAttendance(student.id, status.value)}
+                        disabled={markingStudentIds.has(student.id) || isBulkMarking}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${student.first_name} ${student.last_name}: ${status.label}`}
+                        hitSlop={isPhoneLayout ? 2 : 6}
                       >
-                        <Ionicons
-                          name={status.icon as any}
-                          size={20}
-                          color={
-                            todayAttendance[student.id] === status.value
-                              ? COLORS.marbleDark
-                              : status.color
-                          }
-                        />
+                        {markingStudentIds.has(student.id)
+                          && todayAttendance[student.id] === status.value ? (
+                          <ActivityIndicator size="small" color={COLORS.marbleDark} />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name={status.icon as any}
+                              size={isPhoneLayout ? 19 : 20}
+                              color={
+                                todayAttendance[student.id] === status.value
+                                  ? COLORS.marbleDark
+                                  : status.color
+                              }
+                            />
+                            {isPhoneLayout && (
+                              <Text
+                                style={[
+                                  styles.statusButtonLabel,
+                                  { color: todayAttendance[student.id] === status.value ? COLORS.marbleDark : status.color },
+                                ]}
+                              >
+                                {status.label}
+                              </Text>
+                            )}
+                          </>
+                        )}
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -524,6 +631,7 @@ export default function AttendanceScreen() {
             <Text style={styles.emptyText}>Select a group to mark attendance</Text>
           </View>
         )}
+      </View>
       </ScrollView>
 
       {/* Student Stats Modal */}
@@ -719,15 +827,29 @@ const styles = StyleSheet.create({
     paddingBottom: SIZES.md,
     backgroundColor: COLORS.marbleDark,
   },
+  headerPhone: {
+    paddingTop: 52,
+    paddingHorizontal: SIZES.md,
+    paddingBottom: SIZES.sm,
+  },
   headerTitle: {
     fontSize: SIZES.fontXxl,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
   },
+  headerTitlePhone: {
+    fontSize: SIZES.fontXl,
+  },
   headerSubtitle: {
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
     marginTop: SIZES.xs,
+  },
+  pageScroll: {
+    flex: 1,
+  },
+  pageScrollContent: {
+    paddingBottom: 120,
   },
   groupSelector: {
     padding: SIZES.md,
@@ -870,14 +992,60 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: SIZES.sm,
   },
-  studentList: {
-    flex: 1,
-    minHeight: 0,
-    paddingHorizontal: SIZES.md,
+  markingToolbar: {
+    marginHorizontal: SIZES.md,
+    marginBottom: SIZES.md,
+    minHeight: SIZES.touchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: SIZES.sm,
   },
-  studentListContent: {
-    flexGrow: 1,
-    paddingBottom: SIZES.xxl,
+  markingProgress: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: SIZES.xs,
+  },
+  markingProgressLabel: {
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontSm,
+    fontWeight: '600',
+  },
+  markingProgressValue: {
+    color: COLORS.textPrimary,
+    fontSize: SIZES.fontLg,
+    fontWeight: 'bold',
+  },
+  markRemainingButton: {
+    minHeight: SIZES.touchTarget,
+    flex: 1,
+    maxWidth: 230,
+    paddingHorizontal: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: COLORS.gold,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SIZES.xs,
+  },
+  markRemainingText: {
+    color: COLORS.marbleDark,
+    fontSize: SIZES.fontSm,
+    fontWeight: 'bold',
+  },
+  allMarkedBadge: {
+    minHeight: SIZES.touchTarget,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SIZES.xs,
+  },
+  allMarkedText: {
+    color: COLORS.success,
+    fontSize: SIZES.fontSm,
+    fontWeight: '600',
+  },
+  studentList: {
+    paddingHorizontal: SIZES.md,
   },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,
@@ -889,10 +1057,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     ...SHADOWS.small,
   },
+  studentCardPhone: {
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    padding: SIZES.md,
+  },
   studentInfo: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  studentInfoPhone: {
+    width: '100%',
+    marginBottom: SIZES.sm,
   },
   studentAvatar: {
     width: 44,
@@ -924,6 +1101,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: SIZES.xs,
   },
+  attendanceButtonsPhone: {
+    width: '100%',
+    gap: SIZES.sm,
+  },
   readOnlyStatus: {
     minWidth: 92,
     flexDirection: 'row',
@@ -949,6 +1130,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: COLORS.backgroundLight,
+  },
+  statusButtonPhone: {
+    width: 'auto',
+    height: SIZES.touchTarget,
+    flex: 1,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  statusButtonLabel: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
   },
   emptyState: {
     alignItems: 'center',
