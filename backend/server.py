@@ -102,6 +102,9 @@ async def startup_event():
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
     await db.tests.create_index("creation_key", unique=True, sparse=True)
+    await db.teacher_journal.create_index("creation_key", unique=True, sparse=True)
+    await db.teacher_journal.create_index("lesson_key", unique=True, sparse=True)
+    await db.teacher_journal.create_index([("group_id", 1), ("lesson_date", -1)])
     await db.users.create_index("login", unique=True)
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("is_read", 1)])

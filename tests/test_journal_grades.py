@@ -68,6 +68,29 @@ class JournalGradeNotificationTests(unittest.IsolatedAsyncioTestCase):
             )
         notifier.assert_not_awaited()
 
+    async def test_notification_failure_does_not_turn_saved_journal_into_error(self):
+        student_id = ObjectId()
+        db = SimpleNamespace(
+            students=FindOneCollection([{
+                "_id": student_id,
+                "user_id": "student-user",
+            }]),
+            parents=FindOneCollection([]),
+        )
+        notifier = AsyncMock(side_effect=RuntimeError("provider unavailable"))
+        with patch("notification_helpers.notify_grade_posted", new=notifier):
+            await notify_performance_changes(db, {
+                "_id": ObjectId(),
+                "group_id": str(ObjectId()),
+                "topic": "Speaking",
+                "student_performance": [{
+                    "student_id": str(student_id),
+                    "participation": 5,
+                }],
+            })
+
+        notifier.assert_awaited_once()
+
 
 if __name__ == "__main__":
     unittest.main()

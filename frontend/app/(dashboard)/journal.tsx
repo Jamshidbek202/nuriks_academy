@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -20,11 +20,13 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { dateStringWithOffset, todayDateString } from '../../src/utils/dates';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface StudentPerformance {
   student_id: string;
   participation: number;
   notes?: string;
+  student_name?: string;
 }
 
 interface JournalEntry {
@@ -51,20 +53,27 @@ interface Student {
   student_id: string;
   first_name: string;
   last_name: string;
+  group_ids?: string[];
 }
 
 export default function JournalScreen() {
   const { user } = useAuth();
+  const canManageJournal = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
   const [isEditing, setIsEditing] = useState(false);
+  const creationKey = useRef('');
+  const submissionInFlight = useRef(false);
+  const journalRequestId = useRef(0);
 
   const [formData, setFormData] = useState({
     lesson_date: todayDateString(),
@@ -76,64 +85,118 @@ export default function JournalScreen() {
   });
 
   useEffect(() => {
-    loadGroups();
-    loadStudents();
+    void loadInitialData();
   }, []);
 
   useEffect(() => {
-    if (selectedGroup) {
-      loadJournalEntries();
-    }
-  }, [selectedGroup]);
+    setEntries([]);
+    setLoadError('');
+  }, [selectedGroup?.id]);
 
-  const loadGroups = async () => {
+  const loadInitialData = async () => {
     try {
-      const response = await api.get('/groups');
-      setGroups(response.data);
-      if (response.data.length > 0) {
-        setSelectedGroup(response.data[0]);
-      }
+      const [groupsResponse, studentsResponse] = await Promise.all([
+        api.get('/groups'),
+        api.get('/students'),
+      ]);
+      const loadedGroups: Group[] = groupsResponse.data;
+      setGroups(loadedGroups);
+      setStudents(studentsResponse.data);
+      setSelectedGroup((current) => (
+        loadedGroups.find((group) => group.id === current?.id) || loadedGroups[0] || null
+      ));
+      setLoadError('');
     } catch (error) {
-      console.error('Error loading groups:', error);
+      console.error('Error loading journal data:', error);
+      setLoadError('Unable to load journal data. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const loadStudents = async () => {
-    try {
-      const response = await api.get('/students');
-      setStudents(response.data);
-    } catch (error) {
-      console.error('Error loading students:', error);
+  const loadJournalEntries = async (groupId?: string) => {
+    const targetGroupId = groupId || selectedGroup?.id;
+    if (!targetGroupId) {
+      setRefreshing(false);
+      return;
     }
-  };
-
-  const loadJournalEntries = async () => {
-    if (!selectedGroup) return;
+    const requestId = ++journalRequestId.current;
     try {
-      const response = await api.get(`/journal/group/${selectedGroup.id}`);
-      setEntries(response.data);
+      const response = await api.get(`/journal/group/${targetGroupId}`, {
+        params: { _: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      if (requestId === journalRequestId.current) {
+        setEntries(response.data);
+        setLoadError('');
+      }
     } catch (error) {
       console.error('Error loading journal entries:', error);
+      if (requestId === journalRequestId.current) {
+        setLoadError('Unable to load journal entries. Check your connection and try again.');
+      }
     } finally {
       setRefreshing(false);
     }
   };
 
-  const initializePerformance = () => {
-    if (!selectedGroup) return;
-    const groupStudents = students.filter(s => selectedGroup.student_ids.includes(s.id));
-    const performance = groupStudents.map(s => ({
-      student_id: s.id,
+  useLiveRefresh(
+    () => loadJournalEntries(selectedGroup?.id),
+    Boolean(selectedGroup),
+    selectedGroup?.id || '',
+  );
+
+  const studentsForGroup = (group: Group) => students.filter((student) => (
+    group.student_ids.includes(student.id) || student.group_ids?.includes(group.id)
+  ));
+
+  const initialPerformance = (group: Group) => studentsForGroup(group).map((student) => ({
+      student_id: student.id,
       participation: 3,
       notes: '',
-    }));
-    setFormData(prev => ({ ...prev, student_performance: performance }));
+  }));
+
+  const openCreateModal = () => {
+    if (!selectedGroup || submissionInFlight.current) {
+      if (!selectedGroup) Alert.alert('No group selected', 'Select a group before creating a journal entry.');
+      return;
+    }
+    creationKey.current = `${Date.now()}-${Math.random()}`;
+    setIsEditing(false);
+    setSelectedEntry(null);
+    setFormData({
+      lesson_date: todayDateString(),
+      lesson_number: 1,
+      topic: '',
+      materials_covered: '',
+      homework_assigned: '',
+      student_performance: initialPerformance(selectedGroup),
+    });
+    setModalVisible(true);
+  };
+
+  const mergeEntryPerformanceWithActiveStudents = (entry: JournalEntry) => {
+    if (!selectedGroup) return entry.student_performance;
+    const existingStudentIds = new Set(
+      entry.student_performance.map((performance) => performance.student_id),
+    );
+    return [
+      ...entry.student_performance,
+      ...studentsForGroup(selectedGroup)
+        .filter((student) => !existingStudentIds.has(student.id))
+        .map((student) => ({
+          student_id: student.id,
+          participation: 3,
+          notes: '',
+        })),
+    ];
   };
 
   const handleCreateEntry = async () => {
-    if (!selectedGroup || !formData.topic || !formData.materials_covered) {
+    if (isSaving || submissionInFlight.current) return;
+    const topic = formData.topic.trim();
+    const materialsCovered = formData.materials_covered.trim();
+    if (!selectedGroup || !topic || !materialsCovered) {
       Alert.alert('Error', 'Please fill in Topic and Materials Covered');
       return;
     }
@@ -148,44 +211,60 @@ export default function JournalScreen() {
       return;
     }
 
-    try {
-      const payload = {
-        group_id: selectedGroup.id,
-        lesson_date: formData.lesson_date + 'T00:00:00',
-        lesson_number: formData.lesson_number,
-        topic: formData.topic,
-        materials_covered: formData.materials_covered,
-        homework_assigned: formData.homework_assigned || null,
-        student_performance: formData.student_performance,
-      };
+    const submittedGroup = selectedGroup;
+    const editingEntry = isEditing ? selectedEntry : null;
+    const payload = {
+      group_id: submittedGroup.id,
+      lesson_date: formData.lesson_date + 'T00:00:00',
+      lesson_number: formData.lesson_number,
+      topic,
+      materials_covered: materialsCovered,
+      homework_assigned: formData.homework_assigned.trim() || null,
+      student_performance: formData.student_performance,
+    };
 
-      if (isEditing && selectedEntry) {
-        await api.put(`/journal/${selectedEntry.id}`, payload);
-        Alert.alert('Success', 'Journal entry updated');
-      } else {
-        await api.post('/journal', payload);
-        Alert.alert('Success', 'Journal entry created');
-      }
-      
+    submissionInFlight.current = true;
+    setIsSaving(true);
+    try {
+      const response = editingEntry
+        ? await api.put(`/journal/${editingEntry.id}`, payload)
+        : await api.post('/journal', payload, {
+            headers: { 'Idempotency-Key': creationKey.current },
+          });
+      const savedEntry: JournalEntry = response.data;
+
+      // Invalidate any older request, update immediately from the saved
+      // response, then quietly reconcile with the server.
+      journalRequestId.current += 1;
+      setEntries((current) => {
+        if (editingEntry) {
+          return current.map((entry) => entry.id === savedEntry.id ? savedEntry : entry);
+        }
+        return [savedEntry, ...current.filter((entry) => entry.id !== savedEntry.id)]
+          .sort((a, b) => new Date(b.lesson_date).getTime() - new Date(a.lesson_date).getTime());
+      });
       setModalVisible(false);
       resetForm();
-      loadJournalEntries();
+      Alert.alert('Success', editingEntry ? 'Journal entry updated' : 'Journal entry created');
+      void loadJournalEntries(submittedGroup.id);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to save entry');
+    } finally {
+      submissionInFlight.current = false;
+      setIsSaving(false);
     }
   };
 
   const openEditModal = (entry: JournalEntry) => {
     setSelectedEntry(entry);
     setIsEditing(true);
-    const activeStudentIds = new Set(students.map((student) => student.id));
     setFormData({
       lesson_date: entry.lesson_date.split('T')[0],
       lesson_number: entry.lesson_number,
       topic: entry.topic,
       materials_covered: entry.materials_covered,
       homework_assigned: entry.homework_assigned || '',
-      student_performance: entry.student_performance.filter((performance) => activeStudentIds.has(performance.student_id)),
+      student_performance: mergeEntryPerformanceWithActiveStudents(entry),
     });
     setDetailModalVisible(false);
     setModalVisible(true);
@@ -224,13 +303,14 @@ export default function JournalScreen() {
 
   const getStudentName = (studentId: string) => {
     const student = students.find(s => s.id === studentId);
-    return student ? `${student.first_name} ${student.last_name}` : 'Unknown';
+    if (student) return `${student.first_name} ${student.last_name}`;
+    const performance = selectedEntry?.student_performance.find(
+      (item) => item.student_id === studentId,
+    );
+    return performance?.student_name || 'Former student';
   };
 
-  const getActivePerformance = (performance: StudentPerformance[]) => {
-    const activeStudentIds = new Set(students.map((student) => student.id));
-    return performance.filter((item) => activeStudentIds.has(item.student_id));
-  };
+  const getVisiblePerformance = (performance: StudentPerformance[]) => performance;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -259,17 +339,26 @@ export default function JournalScreen() {
           <Text style={styles.headerTitle}>Teacher Journal</Text>
           <Text style={styles.headerSubtitle}>Track lessons and student performance</Text>
         </View>
-        <TouchableOpacity
-          style={styles.addButton}
-          onPress={() => {
-            resetForm();
-            initializePerformance();
-            setModalVisible(true);
-          }}
-        >
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        {canManageJournal && (
+          <TouchableOpacity
+            style={[styles.addButton, !selectedGroup && styles.addButtonDisabled]}
+            onPress={openCreateModal}
+            disabled={!selectedGroup}
+          >
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        )}
       </View>
+
+      {loadError ? (
+        <View style={styles.errorBanner}>
+          <Ionicons name="warning-outline" size={20} color={COLORS.error} />
+          <Text style={styles.errorText}>{loadError}</Text>
+          <TouchableOpacity onPress={() => selectedGroup ? loadJournalEntries(selectedGroup.id) : loadInitialData()}>
+            <Text style={styles.retryText}>Try again</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Group Selector */}
       <View style={styles.groupSelector}>
@@ -297,7 +386,7 @@ export default function JournalScreen() {
       <ScrollView
         style={styles.entriesList}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadJournalEntries(); }} tintColor={COLORS.gold} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadJournalEntries(); }} tintColor={COLORS.gold} />
         }
       >
         {entries.length > 0 ? (
@@ -332,7 +421,7 @@ export default function JournalScreen() {
 
               <View style={styles.performanceStats}>
                 <Text style={styles.performanceLabel}>
-                  {getActivePerformance(entry.student_performance).length} students rated
+                  {getVisiblePerformance(entry.student_performance).length} students rated
                 </Text>
               </View>
             </TouchableOpacity>
@@ -390,7 +479,7 @@ export default function JournalScreen() {
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Student Performance</Text>
-                  {getActivePerformance(selectedEntry.student_performance).map((sp, idx) => (
+                  {getVisiblePerformance(selectedEntry.student_performance).map((sp, idx) => (
                     <View key={idx} style={styles.performanceItem}>
                       <Text style={styles.performanceStudentName}>{getStudentName(sp.student_id)}</Text>
                       <View style={styles.participationDisplay}>
@@ -406,7 +495,9 @@ export default function JournalScreen() {
                   ))}
                 </View>
 
-                <Button title="Edit Entry" onPress={() => openEditModal(selectedEntry)} style={{ marginTop: SIZES.lg }} />
+                {canManageJournal && (
+                  <Button title="Edit Entry" onPress={() => openEditModal(selectedEntry)} style={{ marginTop: SIZES.lg }} />
+                )}
               </ScrollView>
             )}
           </View>
@@ -497,7 +588,13 @@ export default function JournalScreen() {
                 </View>
               )}
 
-              <Button title={isEditing ? 'Update Entry' : 'Create Entry'} onPress={handleCreateEntry} style={{ marginTop: SIZES.lg }} />
+              <Button
+                title={isEditing ? 'Update Entry' : 'Create Entry'}
+                onPress={handleCreateEntry}
+                loading={isSaving}
+                disabled={isSaving}
+                style={{ marginTop: SIZES.lg }}
+              />
             </ScrollView>
           </View>
         </View>
@@ -513,11 +610,15 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
+  addButtonDisabled: { opacity: 0.45 },
   groupSelector: { padding: SIZES.md, maxWidth: 720, width: '100%' },
   selectorLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
   pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
   picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
   pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
+  errorBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, marginHorizontal: SIZES.md, marginBottom: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.error + '18', borderWidth: 1, borderColor: COLORS.error + '55' },
+  errorText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm },
+  retryText: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
   entriesList: { flex: 1, paddingHorizontal: SIZES.md },
   entryCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
   entryHeader: { flexDirection: 'row', alignItems: 'center' },

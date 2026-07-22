@@ -283,7 +283,10 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Settings</Text>
           <View style={styles.menuCard}>
             {user?.role === 'super_admin' && (
-              <TouchableOpacity style={styles.menuItem}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => router.push('/(dashboard)/settings')}
+              >
                 <Ionicons name="settings" size={24} color={COLORS.gold} />
                 <Text style={styles.menuText}>System Settings</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
