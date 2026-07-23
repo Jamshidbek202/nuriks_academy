@@ -11,6 +11,7 @@ interface ButtonProps {
   disabled?: boolean;
   variant?: 'primary' | 'secondary' | 'outline';
   style?: ViewStyle;
+  testID?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -20,10 +21,12 @@ export const Button: React.FC<ButtonProps> = ({
   disabled = false,
   variant = 'primary',
   style,
+  testID,
 }) => {
   if (variant === 'primary') {
     return (
       <TouchableOpacity
+        testID={testID}
         style={[styles.button, disabled && styles.disabled, style]}
         onPress={onPress}
         disabled={disabled || loading}
@@ -47,6 +50,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <TouchableOpacity
+      testID={testID}
       style={[styles.button, styles[variant], disabled && styles.disabled, style]}
       onPress={onPress}
       disabled={disabled || loading}

@@ -51,7 +51,7 @@ export default function ConversationScreen() {
   const [uploading, setUploading] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [otherUserTyping, setOtherUserTyping] = useState(false);
-  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     shouldReconnectRef.current = true;

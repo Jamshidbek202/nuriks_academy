@@ -98,6 +98,7 @@ async def startup_event():
     from finance_ledger import ensure_finance_ledger_indexes
     from finance_accounting import ensure_accounting_indexes
     from finance_controls import ensure_finance_control_indexes
+    from finance_live import ensure_finance_live_indexes
 
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
@@ -113,6 +114,7 @@ async def startup_event():
     await ensure_finance_ledger_indexes(db)
     await ensure_accounting_indexes(db)
     await ensure_finance_control_indexes(db)
+    await ensure_finance_live_indexes(db)
     try:
         reconciliation = await reconcile_archived_student_accounts(db)
         logger.info("Student account reconciliation completed: %s", reconciliation)
@@ -120,8 +122,12 @@ async def startup_event():
         # A legacy-data repair must not prevent the application from starting.
         # The archive endpoint enforces the invariant for all future changes.
         logger.exception("Student account reconciliation failed")
-    scheduler = start_scheduler(db)
-    logger.info("Application started successfully")
+    if os.environ.get("DISABLE_SCHEDULER") == "1":
+        scheduler = None
+        logger.info("Application started with scheduler disabled")
+    else:
+        scheduler = start_scheduler(db)
+        logger.info("Application started successfully")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
@@ -568,6 +574,12 @@ async def toggle_feature(
         raise HTTPException(status_code=500, detail=str(e))
 
 # ==================== DASHBOARD ====================
+
+@api_router.get("/health")
+async def health_check():
+    """Readiness probe used by local/CI test servers."""
+    await db.command("ping")
+    return {"status": "ok"}
 
 @api_router.get("/dashboard")
 async def get_dashboard_stats(

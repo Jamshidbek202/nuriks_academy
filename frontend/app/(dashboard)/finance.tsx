@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,6 +18,8 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useFinanceLiveRefresh } from '../../src/hooks/use-finance-live-refresh';
+import { FINANCE } from '../../constants/testIds';
 
 type FinanceTab = 'overview' | 'receivables' | 'expenses' | 'payroll' | 'cash' | 'pricing' | 'closures';
 type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
@@ -242,7 +244,7 @@ const tashkentTime = (value: string) => utcDate(value).toLocaleTimeString(getAct
 });
 
 export default function FinanceScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const role = user?.role;
   const isReception = role === 'reception';
   const isSuperAdmin = role === 'super_admin';
@@ -272,6 +274,7 @@ export default function FinanceScreen() {
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [occurrences, setOccurrences] = useState<LessonOccurrence[]>([]);
+  const refreshRequestRef = useRef(0);
 
   const [receiptForm, setReceiptForm] = useState({ student_id: '', amount: '', notes: '' });
   const [financeSearch, setFinanceSearch] = useState('');
@@ -373,37 +376,42 @@ export default function FinanceScreen() {
     : tabs;
 
   const loadData = useCallback(async () => {
+    const requestId = ++refreshRequestRef.current;
     if (!role || !['super_admin', 'manager', 'reception'].includes(role)) {
-      setLoading(false);
+      if (requestId === refreshRequestRef.current) setLoading(false);
       return;
     }
     try {
-      const common = await Promise.all([
+      const commonPromise = Promise.all([
         api.get('/students', { params: { limit: 1000 } }),
         api.get('/finance/invoices', { params: { limit: 2000 } }),
         api.get('/finance/receipts', { params: { limit: 500 } }),
         api.get('/finance/reception/call-list'),
         api.get('/finance/cash-shifts/current').catch(() => ({ data: null })),
       ]);
+      const adminPromise = isReception ? Promise.resolve(null) : Promise.all([
+        api.get('/finance/position', { params: { service_month: month } }),
+        api.get('/finance/expenses', { params: { service_month: month, limit: 2000 } }),
+        api.get('/finance/teacher-earnings', { params: { service_month: month } }),
+        api.get('/finance/pricing/current'),
+        api.get('/finance/closures', { params: { limit: 500 } }),
+        api.get('/groups', { params: { limit: 1000 } }),
+        api.get('/teachers', { params: { limit: 1000 } }),
+        api.get('/finance/cash-shifts', { params: { limit: 100 } }),
+        api.get('/finance/cash-events', { params: { limit: 250 } }),
+        api.get('/finance/other-income', { params: { service_month: month, limit: 500 } }),
+        api.get('/finance/outgoing-payments', { params: { limit: 500 } }),
+      ]);
+      const [common, admin] = await Promise.all([commonPromise, adminPromise]);
+      // A newer invalidation owns the screen. Never let an older, slower set of
+      // financial requests overwrite its snapshot.
+      if (requestId !== refreshRequestRef.current) return;
       setStudents(common[0].data || []);
       setInvoices(common[1].data || []);
       setReceipts(common[2].data || []);
       setCallList(common[3].data || []);
       setCashShift(common[4].data || null);
-      if (!isReception) {
-        const admin = await Promise.all([
-          api.get('/finance/position', { params: { service_month: month } }),
-          api.get('/finance/expenses', { params: { service_month: month, limit: 2000 } }),
-          api.get('/finance/teacher-earnings', { params: { service_month: month } }),
-          api.get('/finance/pricing/current'),
-          api.get('/finance/closures', { params: { limit: 500 } }),
-          api.get('/groups', { params: { limit: 1000 } }),
-          api.get('/teachers', { params: { limit: 1000 } }),
-          api.get('/finance/cash-shifts', { params: { limit: 100 } }),
-          api.get('/finance/cash-events', { params: { limit: 250 } }),
-          api.get('/finance/other-income', { params: { service_month: month, limit: 500 } }),
-          api.get('/finance/outgoing-payments', { params: { limit: 500 } }),
-        ]);
+      if (admin) {
         setPosition(admin[0].data);
         setExpenses(admin[1].data || []);
         setEarnings(admin[2].data || []);
@@ -430,10 +438,14 @@ export default function FinanceScreen() {
         }
       }
     } catch (error: any) {
-      Alert.alert('Finance data unavailable', error.response?.data?.detail || 'Could not load financial records.');
+      if (requestId === refreshRequestRef.current) {
+        Alert.alert('Finance data unavailable', error.response?.data?.detail || 'Could not load financial records.');
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (requestId === refreshRequestRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [isReception, month, role]);
 
@@ -449,9 +461,19 @@ export default function FinanceScreen() {
     }
   }, [month]);
 
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
+  const refreshLiveData = useCallback(async () => {
+    await Promise.all([
+      loadData(),
+      !isReception && selectedGroupId ? loadOccurrences(selectedGroupId) : Promise.resolve(),
+    ]);
+  }, [isReception, loadData, loadOccurrences, selectedGroupId]);
+
+  useFinanceLiveRefresh(
+    refreshLiveData,
+    token,
+    Boolean(role && ['super_admin', 'manager', 'reception'].includes(role)),
+    `${month}:${role || ''}`,
+  );
 
   useEffect(() => {
     if (!isReception && selectedGroupId) void loadOccurrences(selectedGroupId);
@@ -916,6 +938,7 @@ export default function FinanceScreen() {
       <Section title={`Month close · ${month}`} subtitle="Draft generation is repeatable. Finalization fails closed if any source changed or any scheduled lesson is unresolved.">
         <View style={styles.actionRow}>
           <Button
+            testID={FINANCE.recalculateDrafts}
             title="Recalculate drafts"
             variant="outline"
             style={styles.flexButton}
@@ -926,6 +949,7 @@ export default function FinanceScreen() {
             }), 'Draft invoices recalculated from current locked source data.')}
           />
           <Button
+            testID={FINANCE.finalizeMonth}
             title="Finalize month"
             style={styles.flexButton}
             loading={busy === 'finalize'}
@@ -934,27 +958,27 @@ export default function FinanceScreen() {
         </View>
       </Section>
       <View style={styles.kpiGrid}>
-        <Kpi label="Accrued revenue" value={position.net_tuition_uzs + position.other_income_uzs} icon="trending-up" color={COLORS.success} />
-        <Kpi label="Accrued profit" value={position.accrued_operating_profit_uzs} icon="pie-chart" color={position.accrued_operating_profit_uzs >= 0 ? COLORS.gold : COLORS.error} />
-        <Kpi label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle" color={COLORS.info} />
-        <Kpi label="Cashbox position" value={position.cashbox_position_uzs} icon="cash" color={COLORS.gold} />
-        <Kpi label="All receivables" value={position.receivables_uzs} icon="hourglass" color={COLORS.warning} />
-        <Kpi label="Overdue" value={position.overdue_uzs} icon="alert-circle" color={COLORS.error} />
+        <Kpi testID={FINANCE.accruedRevenue} label="Accrued revenue" value={position.net_tuition_uzs + position.other_income_uzs} icon="trending-up" color={COLORS.success} />
+        <Kpi testID={FINANCE.accruedProfit} label="Accrued profit" value={position.accrued_operating_profit_uzs} icon="pie-chart" color={position.accrued_operating_profit_uzs >= 0 ? COLORS.gold : COLORS.error} />
+        <Kpi testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle" color={COLORS.info} />
+        <Kpi testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash" color={COLORS.gold} />
+        <Kpi testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass" color={COLORS.warning} />
+        <Kpi testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle" color={COLORS.error} />
       </View>
       <Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
-        <MoneyRow label="Gross lesson tuition" value={position.gross_tuition_uzs} />
+        <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
         <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
-        <MoneyRow label="Net tuition" value={position.net_tuition_uzs} strong />
-        <MoneyRow label="Other income" value={position.other_income_uzs} />
+        <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
+        <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
       </Section>
       <Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
-        <SpendingBar label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
+        <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
         {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
-        <SpendingBar label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
-        <MoneyRow label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
-        <MoneyRow label="Expense outstanding" value={position.expenses_outstanding_uzs} />
-        <MoneyRow label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
-        <MoneyRow label="Student advances held" value={position.advance_balances_uzs} />
+        <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
+        <MoneyRow testID={FINANCE.salaryOutstanding} label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
+        <MoneyRow testID={FINANCE.expensesOutstanding} label="Expense outstanding" value={position.expenses_outstanding_uzs} />
+        <MoneyRow testID={FINANCE.cashOutflow} label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
+        <MoneyRow testID={FINANCE.advances} label="Student advances held" value={position.advance_balances_uzs} />
       </Section>
     </>
   );
@@ -967,18 +991,18 @@ export default function FinanceScreen() {
       <Section title="Record cash payment" subtitle="Cash only. Payment is allocated to the oldest debt; any remainder becomes an advance.">
         <Text style={styles.inputLabel}>Student *</Text>
         <View style={styles.pickerBox}>
-          <Picker selectedValue={receiptForm.student_id} onValueChange={(value) => setReceiptForm({ ...receiptForm, student_id: value })} style={styles.picker} dropdownIconColor={COLORS.gold}>
+          <Picker testID={FINANCE.receiptStudent} selectedValue={receiptForm.student_id} onValueChange={(value) => setReceiptForm({ ...receiptForm, student_id: value })} style={styles.picker} dropdownIconColor={COLORS.gold}>
             <LocalizedPickerItem label="Select student" value="" />
             {students.map((student) => <LocalizedPickerItem key={student.id} label={`${student.student_id} · ${student.first_name} ${student.last_name}`} value={student.id} />)}
           </Picker>
         </View>
-        <Input label="Amount (whole UZS) *" keyboardType="number-pad" value={receiptForm.amount} onChangeText={(amount) => setReceiptForm({ ...receiptForm, amount })} placeholder="450000" />
-        <Input label="Notes" value={receiptForm.notes} onChangeText={(notes) => setReceiptForm({ ...receiptForm, notes })} placeholder="Optional receipt note" />
-        <Button title={cashShift ? 'Post cash receipt' : 'Open cashbox before receiving payment'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
+        <Input testID={FINANCE.receiptAmount} label="Amount (whole UZS) *" keyboardType="number-pad" value={receiptForm.amount} onChangeText={(amount) => setReceiptForm({ ...receiptForm, amount })} placeholder="450000" />
+        <Input testID={FINANCE.receiptNotes} label="Notes" value={receiptForm.notes} onChangeText={(notes) => setReceiptForm({ ...receiptForm, notes })} placeholder="Optional receipt note" />
+        <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Open cashbox before receiving payment'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
       </Section>
       <Section title={`Payment call list (${visibleCallList.length})`} subtitle="Overdue balances and payments due within five days, with student and parent contacts">
         {visibleCallList.length === 0 ? <Empty text="No matching overdue or upcoming balances." /> : visibleCallList.map((item) => (
-          <View key={item.invoice_id} style={styles.recordCard}>
+          <View key={item.invoice_id} testID={`finance-call-row-${item.invoice_id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{item.student_name}</Text><Text style={item.call_reason === 'overdue' ? styles.dangerAmount : styles.goodAmount}>{uzs(item.balance_uzs)}</Text></View>
             <Text style={styles.recordMeta}>{item.invoice_number} · due {item.due_date}</Text>
             <Status value={item.call_reason} />
@@ -993,7 +1017,7 @@ export default function FinanceScreen() {
       </Section>
       <Section title="Invoice ledger" subtitle="Draft, finalized, partial, paid, and overdue balances">
         {visibleInvoices.length === 0 ? <Empty text="No matching invoices." /> : visibleInvoices.slice(0, 250).map((invoice) => (
-          <View key={invoice.id} style={styles.recordCard}>
+          <View key={invoice.id} testID={`finance-invoice-row-${invoice.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{studentName(invoice.student_id)}</Text><Status value={invoice.payment_status || invoice.status} /></View>
             <Text style={styles.recordMeta}>{invoice.invoice_number || 'DRAFT'} · service {invoice.service_month} · due {invoice.due_date}</Text>
             <MoneyRow label={`Paid ${uzs(invoice.amount_paid_uzs)}`} value={invoice.balance_uzs} valuePrefix="Balance " />
@@ -1010,20 +1034,20 @@ export default function FinanceScreen() {
       </Section>
       {!isReception && invoiceCorrection && (
         <Section title={`${invoiceCorrection.kind === 'debit' ? 'Debit' : 'Credit'} correction · ${invoiceCorrection.invoice.invoice_number}`} subtitle="The original invoice remains auditable. Teacher earnings are intentionally unchanged.">
-          <Input label="Amount (whole UZS)" keyboardType="number-pad" value={invoiceCorrectionAmount} onChangeText={setInvoiceCorrectionAmount} />
-          <Input label="Audit reason" value={invoiceCorrectionReason} onChangeText={setInvoiceCorrectionReason} multiline />
-          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setInvoiceCorrection(null)} /><Button title="Post correction" style={styles.flexButton} onPress={postInvoiceCorrection} loading={busy === 'invoice-correction'} /></View>
+          <Input testID={FINANCE.invoiceCorrectionAmount} label="Amount (whole UZS)" keyboardType="number-pad" value={invoiceCorrectionAmount} onChangeText={setInvoiceCorrectionAmount} />
+          <Input testID={FINANCE.invoiceCorrectionReason} label="Audit reason" value={invoiceCorrectionReason} onChangeText={setInvoiceCorrectionReason} multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setInvoiceCorrection(null)} /><Button testID={FINANCE.invoiceCorrectionSubmit} title="Post correction" style={styles.flexButton} onPress={postInvoiceCorrection} loading={busy === 'invoice-correction'} /></View>
         </Section>
       )}
       {isSuperAdmin && invoiceReversalTarget && (
         <Section title={`Reverse ${invoiceReversalTarget.invoice_number}`} subtitle="A replacement draft will be created. The original invoice and teacher earning basis remain immutable.">
-          <Input label="Specific audit reason" value={invoiceReversalReason} onChangeText={setInvoiceReversalReason} multiline />
-          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setInvoiceReversalTarget(null)} /><Button title="Reverse and replace" style={styles.flexButton} onPress={reverseInvoiceValue} loading={busy === 'invoice-reversal'} /></View>
+          <Input testID={FINANCE.invoiceReversalReason} label="Specific audit reason" value={invoiceReversalReason} onChangeText={setInvoiceReversalReason} multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setInvoiceReversalTarget(null)} /><Button testID={FINANCE.invoiceReversalSubmit} title="Reverse and replace" style={styles.flexButton} onPress={reverseInvoiceValue} loading={busy === 'invoice-reversal'} /></View>
         </Section>
       )}
       <Section title="Recent receipts" subtitle="Posted receipts are immutable; corrections use a reversal record">
         {visibleReceipts.length === 0 ? <Empty text="No matching receipts." /> : visibleReceipts.slice(0, 50).map((receipt) => (
-          <View key={receipt.id} style={styles.recordCard}>
+          <View key={receipt.id} testID={`finance-receipt-row-${receipt.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{receipt.receipt_number}</Text><Text style={styles.goodAmount}>{uzs(receipt.amount_uzs)}</Text></View>
             <Text style={styles.recordMeta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString(getActiveLocale())}</Text>
             <Text style={styles.recordMeta}>Debt {uzs(receipt.allocated_amount_uzs)} · advance {uzs(receipt.advance_amount_uzs)}</Text>
@@ -1033,8 +1057,8 @@ export default function FinanceScreen() {
       </Section>
       {isSuperAdmin && receiptReversalTarget && (
         <Section title={`Reverse ${receiptReversalTarget.receipt_number}`} subtitle="The receipt and allocations are reversed atomically. A closed shift keeps its physical count and recalculates its discrepancy for review.">
-          <Input label="Audit reason" value={receiptReversalReason} onChangeText={setReceiptReversalReason} multiline />
-          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setReceiptReversalTarget(null)} /><Button title="Reverse receipt" style={styles.flexButton} onPress={reverseReceiptValue} loading={busy === 'receipt-reversal'} /></View>
+          <Input testID={FINANCE.receiptReversalReason} label="Audit reason" value={receiptReversalReason} onChangeText={setReceiptReversalReason} multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setReceiptReversalTarget(null)} /><Button testID={FINANCE.receiptReversalSubmit} title="Reverse receipt" style={styles.flexButton} onPress={reverseReceiptValue} loading={busy === 'receipt-reversal'} /></View>
         </Section>
       )}
     </>
@@ -1043,19 +1067,19 @@ export default function FinanceScreen() {
   const renderExpenses = () => (
     <>
       <View style={styles.actionRow}>
-        <Button title="Generate recurring obligations" variant="outline" loading={busy === 'recurring'} onPress={() => void runAction('recurring', () => api.post('/finance/expenses/generate-recurring', { service_month: month, branch_id: null }), 'Recurring obligations generated idempotently.')} style={styles.flexButton} />
+        <Button testID={FINANCE.generateRecurring} title="Generate recurring obligations" variant="outline" loading={busy === 'recurring'} onPress={() => void runAction('recurring', () => api.post('/finance/expenses/generate-recurring', { service_month: month, branch_id: null }), 'Recurring obligations generated idempotently.')} style={styles.flexButton} />
       </View>
       <Section title="Record non-monthly expense" subtitle="Creates an obligation first; payment is recorded separately from the cashbox.">
-        <Input label="Category" value={otherExpense.category} onChangeText={(category) => setOtherExpense({ ...otherExpense, category })} placeholder="Other" />
-        <Input label="Recipient *" value={otherExpense.recipient} onChangeText={(recipient) => setOtherExpense({ ...otherExpense, recipient })} placeholder="Who is owed" />
-        <Input label="Expense date *" value={otherExpense.expense_date} onChangeText={(expense_date) => setOtherExpense({ ...otherExpense, expense_date })} placeholder="YYYY-MM-DD" />
-        <Input label="Amount (whole UZS) *" keyboardType="number-pad" value={otherExpense.amount} onChangeText={(amount) => setOtherExpense({ ...otherExpense, amount })} />
-        <Input label="Explanation *" value={otherExpense.explanation} onChangeText={(explanation) => setOtherExpense({ ...otherExpense, explanation })} multiline />
-        <Button title="Record expense obligation" onPress={createOtherExpense} loading={busy === 'other-expense'} />
+        <Input testID={FINANCE.otherExpenseCategory} label="Category" value={otherExpense.category} onChangeText={(category) => setOtherExpense({ ...otherExpense, category })} placeholder="Other" />
+        <Input testID={FINANCE.otherExpenseRecipient} label="Recipient *" value={otherExpense.recipient} onChangeText={(recipient) => setOtherExpense({ ...otherExpense, recipient })} placeholder="Who is owed" />
+        <Input testID={FINANCE.otherExpenseDate} label="Expense date *" value={otherExpense.expense_date} onChangeText={(expense_date) => setOtherExpense({ ...otherExpense, expense_date })} placeholder="YYYY-MM-DD" />
+        <Input testID={FINANCE.otherExpenseAmount} label="Amount (whole UZS) *" keyboardType="number-pad" value={otherExpense.amount} onChangeText={(amount) => setOtherExpense({ ...otherExpense, amount })} />
+        <Input testID={FINANCE.otherExpenseExplanation} label="Explanation *" value={otherExpense.explanation} onChangeText={(explanation) => setOtherExpense({ ...otherExpense, explanation })} multiline />
+        <Button testID={FINANCE.otherExpenseSubmit} title="Record expense obligation" onPress={createOtherExpense} loading={busy === 'other-expense'} />
       </Section>
       <Section title={`Expense obligations · ${month}`} subtitle="Accrued, paid, and outstanding">
         {expenses.length === 0 ? <Empty text="Generate recurring expenses or record an Other expense." /> : expenses.map((expense) => (
-          <View key={expense.id} style={styles.recordCard}>
+          <View key={expense.id} testID={`finance-expense-row-${expense.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{expense.category}</Text><Status value={expense.status} /></View>
             <Text style={styles.recordMeta}>{expense.recipient} · {expense.obligation_date}</Text>
             <MoneyRow label={`Accrued ${uzs(expense.accrued_amount_uzs)} · paid ${uzs(expense.paid_amount_uzs)}`} value={expense.outstanding_amount_uzs} valuePrefix="Owed " />
@@ -1065,8 +1089,8 @@ export default function FinanceScreen() {
           </View>
         ))}
       </Section>
-      {manualExpenseTarget && <Section title={`Set ${manualExpenseTarget.category} amount`} subtitle="This can be entered once for the month; later corrections require an audited correction workflow."><Input label="Actual amount (whole UZS)" keyboardType="number-pad" value={manualExpenseAmount} onChangeText={setManualExpenseAmount} /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={() => setManualExpenseTarget(null)} style={styles.flexButton} /><Button title="Set amount" onPress={setManualExpenseAmountValue} loading={busy === 'manual-expense-amount'} style={styles.flexButton} /></View></Section>}
-      {isSuperAdmin && expenseCorrectionTarget && <Section title={`Correct ${expenseCorrectionTarget.category}`} subtitle="Set 0 to cancel an unpaid obligation. The previous amount remains in the audit event."><Input label="Correct amount (whole UZS)" keyboardType="number-pad" value={expenseCorrectionAmount} onChangeText={setExpenseCorrectionAmount} /><Input label="Audit reason" value={expenseCorrectionReason} onChangeText={setExpenseCorrectionReason} multiline /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={() => setExpenseCorrectionTarget(null)} style={styles.flexButton} /><Button title="Post correction" onPress={correctExpenseAmount} loading={busy === 'expense-correction'} style={styles.flexButton} /></View></Section>}
+      {manualExpenseTarget && <Section title={`Set ${manualExpenseTarget.category} amount`} subtitle="This can be entered once for the month; later corrections require an audited correction workflow."><Input testID={FINANCE.manualExpenseAmount} label="Actual amount (whole UZS)" keyboardType="number-pad" value={manualExpenseAmount} onChangeText={setManualExpenseAmount} /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={() => setManualExpenseTarget(null)} style={styles.flexButton} /><Button testID={FINANCE.manualExpenseSubmit} title="Set amount" onPress={setManualExpenseAmountValue} loading={busy === 'manual-expense-amount'} style={styles.flexButton} /></View></Section>}
+      {isSuperAdmin && expenseCorrectionTarget && <Section title={`Correct ${expenseCorrectionTarget.category}`} subtitle="Set 0 to cancel an unpaid obligation. The previous amount remains in the audit event."><Input testID={FINANCE.expenseCorrectionAmount} label="Correct amount (whole UZS)" keyboardType="number-pad" value={expenseCorrectionAmount} onChangeText={setExpenseCorrectionAmount} /><Input testID={FINANCE.expenseCorrectionReason} label="Audit reason" value={expenseCorrectionReason} onChangeText={setExpenseCorrectionReason} multiline /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={() => setExpenseCorrectionTarget(null)} style={styles.flexButton} /><Button testID={FINANCE.expenseCorrectionSubmit} title="Post correction" onPress={correctExpenseAmount} loading={busy === 'expense-correction'} style={styles.flexButton} /></View></Section>}
       {outgoing?.type === 'expense' && <OutgoingPanel outgoing={outgoing} amount={outgoingAmount} setAmount={setOutgoingAmount} busy={busy === 'outgoing'} onPay={payOutgoing} onCancel={() => setOutgoing(null)} />}
     </>
   );
@@ -1075,7 +1099,7 @@ export default function FinanceScreen() {
     <>
       <Section title={`Teacher payroll · ${month}`} subtitle="Earnings are based on held scheduled lessons and do not depend on student collection or centre-funded discounts.">
         {earnings.length === 0 ? <Empty text="Teacher earnings appear when invoices are finalized." /> : earnings.map((earning) => (
-          <View key={earning.id} style={styles.recordCard}>
+          <View key={earning.id} testID={`finance-payroll-row-${earning.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{teacherName(earning.teacher_id)}</Text><Status value={earning.status} /></View>
             <Text style={styles.recordMeta}>Salary due {earning.due_date}</Text>
             <MoneyRow label={`Earned ${uzs(earning.earned_amount_uzs)} · paid ${uzs(earning.paid_amount_uzs)}`} value={earning.outstanding_amount_uzs} valuePrefix="Owed " />
@@ -1093,40 +1117,40 @@ export default function FinanceScreen() {
         {cashShift ? (
           <>
             <View style={styles.kpiGrid}>
-              <Kpi label="Opening" value={cashShift.opening_balance_uzs} icon="lock-open" color={COLORS.info} />
-              <Kpi label="Cash received" value={cashShift.receipt_total_uzs} icon="arrow-down" color={COLORS.success} />
-              <Kpi label="Cash removed" value={cashShift.removal_total_uzs} icon="arrow-up" color={COLORS.warning} />
-              <Kpi label="Expected now" value={expectedCash} icon="cash" color={COLORS.gold} />
+              <Kpi testID={FINANCE.cashOpeningKpi} label="Opening" value={cashShift.opening_balance_uzs} icon="lock-open" color={COLORS.info} />
+              <Kpi testID={FINANCE.cashReceivedKpi} label="Cash received" value={cashShift.receipt_total_uzs} icon="arrow-down" color={COLORS.success} />
+              <Kpi testID={FINANCE.cashRemovedKpi} label="Cash removed" value={cashShift.removal_total_uzs} icon="arrow-up" color={COLORS.warning} />
+              <Kpi testID={FINANCE.cashExpectedKpi} label="Expected now" value={expectedCash} icon="cash" color={COLORS.gold} />
             </View>
             <Text style={styles.recordMeta}>Opened {new Date(cashShift.opened_at).toLocaleString(getActiveLocale())}</Text>
-            <Input label="Counted closing balance (whole UZS)" keyboardType="number-pad" value={shiftForm.closing} onChangeText={(closing) => setShiftForm({ ...shiftForm, closing })} placeholder={String(expectedCash)} />
-            <Button title="Close shift and record discrepancy" variant="outline" onPress={closeShift} loading={busy === 'close-shift'} />
+            <Input testID={FINANCE.cashClosingAmount} label="Counted closing balance (whole UZS)" keyboardType="number-pad" value={shiftForm.closing} onChangeText={(closing) => setShiftForm({ ...shiftForm, closing })} placeholder={String(expectedCash)} />
+            <Button testID={FINANCE.cashClose} title="Close shift and record discrepancy" variant="outline" onPress={closeShift} loading={busy === 'close-shift'} />
           </>
         ) : (
           <>
             <Text style={styles.muted}>No shift is open. Record the counted opening cash before receiving or paying cash.</Text>
-            <Input label="Opening balance (whole UZS, 0 allowed)" keyboardType="number-pad" value={shiftForm.opening} onChangeText={(opening) => setShiftForm({ ...shiftForm, opening })} />
-            <Button title="Open main cashbox" onPress={openShift} loading={busy === 'open-shift'} />
+            <Input testID={FINANCE.cashOpeningAmount} label="Opening balance (whole UZS, 0 allowed)" keyboardType="number-pad" value={shiftForm.opening} onChangeText={(opening) => setShiftForm({ ...shiftForm, opening })} />
+            <Button testID={FINANCE.cashOpen} title="Open main cashbox" onPress={openShift} loading={busy === 'open-shift'} />
           </>
         )}
       </Section>
       {!isReception && cashShift && (
         <Section title="Other cash movement" subtitle="Use expense/payroll payment buttons for obligations. This area is only for other income or a non-expense removal such as a bank deposit.">
-          <Input label="Other income source" value={otherIncomeForm.source} onChangeText={(source) => setOtherIncomeForm({ ...otherIncomeForm, source })} placeholder="Source" />
-          <Input label="Income date" value={otherIncomeForm.income_date} onChangeText={(income_date) => setOtherIncomeForm({ ...otherIncomeForm, income_date })} placeholder="YYYY-MM-DD" />
-          <Input label="Income amount (whole UZS)" keyboardType="number-pad" value={otherIncomeForm.amount} onChangeText={(amount) => setOtherIncomeForm({ ...otherIncomeForm, amount })} />
-          <Input label="Income notes" value={otherIncomeForm.notes} onChangeText={(notes) => setOtherIncomeForm({ ...otherIncomeForm, notes })} />
-          <Button title="Record other cash income" variant="outline" onPress={recordOtherIncomeValue} loading={busy === 'other-income'} />
+          <Input testID={FINANCE.otherIncomeSource} label="Other income source" value={otherIncomeForm.source} onChangeText={(source) => setOtherIncomeForm({ ...otherIncomeForm, source })} placeholder="Source" />
+          <Input testID={FINANCE.otherIncomeDate} label="Income date" value={otherIncomeForm.income_date} onChangeText={(income_date) => setOtherIncomeForm({ ...otherIncomeForm, income_date })} placeholder="YYYY-MM-DD" />
+          <Input testID={FINANCE.otherIncomeAmount} label="Income amount (whole UZS)" keyboardType="number-pad" value={otherIncomeForm.amount} onChangeText={(amount) => setOtherIncomeForm({ ...otherIncomeForm, amount })} />
+          <Input testID={FINANCE.otherIncomeNotes} label="Income notes" value={otherIncomeForm.notes} onChangeText={(notes) => setOtherIncomeForm({ ...otherIncomeForm, notes })} />
+          <Button testID={FINANCE.otherIncomeSubmit} title="Record other cash income" variant="outline" onPress={recordOtherIncomeValue} loading={busy === 'other-income'} />
           <View style={styles.formDivider} />
-          <Input label="Non-expense cash removal" keyboardType="number-pad" value={cashRemovalForm.amount} onChangeText={(amount) => setCashRemovalForm({ ...cashRemovalForm, amount })} />
-          <Input label="Removal purpose" value={cashRemovalForm.purpose} onChangeText={(purpose) => setCashRemovalForm({ ...cashRemovalForm, purpose })} placeholder="For example: deposited to bank" />
-          <Button title="Record authorized removal" variant="outline" onPress={recordCashRemoval} loading={busy === 'cash-removal'} />
+          <Input testID={FINANCE.cashRemovalAmount} label="Non-expense cash removal" keyboardType="number-pad" value={cashRemovalForm.amount} onChangeText={(amount) => setCashRemovalForm({ ...cashRemovalForm, amount })} />
+          <Input testID={FINANCE.cashRemovalPurpose} label="Removal purpose" value={cashRemovalForm.purpose} onChangeText={(purpose) => setCashRemovalForm({ ...cashRemovalForm, purpose })} placeholder="For example: deposited to bank" />
+          <Button testID={FINANCE.cashRemovalSubmit} title="Record authorized removal" variant="outline" onPress={recordCashRemoval} loading={busy === 'cash-removal'} />
         </Section>
       )}
       {!isReception && (
         <Section title={`Other income · ${month}`} subtitle="Non-tuition income recorded through the cashbox">
           {otherIncomeRows.length === 0 ? <Empty text="No other income in this month." /> : otherIncomeRows.map((row) => (
-            <View key={row.id} style={styles.recordCard}>
+            <View key={row.id} testID={`finance-other-income-row-${row.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}><Text style={styles.recordTitle}>{row.source}</Text><Text style={styles.goodAmount}>{uzs(row.amount_uzs)}</Text></View>
               <Text style={styles.recordMeta}>{row.income_date}</Text>
               {isSuperAdmin && <Button title="Reverse other income" variant="outline" onPress={() => { setCashReversalTarget({ kind: 'income', id: row.id, label: row.source }); setCashReversalReason(''); }} />}
@@ -1137,7 +1161,7 @@ export default function FinanceScreen() {
       {!isReception && (
         <Section title="Expense and payroll cash payouts" subtitle="Payouts are separate from accrued obligations and remain visible after reversal.">
           {outgoingPayments.length === 0 ? <Empty text="No expense or payroll cash payouts yet." /> : outgoingPayments.map((payment) => (
-            <View key={`${payment.payment_kind}-${payment.id}`} style={styles.recordCard}>
+            <View key={`${payment.payment_kind}-${payment.id}`} testID={`finance-outgoing-row-${payment.payment_kind}-${payment.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}><Text style={styles.recordTitle}>{payment.payment_kind === 'teacher' ? 'Teacher payout' : 'Expense payment'}</Text><Text style={styles.dangerAmount}>{uzs(payment.amount_uzs)}</Text></View>
               <Text style={styles.recordMeta}>{tashkentDateTime(payment.paid_at)} · source {payment.source_id}</Text>
               <Status value={payment.status || 'posted'} />
@@ -1149,7 +1173,7 @@ export default function FinanceScreen() {
       {!isReception && (
         <Section title="Cashbox event ledger" subtitle="Recent incoming, outgoing, closing, and correction events">
           {cashEvents.length === 0 ? <Empty text="No cashbox events yet." /> : cashEvents.map((event) => (
-            <View key={event.id} style={styles.recordCard}>
+            <View key={event.id} testID={`finance-cash-event-row-${event.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}><Text style={styles.recordTitle}>{event.event_type.replaceAll('_', ' ')}</Text><Text style={styles.recordTitle}>{uzs(Math.abs(event.amount_uzs))}</Text></View>
               <Text style={styles.recordMeta}>{tashkentDateTime(event.created_at)}{event.purpose ? ` · ${event.purpose}` : ''}</Text>
             </View>
@@ -1159,7 +1183,7 @@ export default function FinanceScreen() {
       {!isReception && (
         <Section title="Cash shift history" subtitle="Physical counts are never overwritten; discrepancies require a super-admin decision.">
           {cashShifts.length === 0 ? <Empty text="No cash shifts yet." /> : cashShifts.map((shift) => (
-            <View key={shift.id} style={styles.recordCard}>
+            <View key={shift.id} testID={`finance-cash-shift-row-${shift.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}><Text style={styles.recordTitle}>{tashkentDateTime(shift.opened_at)}</Text><Status value={shift.discrepancy_status || shift.status} /></View>
               <Text style={styles.recordMeta}>Opening {uzs(shift.opening_balance_uzs)} · received {uzs(shift.receipt_total_uzs)} · removed {uzs(shift.removal_total_uzs)}</Text>
               {shift.status === 'closed' && <Text style={styles.recordMeta}>Expected {uzs(shift.expected_closing_balance_uzs)} · counted {uzs(shift.actual_closing_balance_uzs)} · difference {uzs(shift.discrepancy_uzs)}</Text>}
@@ -1170,18 +1194,18 @@ export default function FinanceScreen() {
       )}
       {isSuperAdmin && discrepancyTarget && (
         <Section title="Review cash discrepancy" subtitle={`Difference ${uzs(discrepancyTarget.discrepancy_uzs)}. The physical count remains immutable.`}>
-          <Input label="Audit reason" value={discrepancyReason} onChangeText={setDiscrepancyReason} multiline />
+          <Input testID={FINANCE.discrepancyReason} label="Audit reason" value={discrepancyReason} onChangeText={setDiscrepancyReason} multiline />
           <View style={styles.actionRow}>
             <Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setDiscrepancyTarget(null)} />
-            <Button title="Investigate" variant="outline" style={styles.flexButton} onPress={() => reviewDiscrepancy(false)} loading={busy === 'discrepancy-review'} />
-            <Button title="Accept" style={styles.flexButton} onPress={() => reviewDiscrepancy(true)} loading={busy === 'discrepancy-review'} />
+            <Button testID={FINANCE.discrepancyInvestigate} title="Investigate" variant="outline" style={styles.flexButton} onPress={() => reviewDiscrepancy(false)} loading={busy === 'discrepancy-review'} />
+            <Button testID={FINANCE.discrepancyAccept} title="Accept" style={styles.flexButton} onPress={() => reviewDiscrepancy(true)} loading={busy === 'discrepancy-review'} />
           </View>
         </Section>
       )}
       {isSuperAdmin && cashReversalTarget && (
         <Section title={`Reverse ${cashReversalTarget.label}`} subtitle="The original record is retained. A closed shift keeps its physical count and recalculates its discrepancy for review.">
-          <Input label="Specific audit reason" value={cashReversalReason} onChangeText={setCashReversalReason} multiline />
-          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setCashReversalTarget(null)} /><Button title="Reverse record" style={styles.flexButton} onPress={reverseCashLedgerRecord} loading={busy === 'cash-ledger-reversal'} /></View>
+          <Input testID={FINANCE.cashReversalReason} label="Specific audit reason" value={cashReversalReason} onChangeText={setCashReversalReason} multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setCashReversalTarget(null)} /><Button testID={FINANCE.cashReversalSubmit} title="Reverse record" style={styles.flexButton} onPress={reverseCashLedgerRecord} loading={busy === 'cash-ledger-reversal'} /></View>
         </Section>
       )}
     </>
@@ -1191,53 +1215,53 @@ export default function FinanceScreen() {
     <>
       <Section title="Current tuition tariffs" subtitle="Prices are effective-dated; old lesson lines retain their original version.">
         {tariffs.map((policy) => (
-          <View key={policy.id} style={styles.policyRow}>
+          <View key={policy.id} testID={`finance-tariff-row-${policy.policy_key}`} style={styles.policyRow}>
             <View style={styles.flex}><Text style={styles.recordTitle}>{policy.policy_key.replace('tariff:', '').replaceAll(':', ' · ').replace('_', '-')}</Text><Text style={styles.recordMeta}>Effective {policy.effective_from}</Text></View>
             <Text style={styles.goodAmount}>{uzs(policy.value.monthly_price_uzs)}</Text>
           </View>
         ))}
       </Section>
       <Section title="Teacher revenue shares" subtitle="Paid by the centre in full, independent of student payment and centre-funded discounts.">
-        {teacherShares.map((policy) => <MoneyRow key={policy.id} label={policy.policy_key.replace('teacher_share:', '')} value={policy.value.basis_points / 100} valueSuffix="%" raw />)}
+        {teacherShares.map((policy) => <MoneyRow key={policy.id} testID={`finance-teacher-share-row-${policy.policy_key}`} label={policy.policy_key.replace('teacher_share:', '')} value={policy.value.basis_points / 100} valueSuffix="%" raw />)}
       </Section>
       <Section title="Current recurring expenses" subtitle="Templates create obligations; they are not treated as paid until a cash payout is posted.">
         {recurringPolicies.map((policy) => policy.value.amount_mode === 'manual' || policy.value.amount_uzs == null
-          ? <View key={policy.id} style={styles.moneyRow}><Text style={styles.moneyLabel}>{policy.value.name || policy.policy_key}</Text><Text style={styles.warningText}>Enter actual amount monthly</Text></View>
-          : <MoneyRow key={policy.id} label={policy.value.name || policy.policy_key} value={policy.value.amount_uzs} />)}
+          ? <View key={policy.id} testID={`finance-recurring-row-${policy.policy_key}`} style={styles.moneyRow}><Text style={styles.moneyLabel}>{policy.value.name || policy.policy_key}</Text><Text style={styles.warningText}>Enter actual amount monthly</Text></View>
+          : <MoneyRow key={policy.id} testID={`finance-recurring-row-${policy.policy_key}`} label={policy.value.name || policy.policy_key} value={policy.value.amount_uzs} />)}
       </Section>
       {isSuperAdmin && (
         <Section title="Create tariff version" subtitle="Use the exact effective date; this may split one month across two prices by scheduled lesson.">
           <Text style={styles.inputLabel}>Program</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.program_code} onValueChange={(program_code) => setTariffForm({ ...tariffForm, program_code })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="General" value="general" /><LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" /><LocalizedPickerItem label="IELTS" value="ielts" /></Picker></View>
           <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.group_format} onValueChange={(group_format) => setTariffForm({ ...tariffForm, group_format })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
-          <Input label="New monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
-          <Input label="Effective from" value={tariffForm.effective_from} onChangeText={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
-          <Input label="Reason" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
-          <Button title="Create tariff version" onPress={saveTariff} loading={busy === 'tariff'} />
+          <Input testID={FINANCE.tariffAmount} label="New monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
+          <Input testID={FINANCE.tariffEffectiveFrom} label="Effective from" value={tariffForm.effective_from} onChangeText={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
+          <Input testID={FINANCE.tariffReason} label="Reason" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
+          <Button testID={FINANCE.tariffSubmit} title="Create tariff version" onPress={saveTariff} loading={busy === 'tariff'} />
         </Section>
       )}
       {isSuperAdmin && (
         <Section title="Create teacher-share version" subtitle="This changes future lesson earnings only; finalized payroll remains immutable.">
           <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={teacherShareForm.group_format} onValueChange={(group_format: GroupFormat) => { const current = teacherShares.find((policy) => policy.policy_key === `teacher_share:${group_format}`); setTeacherShareForm({ ...teacherShareForm, group_format, percentage: String((current?.value.basis_points || 0) / 100) }); }} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
-          <Input label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
-          <Input label="Effective from" value={teacherShareForm.effective_from} onChangeText={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
-          <Input label="Reason" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
-          <Button title="Create teacher-share version" variant="outline" onPress={saveTeacherShare} loading={busy === 'teacher-share'} />
+          <Input testID={FINANCE.teacherSharePercentage} label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
+          <Input testID={FINANCE.teacherShareEffectiveFrom} label="Effective from" value={teacherShareForm.effective_from} onChangeText={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
+          <Input testID={FINANCE.teacherShareReason} label="Reason" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
+          <Button testID={FINANCE.teacherShareSubmit} title="Create teacher-share version" variant="outline" onPress={saveTeacherShare} loading={busy === 'teacher-share'} />
         </Section>
       )}
       {isSuperAdmin && (
         <Section title="Create recurring expense version" subtitle="Use the same key (rent, accountant, wifi, tax) to update a template, or a new key for another recurring expense.">
-          <Input label="Expense key" value={recurringForm.expense_key} onChangeText={(expense_key) => setRecurringForm({ ...recurringForm, expense_key })} placeholder="rent" autoCapitalize="none" />
-          <Input label="Display name" value={recurringForm.name} onChangeText={(name) => setRecurringForm({ ...recurringForm, name })} />
-          <Input label="Monthly amount (whole UZS)" keyboardType="number-pad" value={recurringForm.amount} onChangeText={(amount) => setRecurringForm({ ...recurringForm, amount })} />
-          <Input label="Effective from" value={recurringForm.effective_from} onChangeText={(effective_from) => setRecurringForm({ ...recurringForm, effective_from })} />
+          <Input testID={FINANCE.recurringKey} label="Expense key" value={recurringForm.expense_key} onChangeText={(expense_key) => setRecurringForm({ ...recurringForm, expense_key })} placeholder="rent" autoCapitalize="none" />
+          <Input testID={FINANCE.recurringName} label="Display name" value={recurringForm.name} onChangeText={(name) => setRecurringForm({ ...recurringForm, name })} />
+          <Input testID={FINANCE.recurringAmount} label="Monthly amount (whole UZS)" keyboardType="number-pad" value={recurringForm.amount} onChangeText={(amount) => setRecurringForm({ ...recurringForm, amount })} />
+          <Input testID={FINANCE.recurringEffectiveFrom} label="Effective from" value={recurringForm.effective_from} onChangeText={(effective_from) => setRecurringForm({ ...recurringForm, effective_from })} />
           <Input label="Classification" value={recurringForm.classification} onChangeText={(classification) => setRecurringForm({ ...recurringForm, classification })} />
-          <Input label="Reason" value={recurringForm.reason} onChangeText={(reason) => setRecurringForm({ ...recurringForm, reason })} />
-          <Button title="Create expense version" variant="outline" onPress={saveRecurringExpense} loading={busy === 'recurring-policy'} />
+          <Input testID={FINANCE.recurringReason} label="Reason" value={recurringForm.reason} onChangeText={(reason) => setRecurringForm({ ...recurringForm, reason })} />
+          <Button testID={FINANCE.recurringSubmit} title="Create expense version" variant="outline" onPress={saveRecurringExpense} loading={busy === 'recurring-policy'} />
         </Section>
       )}
       <Section title="Billing calendar" subtitle={`Mode: ${billingPolicy?.value.operation_mode || 'not configured'} · automatic freeze: ${billingPolicy?.value.automatic_freeze_enabled ? 'on' : 'off'}`}>
-        <View style={styles.threeColumns}><Input label="Student due day" keyboardType="number-pad" value={billingForm.due} onChangeText={(due) => setBillingForm({ ...billingForm, due })} style={styles.compactInput} editable={isSuperAdmin} /><Input label="Freeze day" keyboardType="number-pad" value={billingForm.freeze} onChangeText={(freeze) => setBillingForm({ ...billingForm, freeze })} style={styles.compactInput} editable={isSuperAdmin} /><Input label="Salary due day" keyboardType="number-pad" value={billingForm.salary} onChangeText={(salary) => setBillingForm({ ...billingForm, salary })} style={styles.compactInput} editable={isSuperAdmin} /></View>
-        {isSuperAdmin && <><Input label="Effective from" value={billingForm.effective_from} onChangeText={(effective_from) => setBillingForm({ ...billingForm, effective_from })} /><Input label="Reason" value={billingForm.reason} onChangeText={(reason) => setBillingForm({ ...billingForm, reason })} /><Button title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
+        <View style={styles.threeColumns}><Input testID={FINANCE.billingDue} label="Student due day" keyboardType="number-pad" value={billingForm.due} onChangeText={(due) => setBillingForm({ ...billingForm, due })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingFreeze} label="Freeze day" keyboardType="number-pad" value={billingForm.freeze} onChangeText={(freeze) => setBillingForm({ ...billingForm, freeze })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingSalary} label="Salary due day" keyboardType="number-pad" value={billingForm.salary} onChangeText={(salary) => setBillingForm({ ...billingForm, salary })} style={styles.compactInput} editable={isSuperAdmin} /></View>
+        {isSuperAdmin && <><Input testID={FINANCE.billingEffectiveFrom} label="Effective from" value={billingForm.effective_from} onChangeText={(effective_from) => setBillingForm({ ...billingForm, effective_from })} /><Input testID={FINANCE.billingReason} label="Reason" value={billingForm.reason} onChangeText={(reason) => setBillingForm({ ...billingForm, reason })} /><Button testID={FINANCE.billingSubmit} title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
       </Section>
     </>
   );
@@ -1247,15 +1271,15 @@ export default function FinanceScreen() {
       <Section title={`Lesson controls · ${month}`} subtitle="Every originally scheduled lesson must be resolved before finalization. Student absence still counts as a held, billable lesson.">
         <Text style={styles.inputLabel}>Group</Text>
         <View style={styles.pickerBox}>
-          <Picker selectedValue={selectedGroupId} onValueChange={setSelectedGroupId} style={styles.picker} dropdownIconColor={COLORS.gold}>
+          <Picker testID={FINANCE.lessonGroup} selectedValue={selectedGroupId} onValueChange={setSelectedGroupId} style={styles.picker} dropdownIconColor={COLORS.gold}>
             <LocalizedPickerItem label="Select group" value="" />
             {groups.map((group) => <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />)}
           </Picker>
         </View>
-        <Button title="Generate / refresh scheduled lessons" variant="outline" disabled={!selectedGroupId} loading={busy === 'occurrences'} onPress={generateOccurrences} />
+        <Button testID={FINANCE.lessonGenerate} title="Generate / refresh scheduled lessons" variant="outline" disabled={!selectedGroupId} loading={busy === 'occurrences'} onPress={generateOccurrences} />
         <View style={styles.lessonList}>
           {occurrences.length === 0 ? <Empty text="No lesson occurrences for this group and month." /> : occurrences.map((occurrence) => (
-            <View key={occurrence.id} style={styles.recordCard}>
+            <View key={occurrence.id} testID={`finance-lesson-row-${occurrence.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}>
                 <Text style={styles.recordTitle}>{occurrence.local_date} · {tashkentTime(occurrence.starts_at)}–{tashkentTime(occurrence.ends_at)}</Text>
                 <Status value={occurrence.resolution_status} />
@@ -1263,9 +1287,9 @@ export default function FinanceScreen() {
               <Text style={styles.recordMeta}>{occurrence.lesson_status.replace('_', ' ')}{occurrence.locked_at ? ' · financially locked' : ''}</Text>
               {!occurrence.locked_at && occurrence.resolution_status === 'unresolved' && (
                 <View style={styles.lessonActions}>
-                  <TouchableOpacity style={[styles.miniAction, styles.goodAction]} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'held')}><Text style={styles.miniActionText}>Held</Text></TouchableOpacity>
-                  <TouchableOpacity style={styles.miniAction} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'replacement_required')}><Text style={styles.miniActionText}>Replacement</Text></TouchableOpacity>
-                  <TouchableOpacity style={[styles.miniAction, styles.dangerAction]} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'teacher_cancelled')}><Text style={styles.miniActionText}>Cancelled</Text></TouchableOpacity>
+                  <TouchableOpacity testID={`finance-lesson-held-${occurrence.id}`} style={[styles.miniAction, styles.goodAction]} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'held')}><Text style={styles.miniActionText}>Held</Text></TouchableOpacity>
+                  <TouchableOpacity testID={`finance-lesson-replacement-${occurrence.id}`} style={styles.miniAction} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'replacement_required')}><Text style={styles.miniActionText}>Replacement</Text></TouchableOpacity>
+                  <TouchableOpacity testID={`finance-lesson-cancelled-${occurrence.id}`} style={[styles.miniAction, styles.dangerAction]} disabled={busy === `resolve-${occurrence.id}`} onPress={() => resolveOccurrence(occurrence, 'teacher_cancelled')}><Text style={styles.miniActionText}>Cancelled</Text></TouchableOpacity>
                 </View>
               )}
               {!occurrence.locked_at && occurrence.resolution_status === 'pending_approval' && (
@@ -1290,28 +1314,28 @@ export default function FinanceScreen() {
         </Section>
       )}
       <Section title="Add centre closure" subtitle="Matching scheduled lessons remain in the monthly denominator but are not charged and do not create teacher earnings.">
-        <Input label="Title" value={closureForm.title} onChangeText={(title) => setClosureForm({ ...closureForm, title })} placeholder="Public holiday" />
-        <Input label="Reason" value={closureForm.reason} onChangeText={(reason) => setClosureForm({ ...closureForm, reason })} />
+        <Input testID={FINANCE.closureTitle} label="Title" value={closureForm.title} onChangeText={(title) => setClosureForm({ ...closureForm, title })} placeholder="Public holiday" />
+        <Input testID={FINANCE.closureReason} label="Reason" value={closureForm.reason} onChangeText={(reason) => setClosureForm({ ...closureForm, reason })} />
         <Text style={styles.inputLabel}>Kind</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.kind} onValueChange={(kind) => setClosureForm({ ...closureForm, kind })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Official holiday" value="holiday" /><LocalizedPickerItem label="Unexpected closure" value="unexpected" /></Picker></View>
         <Text style={styles.inputLabel}>Scope</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.group_id} onValueChange={(group_id) => setClosureForm({ ...closureForm, group_id })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="All centre / branch groups" value="" />{groups.map((group) => <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />)}</Picker></View>
-        <Input label="Starts (Tashkent local)" value={closureForm.starts_at} onChangeText={(starts_at) => setClosureForm({ ...closureForm, starts_at })} placeholder="YYYY-MM-DDTHH:mm" />
-        <Input label="Ends (Tashkent local)" value={closureForm.ends_at} onChangeText={(ends_at) => setClosureForm({ ...closureForm, ends_at })} placeholder="YYYY-MM-DDTHH:mm" />
-        <Button title="Add closure" onPress={createClosure} loading={busy === 'closure'} />
+        <Input testID={FINANCE.closureStarts} label="Starts (Tashkent local)" value={closureForm.starts_at} onChangeText={(starts_at) => setClosureForm({ ...closureForm, starts_at })} placeholder="YYYY-MM-DDTHH:mm" />
+        <Input testID={FINANCE.closureEnds} label="Ends (Tashkent local)" value={closureForm.ends_at} onChangeText={(ends_at) => setClosureForm({ ...closureForm, ends_at })} placeholder="YYYY-MM-DDTHH:mm" />
+        <Button testID={FINANCE.closureSubmit} title="Add closure" onPress={createClosure} loading={busy === 'closure'} />
       </Section>
       <Section title="Closure register" subtitle="Historical closures cannot overwrite lessons locked by finalized invoices.">
-        {closures.length === 0 ? <Empty text="No closures recorded." /> : closures.map((closure) => <View key={closure.id} style={styles.recordCard}><View style={styles.recordTop}><Text style={styles.recordTitle}>{closure.title}</Text><Status value={closure.kind} /></View><Text style={styles.recordMeta}>{tashkentDateTime(closure.starts_at)} – {tashkentDateTime(closure.ends_at)}</Text><Text style={styles.recordMeta}>{closure.reason}</Text></View>)}
+        {closures.length === 0 ? <Empty text="No closures recorded." /> : closures.map((closure) => <View key={closure.id} testID={`finance-closure-row-${closure.id}`} style={styles.recordCard}><View style={styles.recordTop}><Text style={styles.recordTitle}>{closure.title}</Text><Status value={closure.kind} /></View><Text style={styles.recordMeta}>{tashkentDateTime(closure.starts_at)} – {tashkentDateTime(closure.ends_at)}</Text><Text style={styles.recordMeta}>{closure.reason}</Text></View>)}
       </Section>
     </>
   );
 
   return (
-    <View style={styles.container}>
+    <View testID={FINANCE.screen} style={styles.container}>
       <View style={styles.header}>
         <View><Text style={styles.title}>{isReception ? 'Reception finance' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Cash receipts, balances, and calls' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
-        {!isReception && <Input value={month} onChangeText={setMonth} placeholder="YYYY-MM" style={styles.monthInput} />}
+        {!isReception && <Input testID={FINANCE.monthInput} value={month} onChangeText={setMonth} placeholder="YYYY-MM" style={styles.monthInput} />}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
-        {visibleTabs.map((tab) => <TouchableOpacity key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text></TouchableOpacity>)}
+        {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text></TouchableOpacity>)}
       </ScrollView>
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInset} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
         {activeTab === 'overview' && renderOverview()}
@@ -1331,17 +1355,17 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}<View style={styles.sectionBody}>{children}</View></View>;
 }
 
-function Kpi({ label, value, icon, color }: { label: string; value: number; icon: string; color: string }) {
-  return <View style={styles.kpi}><Ionicons name={icon as any} size={20} color={color} /><Text style={styles.kpiValue}>{uzs(value)}</Text><Text style={styles.kpiLabel}>{label}</Text></View>;
+function Kpi({ label, value, icon, color, testID }: { label: string; value: number; icon: string; color: string; testID?: string }) {
+  return <View testID={testID} style={styles.kpi}><Ionicons name={icon as any} size={20} color={color} /><Text style={styles.kpiValue}>{uzs(value)}</Text><Text style={styles.kpiLabel}>{label}</Text></View>;
 }
 
-function MoneyRow({ label, value, strong, negative, valuePrefix = '', valueSuffix = '', raw = false }: { label: string; value: number; strong?: boolean; negative?: boolean; valuePrefix?: string; valueSuffix?: string; raw?: boolean }) {
-  return <View style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, negative && styles.negative]}>{valuePrefix}{raw ? new Intl.NumberFormat(getActiveLocale()).format(value) : uzs(Math.abs(value))}{valueSuffix}</Text></View>;
+function MoneyRow({ label, value, strong, negative, valuePrefix = '', valueSuffix = '', raw = false, testID }: { label: string; value: number; strong?: boolean; negative?: boolean; valuePrefix?: string; valueSuffix?: string; raw?: boolean; testID?: string }) {
+  return <View testID={testID} style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, negative && styles.negative]}>{valuePrefix}{raw ? new Intl.NumberFormat(getActiveLocale()).format(value) : uzs(Math.abs(value))}{valueSuffix}</Text></View>;
 }
 
-function SpendingBar({ label, value, total, color }: { label: string; value: number; total: number; color: string }) {
+function SpendingBar({ label, value, total, color, testID }: { label: string; value: number; total: number; color: string; testID?: string }) {
   const width = total > 0 ? `${Math.max(2, Math.round((value / total) * 100))}%` : '0%';
-  return <View style={styles.barBlock}><View style={styles.recordTop}><Text style={styles.moneyLabel}>{label}</Text><Text style={styles.moneyValue}>{uzs(value)}</Text></View><View style={styles.barTrack}><View style={[styles.barFill, { width: width as any, backgroundColor: color }]} /></View></View>;
+  return <View testID={testID} style={styles.barBlock}><View style={styles.recordTop}><Text style={styles.moneyLabel}>{label}</Text><Text style={styles.moneyValue}>{uzs(value)}</Text></View><View style={styles.barTrack}><View style={[styles.barFill, { width: width as any, backgroundColor: color }]} /></View></View>;
 }
 
 function Status({ value }: { value: string }) {
@@ -1356,7 +1380,7 @@ function Empty({ text }: { text: string }) {
 }
 
 function OutgoingPanel({ outgoing, amount, setAmount, busy, onPay, onCancel }: { outgoing: { label: string; maximum: number }; amount: string; setAmount: (value: string) => void; busy: boolean; onPay: () => void; onCancel: () => void }) {
-  return <Section title={`Pay ${outgoing.label}`} subtitle={`Maximum ${uzs(outgoing.maximum)} · cash only`}><Input label="Amount (whole UZS)" keyboardType="number-pad" value={amount} onChangeText={setAmount} /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={onCancel} style={styles.flexButton} /><Button title="Post payout" onPress={onPay} loading={busy} style={styles.flexButton} /></View></Section>;
+  return <Section title={`Pay ${outgoing.label}`} subtitle={`Maximum ${uzs(outgoing.maximum)} · cash only`}><Input testID={FINANCE.outgoingAmount} label="Amount (whole UZS)" keyboardType="number-pad" value={amount} onChangeText={setAmount} /><View style={styles.actionRow}><Button title="Cancel" variant="outline" onPress={onCancel} style={styles.flexButton} /><Button testID={FINANCE.outgoingSubmit} title="Post payout" onPress={onPay} loading={busy} style={styles.flexButton} /></View></Section>;
 }
 
 const styles = StyleSheet.create({

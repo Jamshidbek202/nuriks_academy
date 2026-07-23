@@ -1,0 +1,32 @@
+{
+  "name": "july-midmonth-price",
+  "service_month": "2026-07",
+  "program_code": "general",
+  "group_format": "normal",
+  "schedule": [
+    {"day": "monday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "wednesday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "friday", "start_time": "18:00", "end_time": "19:30"}
+  ],
+  "prices": [
+    {"effective_from": "2026-07-01", "amount_uzs": 450000},
+    {"effective_from": "2026-07-16", "amount_uzs": 550000}
+  ],
+  "discount_basis_points": 1000,
+  "teacher_share_basis_points": 4000,
+  "payments": [200000, 250000],
+  "other_income": [
+    {"source": "books", "amount_uzs": 100000}
+  ],
+  "expected": {
+    "scheduled_lesson_count": 14,
+    "billable_lesson_count": 14,
+    "gross_tuition_uzs": 500000,
+    "discount_amount_uzs": 50000,
+    "amount_due_uzs": 450000,
+    "teacher_earning_uzs": 200000,
+    "remaining_debt_uzs": 0,
+    "advance_uzs": 0,
+    "accrued_operating_profit_uzs": 350000
+  }
+}

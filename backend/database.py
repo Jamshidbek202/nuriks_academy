@@ -7,11 +7,38 @@ from datetime import datetime
 from bson import ObjectId
 import os
 import certifi
+import re
+from typing import Optional
 
-# MongoDB connection
+SAFE_TEST_DATABASE_PATTERN = re.compile(r"(?:^|[_-])(test|qa|sandbox|shadow)(?:[_-]|$)", re.IGNORECASE)
+
+
+def assert_disposable_database_name(database_name: str) -> None:
+    """Refuse destructive/seeded QA work against a production-looking database."""
+    if not SAFE_TEST_DATABASE_PATTERN.search(database_name):
+        raise RuntimeError(
+            "Finance QA requires a disposable database name containing "
+            "test, qa, sandbox, or shadow"
+        )
+
+
+def create_mongo_client(mongo_url: Optional[str] = None) -> AsyncIOMotorClient:
+    """Create a client without incorrectly forcing TLS on a local test replica set."""
+    url = mongo_url or os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+    options = {}
+    if url.startswith('mongodb+srv://') or os.environ.get('MONGO_TLS') == '1':
+        options['tlsCAFile'] = certifi.where()
+    return AsyncIOMotorClient(url, **options)
+
+
+# MongoDB connection. Motor connects lazily, so importing the application does
+# not touch the database; all QA runners additionally enforce a disposable name.
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(mongo_url, tlsCAFile=certifi.where())
-db = client[os.environ.get('DB_NAME', 'nurik_academy')]
+database_name = os.environ.get('DB_NAME', 'nurik_academy')
+if os.environ.get('APP_ENV') in {'test', 'qa', 'finance_qa', 'sandbox', 'shadow'}:
+    assert_disposable_database_name(database_name)
+client = create_mongo_client(mongo_url)
+db = client[database_name]
 
 def serialize_doc(doc):
     """Convert MongoDB document to JSON-serializable dict"""

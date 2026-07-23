@@ -5,7 +5,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from auth import get_current_user
@@ -94,6 +94,11 @@ from finance_controls import (
     queue_receipt_notification,
     reconcile_student_finance_freeze,
 )
+from finance_live import (
+    consume_finance_live_ticket,
+    issue_finance_live_ticket,
+    stream_finance_changes,
+)
 
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
@@ -108,6 +113,37 @@ def _academy_today() -> date:
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     return await get_current_user(credentials, db)
+
+
+@router.post("/live-ticket")
+async def create_finance_live_ticket(
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+
+    _require_role(current_user, FINANCE_ROLES | {"reception"})
+    return await issue_finance_live_ticket(db, current_user)
+
+
+@router.websocket("/live")
+async def finance_live_updates(websocket: WebSocket, ticket: str = Query(min_length=1)):
+    """Notify authorized finance screens after committed ledger changes."""
+    from server import db
+
+    current_user = await consume_finance_live_ticket(db, ticket)
+    if not current_user:
+        await websocket.close(code=4401)
+        return
+    if current_user.get("role") not in FINANCE_ROLES | {"reception"}:
+        await websocket.close(code=4403)
+        return
+
+    await websocket.accept()
+    await websocket.send_json({"type": "finance_ready"})
+    try:
+        await stream_finance_changes(websocket, db, current_user)
+    except WebSocketDisconnect:
+        return
 
 
 def _require_role(current_user: dict, roles) -> None:

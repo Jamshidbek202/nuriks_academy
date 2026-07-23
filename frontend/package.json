@@ -11,7 +11,8 @@
     "web": "expo start --web",
     "build": "expo export -p web",
     "postbuild": "node ./scripts/copy-web-routing.js",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test:finance-e2e": "playwright test --config=playwright.finance.config.ts"
   },
   "dependencies": {
     "@expo/metro-runtime": "6.1.2",
@@ -61,9 +62,11 @@
     "react-native-worklets": "0.5.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@types/react": "~19.1.0",
     "eslint": "9.25.0",
     "eslint-config-expo": "~10.0.0",
+    "mongodb-memory-server": "^11.2.0",
     "typescript": "~5.9.3"
   },
   "resolutions": {

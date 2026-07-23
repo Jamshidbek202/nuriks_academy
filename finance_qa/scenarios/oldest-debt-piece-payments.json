@@ -1,0 +1,30 @@
+{
+  "name": "oldest-debt-piece-payments",
+  "service_month": "2026-04",
+  "program_code": "general",
+  "group_format": "normal",
+  "schedule": [
+    {"day": "tuesday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "thursday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "saturday", "start_time": "18:00", "end_time": "19:30"}
+  ],
+  "prices": [
+    {"effective_from": "2026-04-01", "amount_uzs": 450000}
+  ],
+  "teacher_share_basis_points": 4000,
+  "prior_debts": [
+    {"id": "invoice-old-1", "invoice_number": "INV-202602-1", "due_date": "2026-03-10", "balance_uzs": 100000},
+    {"id": "invoice-old-2", "invoice_number": "INV-202603-1", "due_date": "2026-04-10", "balance_uzs": 200000}
+  ],
+  "payments": [150000, 300000],
+  "expected": {
+    "scheduled_lesson_count": 13,
+    "billable_lesson_count": 13,
+    "gross_tuition_uzs": 450000,
+    "amount_due_uzs": 450000,
+    "teacher_earning_uzs": 180000,
+    "remaining_debt_uzs": 300000,
+    "advance_uzs": 0,
+    "accrued_operating_profit_uzs": 270000
+  }
+}

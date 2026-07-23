@@ -15,6 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../src/constants/theme';
+import { LOGIN } from '../constants/testIds';
 
 export default function LoginScreen() {
   const [login, setLogin] = useState('');
@@ -91,6 +92,7 @@ export default function LoginScreen() {
               <Text style={styles.label}>Login</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
+                  testID={LOGIN.emailInput}
                   style={styles.input}
                   placeholder="Enter your login"
                   placeholderTextColor={COLORS.textTertiary}
@@ -106,6 +108,7 @@ export default function LoginScreen() {
               <Text style={styles.label}>Password</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
+                  testID={LOGIN.passwordInput}
                   style={styles.input}
                   placeholder="Enter your password"
                   placeholderTextColor={COLORS.textTertiary}
@@ -119,6 +122,7 @@ export default function LoginScreen() {
             </View>
 
             <TouchableOpacity
+              testID={LOGIN.submitButton}
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
               disabled={loading}

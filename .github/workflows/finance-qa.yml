@@ -1,0 +1,50 @@
+name: Finance QA
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'finance_qa/**'
+      - 'frontend/**'
+      - 'tests/**'
+      - 'docker-compose.finance-qa.yml'
+      - '.agents/skills/study-centre-finance-qa/**'
+  push:
+    branches: [main]
+
+jobs:
+  finance-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend dependencies
+        run: python -m pip install -r backend/requirements.txt
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install browser
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Run full finance campaign
+        run: python -m finance_qa.full_stack_runner --skip-browser-install
+      - name: Upload finance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: finance-qa-evidence
+          path: |
+            test_reports/finance-qa
+            test_reports/finance-playwright
+            frontend/test-results
+          if-no-files-found: ignore

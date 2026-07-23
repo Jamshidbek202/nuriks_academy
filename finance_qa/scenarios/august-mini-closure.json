@@ -1,0 +1,34 @@
+{
+  "name": "august-mini-closure",
+  "service_month": "2026-08",
+  "program_code": "general",
+  "group_format": "mini",
+  "schedule": [
+    {"day": "monday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "wednesday", "start_time": "18:00", "end_time": "19:30"},
+    {"day": "friday", "start_time": "18:00", "end_time": "19:30"}
+  ],
+  "prices": [
+    {"effective_from": "2026-08-01", "amount_uzs": 650000}
+  ],
+  "closures": ["2026-08-21"],
+  "student_absences": ["2026-08-10"],
+  "discount_basis_points": 0,
+  "teacher_share_basis_points": 4000,
+  "payments": [300000, 100000, 200000],
+  "expenses": [
+    {"name": "rent", "amount_uzs": 10500000},
+    {"name": "accountant", "amount_uzs": 500000},
+    {"name": "wifi", "amount_uzs": 400000}
+  ],
+  "expected": {
+    "scheduled_lesson_count": 13,
+    "billable_lesson_count": 12,
+    "gross_tuition_uzs": 600000,
+    "amount_due_uzs": 600000,
+    "teacher_earning_uzs": 240000,
+    "remaining_debt_uzs": 0,
+    "advance_uzs": 0,
+    "accrued_operating_profit_uzs": -11040000
+  }
+}

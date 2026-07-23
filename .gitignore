@@ -30,6 +30,10 @@ node_modules/
 
 # Testing
 /coverage
+frontend/test-results/
+frontend/playwright-report/
+test_reports/finance-qa/
+test_reports/finance-playwright/
 
 # Next.js
 /.next/
