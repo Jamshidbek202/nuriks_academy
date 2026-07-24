@@ -17,6 +17,8 @@ const ids = {
   cashTab: 'finance-tab-cash',
   pricingTab: 'finance-tab-pricing',
   closuresTab: 'finance-tab-closures',
+  actionModal: 'finance-action-modal',
+  actionModalClose: 'finance-action-modal-close',
   accruedRevenue: 'finance-kpi-accrued-revenue',
   accruedProfit: 'finance-kpi-accrued-profit',
   cashReceived: 'finance-kpi-cash-received',
@@ -32,6 +34,8 @@ const ids = {
   expensesOutstanding: 'finance-expenses-outstanding',
   cashOutflow: 'finance-cash-outflow',
   advances: 'finance-advance-balances',
+  studentSearch: 'finance-student-search',
+  studentSearchResults: 'finance-student-search-results',
   receiptStudent: 'finance-receipt-student',
   receiptAmount: 'finance-receipt-amount',
   receiptNotes: 'finance-receipt-notes',
@@ -261,6 +265,25 @@ async function expectPosition(page: Page, position: Position) {
     [ids.advances, Number(position.advance_balances_uzs)],
   ]);
   for (const [testId, value] of expected) await expectLiveMoney(page, testId, value);
+}
+
+async function expectCompactActionModal(page: Page) {
+  const modal = page.getByTestId(ids.actionModal);
+  await expect(modal).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+  const [box, viewport] = await Promise.all([modal.boundingBox(), Promise.resolve(page.viewportSize())]);
+  expect(box).toBeTruthy();
+  expect(viewport).toBeTruthy();
+  expect(box!.y).toBeGreaterThanOrEqual(0);
+  expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
+  expect(box!.width).toBeLessThanOrEqual(Math.min(540, viewport!.width));
+}
+
+async function selectFinanceStudent(page: Page, student: any, query: string) {
+  await page.getByTestId(ids.studentSearch).fill(query);
+  const result = page.getByTestId(`finance-student-result-${student.id}`);
+  await expect(result).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+  await result.click();
+  await expect(page.getByTestId(ids.receiptStudent)).toContainText(student.student_id);
 }
 
 async function waitForRows<T extends { id: string }>(
@@ -628,6 +651,58 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(Number(managerPosition.gross_tuition_uzs)).toBe(finalized.amount_due_uzs);
     await expectPosition(manager.page, managerPosition);
     await expectPosition(superAdmin.page, superPosition);
+
+    const superBranchPosition = await apiGet<Position>(
+      request,
+      superToken,
+      `/finance/position?service_month=${month}&branch_id=${group.branch_id}`,
+    );
+    const comparableFields = [
+      'gross_tuition_uzs', 'centre_funded_discounts_uzs', 'net_tuition_uzs', 'other_income_uzs',
+      'cash_received_uzs', 'receivables_uzs', 'overdue_uzs', 'advance_balances_uzs',
+      'teacher_salary_earned_uzs', 'teacher_salary_paid_uzs', 'teacher_salary_outstanding_uzs',
+      'expenses_accrued_uzs', 'expenses_paid_uzs', 'expenses_outstanding_uzs',
+      'accrued_operating_profit_uzs', 'period_cash_outflow_uzs', 'cashbox_position_uzs',
+    ];
+    for (const field of comparableFields) {
+      expect(Number(superBranchPosition[field]), `${field} must match for the same branch and month`).toBe(Number(managerPosition[field]));
+    }
+    const secondBranch = await qaDb.collection('branches').findOne({
+      _id: { $ne: new ObjectId(group.branch_id) },
+    });
+    expect(secondBranch).toBeTruthy();
+    await qaDb.collection('branches').updateOne(
+      { _id: secondBranch!._id },
+      { $set: { is_active: false } },
+    );
+    const soleBranchPositionRequest = superAdmin.page.waitForRequest((candidate) => {
+      if (!candidate.url().includes('/api/finance/position')) return false;
+      return new URL(candidate.url()).searchParams.get('branch_id') === group.branch_id;
+    });
+    await superAdmin.page.reload();
+    await soleBranchPositionRequest;
+    await expect(superAdmin.page.getByTestId(ids.screen)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+    await expect(superAdmin.page.getByTestId('finance-position-scope')).toHaveCount(0);
+    await expectPosition(superAdmin.page, superBranchPosition);
+
+    await qaDb.collection('branches').updateOne(
+      { _id: secondBranch!._id },
+      { $set: { is_active: true } },
+    );
+    const globalPositionRequest = superAdmin.page.waitForRequest((candidate) => {
+      if (!candidate.url().includes('/api/finance/position')) return false;
+      return new URL(candidate.url()).searchParams.get('branch_id') === null;
+    });
+    await superAdmin.page.reload();
+    await globalPositionRequest;
+    await expectPosition(superAdmin.page, superPosition);
+    focusedEvidence.push({
+      workflow: 'single_centre_auto_scope_without_branch_ui',
+      branch_id: group.branch_id,
+      compared_fields: comparableFields.length,
+      all_fields_equal: true,
+      branch_selector_visible: false,
+    });
   });
 
   await test.step('closure over a financially locked lesson fails closed through the UI', async () => {
@@ -687,7 +762,12 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await expectLiveMoney(manager.page, 'finance-cash-opening-kpi', 20_000_000);
 
     await reception.page.getByTestId(ids.receivablesTab).click();
-    await reception.page.getByTestId(ids.receiptStudent).selectOption(student.id);
+    await selectFinanceStudent(reception.page, student, `${student.first_name} ${student.last_name}`);
+    await reception.page.getByTestId(ids.studentSearch).fill(student.phone);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toBeVisible();
+    await reception.page.getByTestId(ids.studentSearch).fill(finalizedInvoice.invoice_number);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toBeVisible();
+    await reception.page.getByTestId(`finance-student-result-${student.id}`).click();
     await reception.page.getByTestId(ids.receiptAmount).fill('100000');
     await reception.page.getByTestId(ids.receiptNotes).fill('First live partial payment');
     await reception.page.getByTestId(ids.receiptSubmit).click();
@@ -712,7 +792,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       `/finance/invoices?service_month=${month}&limit=100`,
     )).find((row) => row.id === finalizedInvoice.id);
     const overpayment = invoiceAfterPartial.balance_uzs + 50_000;
-    await reception.page.getByTestId(ids.receiptStudent).selectOption(student.id);
+    await selectFinanceStudent(reception.page, student, student.student_id);
     await reception.page.getByTestId(ids.receiptAmount).fill(String(overpayment));
     await reception.page.getByTestId(ids.receiptNotes).fill('Live overpayment creates advance');
     await reception.page.getByTestId(ids.receiptSubmit).click();
@@ -749,6 +829,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     const earnedBefore = teacherEarning.earned_amount_uzs;
     await manager.page.getByTestId(ids.receivablesTab).click();
     await manager.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`).getByText('Add debit').click();
+    await expectCompactActionModal(manager.page);
     await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill('20000');
     await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('Live debit synchronization correction');
     await manager.page.getByTestId(ids.invoiceCorrectionSubmit).click();
@@ -765,6 +846,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await manager.page.getByTestId(ids.receivablesTab).click();
     const invoiceRow = manager.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`);
     await invoiceRow.getByText('Add credit').click();
+    await expectCompactActionModal(manager.page);
     manager.dialogs.length = 0;
     let validationRequests = 0;
     const validationListener = (requestValue: any) => {
@@ -901,6 +983,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await manager.page.getByTestId(ids.receivablesTab).click();
     await manager.page.setViewportSize({ width: 390, height: 844 });
     await manager.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`).getByText('Add credit').click();
+    await expectCompactActionModal(manager.page);
     await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill('5000');
     await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('Rapid repeat credit must commit exactly once');
     let rapidRequestCount = 0;
@@ -960,6 +1043,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
 
     const superExpenseRow = superAdmin.page.getByTestId(`finance-expense-row-${otherExpense.id}`);
     await superExpenseRow.getByText('Correct accrued amount').click();
+    await expectCompactActionModal(superAdmin.page);
     await superAdmin.page.getByTestId(ids.correctionAmount).fill('325000');
     await superAdmin.page.getByTestId(ids.correctionReason).fill('Authorized live expense correction');
     await superAdmin.page.getByTestId(ids.correctionSubmit).click();
@@ -978,6 +1062,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     const tax = expenses.find((row) => row.category === 'Tax');
     await expect(superAdmin.page.getByText('Rent', { exact: true }).first()).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
     await manager.page.getByTestId(`finance-expense-row-${tax.id}`).getByText("Enter this month's actual amount").click();
+    await expectCompactActionModal(manager.page);
     await manager.page.getByTestId(ids.manualExpenseAmount).fill('300000');
     await manager.page.getByTestId(ids.manualExpenseSubmit).click();
     await expect(superAdmin.page.getByTestId(`finance-expense-row-${tax.id}`)).toContainText(
@@ -986,6 +1071,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
 
     await manager.page.getByTestId(`finance-expense-row-${otherExpense.id}`).getByText('Pay from cashbox').click();
+    await expectCompactActionModal(manager.page);
     await manager.page.getByTestId(ids.outgoingAmount).fill('100000');
     await manager.page.getByTestId(ids.outgoingSubmit).click();
     let outgoing = await waitForRows<any>(
@@ -1017,6 +1103,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   await test.step('teacher payouts and reversals update payroll, cash outflow, and cashbox live', async () => {
     await manager.page.getByTestId(ids.payrollTab).click();
     await manager.page.getByTestId(`finance-payroll-row-${teacherEarning.id}`).getByText('Pay from cashbox').click();
+    await expectCompactActionModal(manager.page);
     await manager.page.getByTestId(ids.outgoingAmount).fill('50000');
     await manager.page.getByTestId(ids.outgoingSubmit).click();
     const outgoing = await waitForRows<any>(
