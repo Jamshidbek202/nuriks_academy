@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -29,7 +29,6 @@ export default function StudentsScreen() {
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('current');
-  const [courses, setCourses] = useState([]);
   
   const [formData, setFormData] = useState({
     first_name: '',
@@ -40,10 +39,6 @@ export default function StudentsScreen() {
     parent_name: '',
     parent_phone: '',
   });
-
-  useEffect(() => {
-    loadCourses();
-  }, []);
 
   const loadStudents = useCallback(async () => {
     try {
@@ -62,32 +57,6 @@ export default function StudentsScreen() {
 
   // Keep converted leads and lifecycle changes synchronized across staff sessions.
   useLiveRefresh(loadStudents, true, statusFilter, 3000);
-
-  const loadCourses = async () => {
-    try {
-      const response = await api.get('/courses');
-      setCourses(response.data);
-    } catch (error) {
-      console.error('Error loading courses:', error);
-    }
-  };
-
-  const handleCreateStudent = async () => {
-    if (!formData.first_name || !formData.last_name || !formData.phone) {
-      Alert.alert('Error', 'Please fill in required fields');
-      return;
-    }
-
-    try {
-      await api.post('/students', formData);
-      Alert.alert('Success', 'Student created successfully');
-      setModalVisible(false);
-      resetForm();
-      loadStudents();
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create student');
-    }
-  };
 
   const handleUpdateStudent = async () => {
     if (!selectedStudent) return;

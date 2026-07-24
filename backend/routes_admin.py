@@ -2,13 +2,21 @@
 Routes for System Settings, Feature Flags, Analytics, News, Audit Logs
 Super Admin only endpoints
 """
-from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel
 from auth import get_current_user
+import csv
+import gzip
+import hashlib
+import html
+import io
+import json
+from bson import json_util
 
 router = APIRouter(prefix="/admin", tags=["Admin"])
 security = HTTPBearer()
@@ -26,6 +34,23 @@ def require_super_admin(user: dict):
     """Require super_admin role only"""
     if user["role"] != "super_admin":
         raise HTTPException(status_code=403, detail="Super Admin access required")
+
+
+def academy_month_window(year: int, month: int):
+    """Return an academy calendar month as naive UTC database boundaries."""
+    local_tz = ZoneInfo("Asia/Tashkent")
+    start_local = datetime(year, month, 1, tzinfo=local_tz)
+    next_year, next_month = (year + 1, 1) if month == 12 else (year, month + 1)
+    end_local = datetime(next_year, next_month, 1, tzinfo=local_tz)
+    return (
+        start_local.astimezone(timezone.utc).replace(tzinfo=None),
+        end_local.astimezone(timezone.utc).replace(tzinfo=None),
+    )
+
+
+def shifted_month(value: datetime, offset: int):
+    absolute_month = value.year * 12 + value.month - 1 + offset
+    return absolute_month // 12, absolute_month % 12 + 1
 
 # ==================== FEATURE FLAGS ====================
 
@@ -61,7 +86,22 @@ async def get_feature_flags(current_user: dict = Depends(get_current_user_dep)):
                 "updated_by": str(current_user["_id"])
             }
             await db.feature_flags.insert_one(default_flags)
-            return serialize_doc(default_flags)
+            flags = default_flags
+
+        # Keep the legacy per-feature documents used by runtime gates in sync
+        # with the admin screen's canonical global document. Without this, the
+        # UI can display "enabled" while the protected feature still rejects it.
+        for feature_name in FeatureFlagsUpdate.model_fields:
+            await db.feature_flags.update_one(
+                {"feature_name": feature_name},
+                {"$set": {
+                    "feature_name": feature_name,
+                    "is_enabled": bool(flags.get(feature_name, False)),
+                    "updated_at": flags.get("updated_at", datetime.utcnow()),
+                    "updated_by": flags.get("updated_by", str(current_user["_id"])),
+                }},
+                upsert=True,
+            )
         return serialize_doc(flags)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -86,6 +126,20 @@ async def update_feature_flags(
             {"$set": update_data},
             upsert=True
         )
+
+        for feature_name, is_enabled in update_data.items():
+            if feature_name not in FeatureFlagsUpdate.model_fields:
+                continue
+            await db.feature_flags.update_one(
+                {"feature_name": feature_name},
+                {"$set": {
+                    "feature_name": feature_name,
+                    "is_enabled": bool(is_enabled),
+                    "updated_at": update_data["updated_at"],
+                    "updated_by": update_data["updated_by"],
+                }},
+                upsert=True,
+            )
         
         await create_audit_log(
             str(current_user["_id"]),
@@ -210,45 +264,65 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
     require_admin(current_user)
     
     try:
-        # Student statistics
+        branch_id = current_user.get("branch_id") if current_user["role"] == "manager" else None
+        branch_query = {"branch_id": branch_id} if branch_id is not None else {}
+
+        # Student statistics use the same current/archived definition as the
+        # dashboard and student list.
         current_students = await db.students.count_documents({
+            **branch_query,
             "status": {"$ne": "archived"}
         })
-        active_students = await db.students.count_documents({"status": "active"})
-        graduated_students = await db.students.count_documents({"status": "graduated"})
-        frozen_students = await db.students.count_documents({"status": "frozen"})
-        
-        # Monthly revenue
-        now = datetime.utcnow()
-        first_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        monthly_payments = await db.payments.find({
-            "payment_date": {"$gte": first_of_month},
-            "status": "completed"
-        }).to_list(1000)
-        monthly_revenue = sum(p.get("amount", 0) for p in monthly_payments)
-        
-        # Previous month revenue for comparison
-        first_of_prev_month = (first_of_month - timedelta(days=1)).replace(day=1)
-        prev_month_payments = await db.payments.find({
-            "payment_date": {"$gte": first_of_prev_month, "$lt": first_of_month},
-            "status": "completed"
-        }).to_list(1000)
-        prev_month_revenue = sum(p.get("amount", 0) for p in prev_month_payments)
-        
-        # Attendance rate
-        total_attendance = await db.attendance_records.count_documents({})
-        present_attendance = await db.attendance_records.count_documents({"status": {"$in": ["present", "late"]}})
+        active_students = await db.students.count_documents({**branch_query, "status": "active"})
+        graduated_students = await db.students.count_documents({**branch_query, "status": "graduated"})
+        frozen_students = await db.students.count_documents({**branch_query, "status": "frozen"})
+
+        # Revenue is posted cash from the authoritative finance ledger. The
+        # legacy payments collection is intentionally not consulted.
+        now = datetime.now(ZoneInfo("Asia/Tashkent"))
+        month_start, month_end = academy_month_window(now.year, now.month)
+        previous_year, previous_month = shifted_month(now, -1)
+        previous_start, previous_end = academy_month_window(previous_year, previous_month)
+
+        async def posted_cash(start: datetime, end: datetime) -> int:
+            rows = await db.finance_receipts.find({
+                **branch_query,
+                "status": "posted",
+                "received_at": {"$gte": start, "$lt": end},
+            }).to_list(100_000)
+            return sum(int(row.get("amount_uzs", 0)) for row in rows)
+
+        monthly_revenue = await posted_cash(month_start, month_end)
+        prev_month_revenue = await posted_cash(previous_start, previous_end)
+
+        # Academic collections are group-scoped, so resolve the visible groups
+        # once and apply that same scope to attendance and tests.
+        visible_groups = await db.groups.find(branch_query).to_list(5_000)
+        visible_group_ids = [str(group["_id"]) for group in visible_groups]
+        academic_query = {"group_id": {"$in": visible_group_ids}}
+        total_attendance = await db.attendance.count_documents(academic_query)
+        present_attendance = await db.attendance.count_documents({
+            **academic_query,
+            "status": {"$in": ["present", "late"]},
+        })
         attendance_rate = round((present_attendance / total_attendance * 100) if total_attendance > 0 else 0, 1)
-        
-        # Test statistics
-        mid_tests = await db.test_results.find({"test_type": "mid"}).to_list(1000)
-        end_tests = await db.test_results.find({"test_type": "end"}).to_list(1000)
-        
-        mid_test_avg = round(sum(t.get("score", 0) for t in mid_tests) / len(mid_tests), 1) if mid_tests else 0
-        end_test_avg = round(sum(t.get("score", 0) for t in end_tests) / len(end_tests), 1) if end_tests else 0
-        
+
+        tests = await db.tests.find(academic_query).to_list(5_000)
+        mid_tests = [row for row in tests if row.get("test_type") == "mid_test"]
+        end_tests = [row for row in tests if row.get("test_type") == "end_of_course"]
+        mid_scores = [
+            float(result.get("percentage", 0))
+            for row in mid_tests for result in row.get("results", [])
+        ]
+        end_scores = [
+            float(result.get("percentage", 0))
+            for row in end_tests for result in row.get("results", [])
+        ]
+        mid_test_avg = round(sum(mid_scores) / len(mid_scores), 1) if mid_scores else 0
+        end_test_avg = round(sum(end_scores) / len(end_scores), 1) if end_scores else 0
+
         # Teacher performance (based on student progress)
-        teachers = await db.teachers.find({}).to_list(100)
+        teachers = await db.teachers.find(branch_query).to_list(5_000)
         teacher_count = len(teachers)
         teacher_performance = []
         if current_user["role"] == "super_admin":
@@ -278,37 +352,36 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
                 })
             teacher_performance.sort(key=lambda row: (-row["progress_percent"], row["teacher_name"]))
         
-        # Support session statistics
-        total_bookings = await db.support_bookings.count_documents({})
-        completed_bookings = await db.support_bookings.count_documents({"status": "completed"})
-        pending_bookings = await db.support_bookings.count_documents({"status": {"$in": ["scheduled", "confirmed"]}})
-        
+        # Support sessions and leads follow the same manager branch scope.
+        booking_query = {}
+        if branch_id is not None:
+            visible_students = await db.students.find(branch_query).to_list(5_000)
+            booking_query = {"student_id": {"$in": [str(row["_id"]) for row in visible_students]}}
+        total_bookings = await db.support_bookings.count_documents(booking_query)
+        completed_bookings = await db.support_bookings.count_documents({**booking_query, "status": "completed"})
+        pending_bookings = await db.support_bookings.count_documents({
+            **booking_query,
+            "status": {"$in": ["scheduled", "confirmed"]},
+        })
+
         # Lead conversion rate
-        total_leads = await db.leads.count_documents({})
-        converted_leads = await db.leads.count_documents({"status": "converted"})
+        total_leads = await db.leads.count_documents(branch_query)
+        converted_leads = await db.leads.count_documents({**branch_query, "status": "converted"})
         lead_conversion_rate = round((converted_leads / total_leads * 100) if total_leads > 0 else 0, 1)
-        
+
         # Monthly trends (last 6 months)
         monthly_trends = []
         for i in range(5, -1, -1):
-            month_start = (now - timedelta(days=30*i)).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            if i > 0:
-                month_end = (now - timedelta(days=30*(i-1))).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                month_end = now
-            
-            month_payments = await db.payments.find({
-                "payment_date": {"$gte": month_start, "$lt": month_end},
-                "status": "completed"
-            }).to_list(1000)
-            
+            trend_year, trend_month = shifted_month(now, -i)
+            trend_start, trend_end = academy_month_window(trend_year, trend_month)
             month_students = await db.students.count_documents({
-                "enrollment_date": {"$gte": month_start, "$lt": month_end}
+                **branch_query,
+                "enrollment_date": {"$gte": trend_start, "$lt": trend_end},
             })
-            
+            trend_revenue = await posted_cash(trend_start, trend_end)
             monthly_trends.append({
-                "month": month_start.strftime("%b %Y"),
-                "revenue": sum(p.get("amount", 0) for p in month_payments),
+                "month": datetime(trend_year, trend_month, 1).strftime("%b %Y"),
+                "revenue": trend_revenue,
                 "new_students": month_students
             })
         
@@ -372,11 +445,11 @@ class NewsUpdate(BaseModel):
     is_published: Optional[bool] = None
 
 NEWS_AUDIENCE_ROLES = {
-    "all": ["student", "parent", "teacher", "support", "manager", "super_admin"],
+    "all": ["student", "parent", "teacher", "support", "reception", "manager", "super_admin"],
     "students": ["student"],
     "parents": ["parent"],
     "teachers": ["teacher"],
-    "staff": ["teacher", "support", "manager", "super_admin"],
+    "staff": ["teacher", "support", "reception", "manager", "super_admin"],
 }
 
 def get_news_target_roles(target_audience: str) -> List[str]:
@@ -402,6 +475,8 @@ async def get_news(
             elif current_user["role"] == "teacher":
                 query["target_audience"] = {"$in": ["all", "teachers"]}
             elif current_user["role"] == "support":
+                query["target_audience"] = {"$in": ["all", "staff"]}
+            elif current_user["role"] == "reception":
                 query["target_audience"] = {"$in": ["all", "staff"]}
         
         news = await db.news.find(query).sort("created_at", -1).to_list(100)
@@ -631,6 +706,39 @@ class BackupCreate(BaseModel):
     backup_type: str = "manual"  # manual, scheduled
     include_collections: List[str] = []
 
+
+BACKUP_CHUNK_BYTES = 4 * 1024 * 1024
+BACKUP_EXCLUDED_COLLECTIONS = {"backups", "backup_chunks"}
+EXPORT_COLLECTIONS = {
+    "students": "students",
+    "teachers": "teachers",
+    "payments": "finance_receipts",
+    "attendance": "attendance",
+    "groups": "groups",
+}
+
+
+def _human_bytes(value: int) -> str:
+    if value >= 1024 * 1024:
+        return f"{value / (1024 * 1024):.1f} MB"
+    return f"{value / 1024:.1f} KB"
+
+
+def _plain_export_value(value):
+    if isinstance(value, ObjectId):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(
+            json.loads(json_util.dumps(value)),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    if value is None:
+        return ""
+    return str(value)
+
 @router.get("/backups")
 async def get_backups(current_user: dict = Depends(get_current_user_dep)):
     """Get backup history"""
@@ -648,47 +756,115 @@ async def create_backup(
     request: Request,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Create a manual backup (Super Admin only)"""
+    """Create a downloadable gzip-compressed Extended JSON database snapshot."""
     from server import db, serialize_doc, create_audit_log
     require_super_admin(current_user)
     
     try:
-        # Get collection counts for backup metadata
-        collections = ["users", "students", "teachers", "groups", "payments", "attendance_records", "test_results"]
+        collections = sorted(
+            name for name in await db.list_collection_names()
+            if name not in BACKUP_EXCLUDED_COLLECTIONS and not name.startswith("system.")
+        )
+        created_at = datetime.utcnow()
+        snapshot = {
+            "format": "nuriks-academy-backup",
+            "version": 1,
+            "created_at": created_at,
+            "collections": {},
+        }
         backup_stats = {}
-        total_records = 0
-        
-        for coll in collections:
-            count = await db[coll].count_documents({})
-            backup_stats[coll] = count
-            total_records += count
+        for collection_name in collections:
+            rows = await db[collection_name].find({}).to_list(None)
+            snapshot["collections"][collection_name] = rows
+            backup_stats[collection_name] = len(rows)
+
+        raw_payload = json_util.dumps(snapshot).encode("utf-8")
+        compressed_payload = gzip.compress(raw_payload, compresslevel=6, mtime=0)
+        checksum = hashlib.sha256(compressed_payload).hexdigest()
+        backup_id = ObjectId()
+        chunks = [
+            {
+                "backup_id": str(backup_id),
+                "sequence": sequence,
+                "data": compressed_payload[offset:offset + BACKUP_CHUNK_BYTES],
+            }
+            for sequence, offset in enumerate(range(0, len(compressed_payload), BACKUP_CHUNK_BYTES))
+        ]
+        if chunks:
+            await db.backup_chunks.insert_many(chunks)
+        total_records = sum(backup_stats.values())
         
         backup = {
+            "_id": backup_id,
             "backup_type": "manual",
             "status": "completed",
             "created_by": str(current_user["_id"]),
-            "created_at": datetime.utcnow(),
+            "created_at": created_at,
             "completed_at": datetime.utcnow(),
             "collections": backup_stats,
             "total_records": total_records,
-            "size_estimate": f"{total_records * 0.5:.1f} KB"  # Rough estimate
+            "size_estimate": _human_bytes(len(compressed_payload)),
+            "size_bytes": len(compressed_payload),
+            "sha256": checksum,
+            "chunk_count": len(chunks),
+            "format_version": 1,
+            "downloadable": True,
         }
         
-        result = await db.backups.insert_one(backup)
+        try:
+            await db.backups.insert_one(backup)
+        except Exception:
+            await db.backup_chunks.delete_many({"backup_id": str(backup_id)})
+            raise
         
         await create_audit_log(
             str(current_user["_id"]),
             "create",
             "backup",
-            str(result.inserted_id),
+            str(backup_id),
             {"backup_type": "manual", "total_records": total_records},
             request.client.host if request.client else None
         )
         
-        backup["id"] = str(result.inserted_id)
+        backup["id"] = str(backup_id)
         return serialize_doc(backup)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/backups/{backup_id}/download")
+async def download_backup(
+    backup_id: str,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Download and integrity-check a previously created snapshot."""
+    from server import db
+    require_super_admin(current_user)
+
+    if not ObjectId.is_valid(backup_id):
+        raise HTTPException(status_code=400, detail="Invalid backup ID")
+    backup = await db.backups.find_one({"_id": ObjectId(backup_id)})
+    if not backup:
+        raise HTTPException(status_code=404, detail="Backup not found")
+    if not backup.get("downloadable"):
+        raise HTTPException(status_code=409, detail="This legacy backup entry has no snapshot file")
+
+    chunks = await db.backup_chunks.find({"backup_id": backup_id}).sort("sequence", 1).to_list(None)
+    if len(chunks) != backup.get("chunk_count"):
+        raise HTTPException(status_code=500, detail="Backup snapshot is incomplete")
+    payload = b"".join(bytes(chunk["data"]) for chunk in chunks)
+    if hashlib.sha256(payload).hexdigest() != backup.get("sha256"):
+        raise HTTPException(status_code=500, detail="Backup snapshot integrity check failed")
+    stamp = backup["created_at"].strftime("%Y%m%dT%H%M%SZ")
+    return Response(
+        content=payload,
+        media_type="application/gzip",
+        headers={
+            "Content-Disposition": f'attachment; filename="nuriks-academy-backup-{stamp}.json.gz"',
+            "Cache-Control": "no-store",
+            "X-Content-SHA256": backup["sha256"],
+        },
+    )
 
 @router.get("/export/{export_type}")
 async def export_data(
@@ -696,26 +872,81 @@ async def export_data(
     collection: str = "students",
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Export data to Excel/PDF format"""
+    """Export a fixed, super-admin-only dataset as a real CSV or PDF file."""
     from server import db
     require_super_admin(current_user)
     
     try:
-        # Get data from collection
-        data = await db[collection].find({}).to_list(1000)
-        
-        # For now, return JSON data that frontend can convert
-        # In production, would use openpyxl for Excel or reportlab for PDF
-        return {
-            "export_type": export_type,
-            "collection": collection,
-            "record_count": len(data),
-            "data": [
-                {k: str(v) if isinstance(v, (ObjectId, datetime)) else v 
-                 for k, v in doc.items()} 
-                for doc in data
-            ]
-        }
+        if export_type not in {"csv", "pdf"}:
+            raise HTTPException(status_code=400, detail="Export type must be csv or pdf")
+        database_collection = EXPORT_COLLECTIONS.get(collection)
+        if not database_collection:
+            raise HTTPException(status_code=400, detail="Unsupported export collection")
+
+        data = await db[database_collection].find({}).to_list(10_000)
+        rows = [
+            {key: _plain_export_value(value) for key, value in document.items()}
+            for document in data
+        ]
+        stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        if export_type == "csv":
+            headers = sorted({key for row in rows for key in row})
+            output = io.StringIO(newline="")
+            writer = csv.DictWriter(output, fieldnames=headers, extrasaction="ignore")
+            writer.writeheader()
+            writer.writerows(rows)
+            return Response(
+                content=("\ufeff" + output.getvalue()).encode("utf-8"),
+                media_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{collection}-{stamp}.csv"',
+                    "Cache-Control": "no-store",
+                    "X-Record-Count": str(len(rows)),
+                },
+            )
+
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+
+        output = io.BytesIO()
+        styles = getSampleStyleSheet()
+        document = SimpleDocTemplate(
+            output,
+            pagesize=A4,
+            leftMargin=14 * mm,
+            rightMargin=14 * mm,
+            topMargin=14 * mm,
+            bottomMargin=14 * mm,
+            title=f"Nurik's Academy {collection} export",
+        )
+        story = [
+            Paragraph(f"Nurik's Academy — {html.escape(collection.title())} export", styles["Title"]),
+            Paragraph(f"Generated {stamp}; {len(rows)} record(s)", styles["Normal"]),
+            Spacer(1, 8),
+        ]
+        if not rows:
+            story.append(Paragraph("No records.", styles["Normal"]))
+        for index, row in enumerate(rows, start=1):
+            story.append(Paragraph(f"<b>Record {index}</b>", styles["Heading3"]))
+            for key, value in row.items():
+                safe_key = html.escape(str(key))
+                safe_value = html.escape(str(value)).replace("\n", "<br/>")
+                story.append(Paragraph(f"<b>{safe_key}:</b> {safe_value}", styles["BodyText"]))
+            story.append(Spacer(1, 6))
+        document.build(story)
+        return Response(
+            content=output.getvalue(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{collection}-{stamp}.pdf"',
+                "Cache-Control": "no-store",
+                "X-Record-Count": str(len(rows)),
+            },
+        )
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

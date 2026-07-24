@@ -41,6 +41,41 @@ async def get_next_booking_id(db):
     )
     return generate_unique_id("BK", result["seq"])
 
+
+async def get_booking_branch_id(db, booking: dict) -> Optional[str]:
+    if booking.get("branch_id"):
+        return booking["branch_id"]
+    student_id = booking.get("student_id")
+    if not student_id or not ObjectId.is_valid(student_id):
+        return None
+    student = await db.students.find_one({"_id": ObjectId(student_id)})
+    return student.get("branch_id") if student else None
+
+
+async def require_booking_staff_access(db, current_user: dict, booking: dict) -> None:
+    """Enforce ownership for support users and branch scope for managers."""
+    role = current_user.get("role")
+    if role == "super_admin":
+        return
+    if role == "manager":
+        if await get_booking_branch_id(db, booking) != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Booking belongs to another branch")
+        return
+    if role == "support":
+        support = await db.support_staff.find_one({"user_id": str(current_user["_id"])})
+        if not support or str(support["_id"]) != booking.get("support_staff_id"):
+            raise HTTPException(status_code=403, detail="You can only manage your own bookings")
+        return
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
+def require_same_branch(current_user: dict, document: dict, detail: str) -> None:
+    if (
+        current_user.get("role") != "super_admin"
+        and document.get("branch_id") != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail=detail)
+
 def calculate_end_time(start_time: str, duration_minutes: int) -> str:
     """Calculate end time from start time and duration"""
     hours, minutes = map(int, start_time.split(':'))
@@ -84,6 +119,7 @@ async def create_booking(
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student profile not found")
+        require_same_branch(current_user, support_staff, "Support staff belongs to another branch")
         
         # Check for conflicting bookings
         end_time = calculate_end_time(booking_data.start_time, booking_data.duration_minutes)
@@ -110,6 +146,7 @@ async def create_booking(
             "student_id": str(student["_id"]),
             "student_user_id": str(current_user["_id"]),
             "support_staff_id": booking_data.support_staff_id,
+            "branch_id": student.get("branch_id"),
             "booking_date": booking_data.booking_date,
             "start_time": booking_data.start_time,
             "end_time": end_time,
@@ -150,6 +187,9 @@ async def get_bookings(
 ):
     """Get support bookings based on user role"""
     from server import db, serialize_doc
+
+    if current_user.get("role") not in ["student", "support", "parent", "super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
         query = {}
@@ -187,7 +227,10 @@ async def get_bookings(
                 return []
 
         if "student_id" not in query:
-            active_students = await db.students.find({"status": {"$ne": "archived"}}).to_list(5000)
+            student_query = {"status": {"$ne": "archived"}}
+            if current_user["role"] in ["manager", "support"]:
+                student_query["branch_id"] = current_user.get("branch_id")
+            active_students = await db.students.find(student_query).to_list(5000)
             query["student_id"] = {"$in": [str(student["_id"]) for student in active_students]}
         
         # Admin/Manager can see all (with optional filters)
@@ -220,6 +263,8 @@ async def get_bookings(
         
         return [serialize_doc(b) for b in bookings]
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -238,9 +283,10 @@ async def get_available_slots(
         support_staff = await db.support_staff.find_one({"_id": ObjectId(support_staff_id)})
         if not support_staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
+        require_same_branch(current_user, support_staff, "Support staff belongs to another branch")
         
         # Get system settings for working hours
-        settings = await db.system_settings.find_one()
+        settings = await db.system_settings.find_one() or {}
         working_hours = settings.get("support_working_hours", {"start": "09:00", "end": "18:00"})
         
         # Generate all possible 40-minute slots
@@ -305,11 +351,7 @@ async def confirm_booking(
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
         
-        # Support staff can only confirm their own bookings
-        if current_user["role"] == "support":
-            support = await db.support_staff.find_one({"user_id": str(current_user["_id"])})
-            if not support or str(support["_id"]) != booking["support_staff_id"]:
-                raise HTTPException(status_code=403, detail="You can only confirm your own bookings")
+        await require_booking_staff_access(db, current_user, booking)
         
         # Update status
         await db.support_bookings.update_one(
@@ -353,11 +395,11 @@ async def cancel_booking(
             if booking["student_user_id"] != str(current_user["_id"]):
                 raise HTTPException(status_code=403, detail="You can only cancel your own bookings")
         elif current_user["role"] == "support":
-            support = await db.support_staff.find_one({"user_id": str(current_user["_id"])})
-            if not support or str(support["_id"]) != booking["support_staff_id"]:
-                raise HTTPException(status_code=403, detail="You can only cancel your own bookings")
+            await require_booking_staff_access(db, current_user, booking)
         elif current_user["role"] not in ["super_admin", "manager"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
+        else:
+            await require_booking_staff_access(db, current_user, booking)
         
         # Update status
         await db.support_bookings.update_one(
@@ -400,11 +442,7 @@ async def complete_booking(
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
         
-        # Support staff can only complete their own bookings
-        if current_user["role"] == "support":
-            support = await db.support_staff.find_one({"user_id": str(current_user["_id"])})
-            if not support or str(support["_id"]) != booking["support_staff_id"]:
-                raise HTTPException(status_code=403, detail="You can only complete your own bookings")
+        await require_booking_staff_access(db, current_user, booking)
         
         # Update status and add notes
         await db.support_bookings.update_one(
@@ -452,11 +490,7 @@ async def update_session_notes(
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
         
-        # Support staff can only update their own bookings
-        if current_user["role"] == "support":
-            support = await db.support_staff.find_one({"user_id": str(current_user["_id"])})
-            if not support or str(support["_id"]) != booking["support_staff_id"]:
-                raise HTTPException(status_code=403, detail="You can only update notes for your own bookings")
+        await require_booking_staff_access(db, current_user, booking)
         
         await db.support_bookings.update_one(
             {"_id": ObjectId(booking_id)},
@@ -489,7 +523,10 @@ async def get_support_staff(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        support_staff = await db.support_staff.find({}).to_list(100)
+        query = {}
+        if current_user["role"] != "super_admin":
+            query["branch_id"] = current_user.get("branch_id")
+        support_staff = await db.support_staff.find(query).to_list(100)
         active_staff = []
 
         for staff in support_staff:
@@ -513,11 +550,15 @@ async def get_support_staff_by_id(
 ):
     """Get a specific support staff member"""
     from server import db, serialize_doc
+
+    if current_user["role"] not in ["student", "parent", "super_admin", "manager"]:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
         support = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
         if not support:
             raise HTTPException(status_code=404, detail="Support staff not found")
+        require_same_branch(current_user, support, "Support staff belongs to another branch")
         return serialize_doc(support)
     except HTTPException:
         raise

@@ -11,6 +11,11 @@ from pydantic import BaseModel, Field
 import math
 from pymongo.errors import DuplicateKeyError
 from auth import get_current_user
+from academic_access import (
+    require_group_academic_read_access,
+    require_group_academic_staff_access,
+    require_student_academic_read_access,
+)
 from validation import require_date_window
 
 router = APIRouter(prefix="/tests", tags=["Tests"])
@@ -71,26 +76,15 @@ async def create_test(
             test_data.test_date, future_days=730, label="Test date"
         )
 
-        # Get teacher ID
-        teacher_id = None
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if teacher:
-                teacher_id = str(teacher["_id"])
-                group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
-                if (
-                    not group
-                    or (
-                        test_data.group_id not in teacher.get("group_ids", [])
-                        and group.get("teacher_id") != teacher_id
-                    )
-                ):
-                    raise HTTPException(status_code=403, detail="You can only create tests for your own groups")
-        else:
-            # For managers/admins, get teacher from group
-            group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
-            if group:
-                teacher_id = group["teacher_id"]
+        if not ObjectId.is_valid(test_data.group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(test_data.group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_staff_access(db, current_user, group)
+        if group.get("course_id") and group.get("course_id") != test_data.course_id:
+            raise HTTPException(status_code=400, detail="Test course must match the group's course")
+        teacher_id = group.get("teacher_id")
         
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
@@ -216,10 +210,13 @@ async def delete_test(
     if not test:
         raise HTTPException(status_code=404, detail="Test not found")
 
-    if current_user["role"] == "teacher":
-        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-        if not teacher or test.get("teacher_id") != str(teacher["_id"]):
-            raise HTTPException(status_code=403, detail="You can only delete your own tests")
+    group_id = test.get("group_id")
+    if not group_id or not ObjectId.is_valid(group_id):
+        raise HTTPException(status_code=409, detail="Test has an invalid group")
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    await require_group_academic_staff_access(db, current_user, group)
 
     await db.tests.delete_one({"_id": ObjectId(test_id)})
     await create_audit_log(
@@ -259,16 +256,7 @@ async def grade_test(
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
 
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if (
-                not teacher
-                or (
-                    test["group_id"] not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != str(teacher["_id"])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
+        await require_group_academic_staff_access(db, current_user, group)
 
         student = await db.students.find_one({
             "_id": ObjectId(grade_data.student_id),
@@ -368,45 +356,12 @@ async def get_group_tests(
     from server import db, serialize_doc
     
     try:
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if (
-                not teacher
-                or not group
-                or (
-                    group_id not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != str(teacher["_id"])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({"user_id": str(current_user["_id"])})
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if (
-                not student
-                or not group
-                or (
-                    group_id not in student.get("group_ids", [])
-                    and str(student["_id"]) not in group.get("student_ids", [])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent:
-                raise HTTPException(status_code=403, detail="Access denied")
-
-            children = await db.students.find({
-                "_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", []) if ObjectId.is_valid(sid)]},
-                "status": {"$ne": "archived"}
-            }).to_list(100)
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if not group or not any(
-                group_id in child.get("group_ids", []) or str(child["_id"]) in group.get("student_ids", [])
-                for child in children
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
+        if not ObjectId.is_valid(group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_read_access(db, current_user, group)
 
         query = {"group_id": group_id}
         if test_type:
@@ -440,44 +395,20 @@ async def get_student_tests(
     from server import db, serialize_doc
     
     try:
-        # Check permissions
-        if current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent or student_id not in parent.get("student_ids", []):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student or str(student["user_id"]) != str(current_user["_id"]):
-                raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get student's groups
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=400, detail="Invalid student ID")
         student = await db.students.find_one({
             "_id": ObjectId(student_id),
             "status": {"$ne": "archived"}
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        await require_student_academic_read_access(db, current_user, student)
         
         group_ids = set(student.get("group_ids", []))
         groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
         group_ids.update(str(group["_id"]) for group in groups_by_membership)
 
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if not teacher:
-                raise HTTPException(status_code=403, detail="Access denied")
-            teacher_id = str(teacher["_id"])
-            teacher_group_ids = set(teacher.get("group_ids", []))
-            teacher_group_ids.update(
-                str(group["_id"])
-                for group in await db.groups.find({"teacher_id": teacher_id}).to_list(100)
-            )
-            if not group_ids.intersection(teacher_group_ids):
-                raise HTTPException(status_code=403, detail="Access denied")
-        
         # Get all tests for student's groups
         tests = await db.tests.find(
             {"group_id": {"$in": list(group_ids)}}
@@ -511,26 +442,15 @@ async def get_student_progress(
     from server import db
     
     try:
-        # Check permissions
-        if current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent or student_id not in parent.get("student_ids", []):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student or str(student["user_id"]) != str(current_user["_id"]):
-                raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get student's groups
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=400, detail="Invalid student ID")
         student = await db.students.find_one({
             "_id": ObjectId(student_id),
             "status": {"$ne": "archived"}
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        await require_student_academic_read_access(db, current_user, student)
         
         group_ids = set(student.get("group_ids", []))
         groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)

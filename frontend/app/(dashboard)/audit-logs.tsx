@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   ScrollView,
@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface AuditLog {
   id: string;
@@ -70,11 +71,7 @@ export default function AuditLogsScreen() {
   const [activeTab, setActiveTab] = useState<'all' | 'login'>('all');
   const [filterType, setFilterType] = useState('');
 
-  useEffect(() => {
-    loadLogs();
-  }, [filterType]);
-
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
       const params = filterType ? { entity_type: filterType } : {};
       const [logsRes, loginRes] = await Promise.all([
@@ -91,7 +88,13 @@ export default function AuditLogsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, [filterType]);
+
+  useEffect(() => {
+    void loadLogs();
+  }, [loadLogs]);
+
+  useLiveRefresh(loadLogs, user?.role === 'super_admin', `audit:${filterType}:${activeTab}`, 3000);
 
   const formatDate = (dateString?: string): string => {
     if (!dateString) return 'Unknown date';

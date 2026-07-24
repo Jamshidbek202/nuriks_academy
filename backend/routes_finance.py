@@ -57,7 +57,6 @@ from finance_service import (
     generate_lesson_occurrences,
     record_lesson_resolution,
     seed_default_finance_configuration,
-    seed_reception_user,
     create_recurring_expense_version,
     create_billing_rules_version,
 )
@@ -205,28 +204,11 @@ async def seed_reception_account(
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    from server import create_audit_log, db
-
     _require_role(current_user, {"super_admin"})
-    branch_id = payload.branch_id or current_user.get("branch_id")
-    if branch_id:
-        if not ObjectId.is_valid(branch_id) or not await db.branches.find_one({"_id": ObjectId(branch_id)}):
-            raise HTTPException(status_code=404, detail="Reception branch not found")
-    try:
-        result = await seed_reception_user(db, branch_id, str(current_user["_id"]))
-    except ValueError as error:
-        _service_error(error)
-    await create_audit_log(
-        str(current_user["_id"]), "seed_reception", "user",
-        str(result["user"]["_id"]), {"created": result["created"], "branch_id": branch_id},
-        request.client.host if request.client else None,
+    raise HTTPException(
+        status_code=410,
+        detail="Temporary reception credentials were retired. Create a reception account in Staff Management so the user receives a phone invitation.",
     )
-    return {
-        "created": result["created"],
-        "user": finance_document_to_json(result["user"]),
-        "login": "reception",
-        "temporary_password": "Reception@2025" if result["created"] else None,
-    }
 
 
 @router.get("/policies")

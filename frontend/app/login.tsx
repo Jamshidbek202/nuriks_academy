@@ -18,7 +18,7 @@ import { COLORS, SIZES, SHADOWS } from '../src/constants/theme';
 import { LOGIN } from '../constants/testIds';
 
 export default function LoginScreen() {
-  const [login, setLogin] = useState('');
+  const [phone, setPhone] = useState('+998');
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,15 +26,13 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    const trimmedLogin = login.trim();
-    const trimmedPassword = password.trim();
+    const trimmedPhone = phone.trim();
 
-    setLogin(trimmedLogin);
-    setPassword(trimmedPassword);
+    setPhone(trimmedPhone);
     setErrorMessage('');
 
-    if (!trimmedLogin || !trimmedPassword) {
-      const message = 'Please enter login and password';
+    if (!trimmedPhone || !password) {
+      const message = 'Please enter phone number and password';
       setErrorMessage(message);
       Alert.alert('Error', message);
       return;
@@ -42,7 +40,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await authLogin(trimmedLogin, trimmedPassword);
+      await authLogin(trimmedPhone, password);
       router.replace('/(dashboard)');
     } catch (error: any) {
       const message = error.message || 'Invalid login or password';
@@ -89,15 +87,16 @@ export default function LoginScreen() {
             )}
 
             <View style={styles.inputContainer}>
-              <Text style={styles.label}>Login</Text>
+              <Text style={styles.label}>Phone number</Text>
               <View style={styles.inputWrapper}>
                 <TextInput
-                  testID={LOGIN.emailInput}
+                  testID={LOGIN.phoneInput}
                   style={styles.input}
-                  placeholder="Enter your login"
+                  placeholder="+998 90 123 45 67"
                   placeholderTextColor={COLORS.textTertiary}
-                  value={login}
-                  onChangeText={setLogin}
+                  value={phone}
+                  onChangeText={setPhone}
+                  keyboardType="phone-pad"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
@@ -143,8 +142,19 @@ export default function LoginScreen() {
             </TouchableOpacity>
 
             {/* Forgot Password Link */}
-            <TouchableOpacity style={styles.forgotPasswordContainer}>
+            <TouchableOpacity
+              testID={LOGIN.forgotPasswordLink}
+              style={styles.forgotPasswordContainer}
+              onPress={() => router.push('/forgot-password' as any)}
+            >
               <Text style={styles.forgotPasswordText}>Forgot your password?</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              testID={LOGIN.activateLink}
+              style={styles.forgotPasswordContainer}
+              onPress={() => router.push('/activate-account' as any)}
+            >
+              <Text style={styles.activationText}>I have an invitation code</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -261,5 +271,10 @@ const styles = StyleSheet.create({
   forgotPasswordText: {
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
+  },
+  activationText: {
+    fontSize: SIZES.fontSm,
+    color: COLORS.gold,
+    fontWeight: '600',
   },
 });

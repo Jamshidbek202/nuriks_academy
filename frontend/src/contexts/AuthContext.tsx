@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import api from '../services/api';
+import { api, apiErrorMessage } from '../services/api';
 import {
   registerForPushNotifications,
   registerPushToken,
@@ -29,7 +29,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   pushToken: string | null;
-  login: (login: string, password: string) => Promise<void>;
+  login: (phone: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -128,13 +128,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isLanguageReady) loadStoredAuth();
   }, [isLanguageReady, loadStoredAuth]);
 
-  const login = async (loginInput: string, password: string) => {
+  const login = async (phoneInput: string, password: string) => {
     try {
-      const trimmedLogin = loginInput.trim();
-      const trimmedPassword = password.trim();
+      const phone = phoneInput.trim();
       const response = await api.post('/auth/login', {
-        login: trimmedLogin,
-        password: trimmedPassword,
+        phone,
+        // Production resolves the normalized phone field. The duplicate
+        // legacy field keeps disposable QA aliases usable only when the
+        // backend explicitly enables its test-only compatibility gate.
+        login: phone,
+        password,
       });
 
       const accessToken = response.data.access_token;
@@ -149,7 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       await AsyncStorage.setItem('token', accessToken);
       await AsyncStorage.setItem('user', JSON.stringify(loggedInUser));
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || error.message || 'Login failed');
+      throw new Error(apiErrorMessage(error, 'Login failed'));
     }
   };
 

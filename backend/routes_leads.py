@@ -5,10 +5,16 @@ Phase 4: Lead pipeline, conversion, analytics
 from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
-from typing import List, Optional
+from typing import List, Optional, Literal
 from datetime import datetime
 from pydantic import BaseModel, Field
-from auth import get_current_user, get_password_hash
+from auth import get_current_user
+from phone_auth import (
+    OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
+    invited_user_document, issue_invitation, normalize_phone,
+    phone_required_user_document,
+)
+from pymongo import ReturnDocument
 
 router = APIRouter(prefix="/leads", tags=["CRM"])
 security = HTTPBearer()
@@ -37,7 +43,7 @@ class LeadCreate(BaseModel):
     age: Optional[int] = Field(None, ge=1, le=100)
     parent_name: Optional[str] = Field(None, max_length=200)
     interested_course: Optional[str] = None
-    source: str
+    source: Literal["instagram", "telegram", "facebook", "tiktok", "referral", "banner", "walk_in", "website", "other"]
     notes: Optional[str] = Field(None, max_length=5000)
     branch_id: Optional[str] = None
     referred_by_student_id: Optional[str] = None
@@ -49,8 +55,8 @@ class LeadUpdate(BaseModel):
     age: Optional[int] = Field(None, ge=1, le=100)
     parent_name: Optional[str] = None
     interested_course: Optional[str] = None
-    source: Optional[str] = None
-    status: Optional[str] = None
+    source: Optional[Literal["instagram", "telegram", "facebook", "tiktok", "referral", "banner", "walk_in", "website", "other"]] = None
+    status: Optional[Literal["new_lead", "contacted", "trial_scheduled", "trial_completed", "negotiation", "enrolled", "lost"]] = None
     notes: Optional[str] = None
     trial_lesson_date: Optional[datetime] = None
     assigned_to: Optional[str] = None
@@ -77,17 +83,24 @@ async def create_lead(
         raise HTTPException(status_code=403, detail="Cannot create a lead for another branch")
     
     try:
+        target_branch_id = lead_data.branch_id or current_user.get("branch_id")
         if lead_data.referred_by_student_id:
-            if not ObjectId.is_valid(lead_data.referred_by_student_id) or not await db.students.find_one({
-                "_id": ObjectId(lead_data.referred_by_student_id),
-                "status": {"$ne": "archived"},
-            }):
+            referrer = None
+            if ObjectId.is_valid(lead_data.referred_by_student_id):
+                referrer = await db.students.find_one({
+                    "_id": ObjectId(lead_data.referred_by_student_id),
+                    "status": {"$ne": "archived"},
+                })
+            if not referrer:
                 raise HTTPException(status_code=404, detail="Referring student not found")
+            if target_branch_id and referrer.get("branch_id") != target_branch_id:
+                raise HTTPException(status_code=409, detail="Referring student belongs to another branch")
         # Get next lead ID
         result = await db.counters.find_one_and_update(
             {"_id": "lead_id"},
             {"$inc": {"seq": 1}},
-            return_document=True
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
         )
         from auth import generate_unique_id
         lead_id = generate_unique_id("LEAD", result["seq"])
@@ -107,7 +120,7 @@ async def create_lead(
             "trial_lesson_date": None,
             "converted_to_student_id": None,
             "branch_id": (
-                lead_data.branch_id
+                target_branch_id
                 if current_user["role"] == "super_admin"
                 else current_user.get("branch_id")
             ),
@@ -232,12 +245,19 @@ async def update_lead(
         
         # Build update dict from non-None values
         update_data = {k: v for k, v in lead_data.dict().items() if v is not None}
+        if update_data.get("status") == "enrolled" and not existing.get("converted_to_student_id"):
+            raise HTTPException(status_code=409, detail="Use Convert to Student before marking a lead enrolled")
         if update_data.get("referred_by_student_id"):
             referrer_id = update_data["referred_by_student_id"]
-            if not ObjectId.is_valid(referrer_id) or not await db.students.find_one({
-                "_id": ObjectId(referrer_id), "status": {"$ne": "archived"}
-            }):
+            referrer = None
+            if ObjectId.is_valid(referrer_id):
+                referrer = await db.students.find_one({
+                    "_id": ObjectId(referrer_id), "status": {"$ne": "archived"}
+                })
+            if not referrer:
                 raise HTTPException(status_code=404, detail="Referring student not found")
+            if existing.get("branch_id") and referrer.get("branch_id") != existing.get("branch_id"):
+                raise HTTPException(status_code=409, detail="Referring student belongs to another branch")
         update_data["updated_at"] = datetime.utcnow()
         
         await db.leads.update_one(
@@ -349,74 +369,93 @@ async def convert_lead_to_student(
         result = await db.counters.find_one_and_update(
             {"_id": "student_id"},
             {"$inc": {"seq": 1}},
-            return_document=True
+            upsert=True,
+            return_document=ReturnDocument.AFTER,
         )
         from auth import generate_student_id
         student_id = generate_student_id(result["seq"])
         
         # Create parent if parent_name exists
+        try:
+            contact_phone = normalize_phone(lead["phone"])
+        except PhoneValidationError as error:
+            raise HTTPException(status_code=400, detail=f"Lead phone: {error}") from error
+
         parent_id = None
-        parent_login = None
+        invitation_users = []
         if lead.get("parent_name"):
-            # Normalize phone number for login (remove special characters except +)
-            parent_phone = lead["phone"].replace(" ", "").replace("-", "")
-            parent_login = parent_phone  # Login = phone number directly
-            
             # Check if parent already exists
-            existing_parent = await db.parents.find_one({"phone": lead["phone"]})
+            existing_parent_user = await db.users.find_one({"phone_normalized": contact_phone})
+            if existing_parent_user and existing_parent_user.get("role") != "parent":
+                raise HTTPException(status_code=409, detail="Lead phone is already used by another account")
+            existing_parent = None
+            if existing_parent_user:
+                existing_parent = await db.parents.find_one({"user_id": str(existing_parent_user["_id"])})
             
             if existing_parent:
                 parent_id = str(existing_parent["_id"])
-                # Get existing parent login
-                existing_parent_user = await db.users.find_one({"_id": ObjectId(existing_parent.get("user_id"))})
-                if existing_parent_user:
-                    parent_login = existing_parent_user.get("login", parent_login)
             else:
-                # Create parent user
                 parent_names = lead["parent_name"].split()
-                parent_user = {
-                    "login": parent_login,  # Login = phone number
-                    "password_hash": get_password_hash("Parent@2025"),
-                    "email": None,
-                    "phone": lead["phone"],
-                    "full_name": lead["parent_name"],
-                    "role": "parent",
-                    "is_active": True,
-                    "two_factor_enabled": False,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                    "branch_id": student_branch_id
-                }
-                parent_user_result = await db.users.insert_one(parent_user)
+                if existing_parent_user:
+                    parent_user = existing_parent_user
+                    parent_user_id = existing_parent_user["_id"]
+                    if parent_user.get("account_status") == "pending_invite":
+                        invitation_users.append(parent_user)
+                else:
+                    parent_user = invited_user_document(
+                        phone=contact_phone,
+                        full_name=lead["parent_name"],
+                        role="parent",
+                        email=None,
+                        branch_id=student_branch_id,
+                        language_preference=current_user.get("language_preference", "ru"),
+                        created_by=str(current_user["_id"]),
+                    )
+                    parent_user_result = await db.users.insert_one(parent_user)
+                    parent_user["_id"] = parent_user_result.inserted_id
+                    parent_user_id = parent_user_result.inserted_id
+                    invitation_users.append(parent_user)
                 
                 # Create parent profile
                 parent_profile = {
-                    "user_id": str(parent_user_result.inserted_id),
+                    "user_id": str(parent_user_id),
                     "first_name": parent_names[0],
                     "last_name": parent_names[-1] if len(parent_names) > 1 else "",
-                    "phone": lead["phone"],
+                    "phone": contact_phone,
                     "email": None,
                     "student_ids": [],
+                    "branch_id": student_branch_id,
                     "created_at": datetime.utcnow()
                 }
                 parent_result = await db.parents.insert_one(parent_profile)
                 parent_id = str(parent_result.inserted_id)
         
-        # Create student user
-        student_user = {
-            "login": student_id.lower(),
-            "password_hash": get_password_hash("Student@2025"),
-            "email": None,
-            "phone": lead.get("phone"),
-            "full_name": f"{lead['first_name']} {lead['last_name']}",
-            "role": "student",
-            "is_active": True,
-            "two_factor_enabled": False,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "branch_id": student_branch_id
-        }
+        if lead.get("parent_name"):
+            student_user = phone_required_user_document(
+                login=student_id.lower(),
+                full_name=f"{lead['first_name']} {lead['last_name']}",
+                role="student",
+                email=None,
+                branch_id=student_branch_id,
+                language_preference=current_user.get("language_preference", "ru"),
+                created_by=str(current_user["_id"]),
+            )
+        else:
+            if await db.users.find_one({"phone_normalized": contact_phone}):
+                raise HTTPException(status_code=409, detail="Lead phone is already used by another account")
+            student_user = invited_user_document(
+                phone=contact_phone,
+                full_name=f"{lead['first_name']} {lead['last_name']}",
+                role="student",
+                email=None,
+                branch_id=student_branch_id,
+                language_preference=current_user.get("language_preference", "ru"),
+                created_by=str(current_user["_id"]),
+            )
         student_user_result = await db.users.insert_one(student_user)
+        student_user["_id"] = student_user_result.inserted_id
+        if not lead.get("parent_name"):
+            invitation_users.append(student_user)
         
         # Get interested course ID
         course_ids = []
@@ -433,7 +472,7 @@ async def convert_lead_to_student(
             "first_name": lead["first_name"],
             "last_name": lead["last_name"],
             "date_of_birth": None,
-            "phone": lead.get("phone"),
+            "phone": contact_phone,
             "email": None,
             "photo": None,
             "address": None,
@@ -454,6 +493,16 @@ async def convert_lead_to_student(
                 {"_id": ObjectId(parent_id)},
                 {"$push": {"student_ids": str(student_result.inserted_id)}}
             )
+
+        invite_status = {}
+        for invited_user in invitation_users:
+            try:
+                invite_status[invited_user["role"]] = (await issue_invitation(
+                    db, invited_user, actor_id=str(current_user["_id"]),
+                    request_ip=request.client.host if request.client else None,
+                )).delivery_status
+            except (OtpDeliveryError, OtpRateLimitError):
+                invite_status[invited_user["role"]] = "failed"
         
         # Update lead status
         await db.leads.update_one(
@@ -479,11 +528,10 @@ async def convert_lead_to_student(
         return {
             "message": "Lead converted to student successfully",
             "student_id": student_id,
-            "student_login": student_id.lower(),
-            "student_password": "Student@2025",
             "student_db_id": str(student_result.inserted_id),
-            "parent_login": parent_login,
-            "parent_password": "Parent@2025" if parent_login else None
+            "invite_delivery_status": invite_status,
+            "student_account_status": student_user.get("account_status"),
+            "parent_account_status": "pending_invite" if parent_id else None,
         }
         
     except HTTPException:

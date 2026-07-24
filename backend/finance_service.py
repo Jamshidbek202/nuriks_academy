@@ -1068,35 +1068,7 @@ def finance_document_to_json(document):
 
 
 async def seed_reception_user(db, branch_id: Optional[str], actor_id: str) -> dict:
-    """Create the temporary reception account once without resetting its password."""
-    from auth import get_password_hash
-
-    if not branch_id:
-        raise ValueError("Reception account must be assigned to a branch")
-    existing = await db.users.find_one({"login": "reception"})
-    if existing:
-        if existing.get("role") != "reception":
-            raise ValueError("The login 'reception' is already used by another role")
-        return {"created": False, "user": existing}
-    document = {
-        "login": "reception",
-        "password_hash": get_password_hash("Reception@2025"),
-        "email": None,
-        "phone": None,
-        "full_name": "Reception",
-        "role": "reception",
-        "is_active": True,
-        "two_factor_enabled": False,
-        "two_factor_secret": None,
-        "branch_id": branch_id,
-        "created_by": actor_id,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow(),
-        "temporary_password_auth": True,
-    }
-    try:
-        result = await db.users.insert_one(document)
-    except DuplicateKeyError as exc:
-        raise ValueError("The reception account was created concurrently; reload") from exc
-    document["_id"] = result.inserted_id
-    return {"created": True, "user": document}
+    """Retired compatibility hook; temporary shared credentials are forbidden."""
+    raise ValueError(
+        "Temporary reception credentials were retired. Create a phone-invited reception account."
+    )

@@ -10,6 +10,11 @@ from typing import List, Optional
 from datetime import datetime, date, timedelta
 from models import Attendance, AttendanceBase, AttendanceStatus
 from auth import get_current_user
+from academic_access import (
+    require_group_academic_read_access,
+    require_group_academic_staff_access,
+    require_student_academic_read_access,
+)
 from validation import require_date_window
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
@@ -103,14 +108,7 @@ async def mark_attendance(
         group = await db.groups.find_one({"_id": ObjectId(attendance_data.group_id)})
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
-        if (
-            current_role == "manager"
-            and group.get("branch_id") != current_user.get("branch_id")
-        ):
-            raise HTTPException(
-                status_code=403,
-                detail="Managers can only mark attendance in their branch",
-            )
+        await require_group_academic_staff_access(db, current_user, group)
 
         # Get teacher ID
         teacher_id = None
@@ -223,33 +221,16 @@ async def get_group_attendance(
         group = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_read_access(db, current_user, group)
 
         query = {"group_id": group_id}
 
         current_role = str(current_user.get("role", "")).lower()
-        if current_role == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if (
-                not teacher
-                or (
-                    group_id not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != str(teacher["_id"])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_role == "student":
+        if current_role == "student":
             student = await db.students.find_one({
                 "user_id": str(current_user["_id"]),
                 "status": {"$ne": "archived"}
             })
-            if (
-                not student
-                or (
-                    group_id not in student.get("group_ids", [])
-                    and str(student["_id"]) not in group.get("student_ids", [])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
             query["student_id"] = str(student["_id"])
         elif current_role == "parent":
             parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
@@ -267,8 +248,6 @@ async def get_group_attendance(
             if not child_ids:
                 raise HTTPException(status_code=403, detail="Access denied")
             query["student_id"] = {"$in": child_ids}
-        elif current_role not in ["super_admin", "manager"]:
-            raise HTTPException(status_code=403, detail="Insufficient permissions")
         
         if start_date and end_date:
             query["date"] = {
@@ -294,31 +273,15 @@ async def get_student_attendance(
     from server import db, serialize_doc
     
     try:
-        # Check permissions
-        if current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent or student_id not in parent.get("student_ids", []):
-                raise HTTPException(status_code=403, detail="Access denied")
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student:
-                return []
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student or str(student["user_id"]) != str(current_user["_id"]):
-                raise HTTPException(status_code=403, detail="Access denied")
-        else:
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student:
-                return []
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=400, detail="Invalid student ID")
+        student = await db.students.find_one({
+            "_id": ObjectId(student_id),
+            "status": {"$ne": "archived"}
+        })
+        if not student:
+            return []
+        await require_student_academic_read_access(db, current_user, student)
         
         query = {"student_id": student_id}
         

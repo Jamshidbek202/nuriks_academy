@@ -10,6 +10,11 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 import math
 from auth import get_current_user
+from academic_access import (
+    require_group_academic_read_access,
+    require_group_academic_staff_access,
+    require_student_academic_read_access,
+)
 from validation import require_date_window
 
 router = APIRouter(prefix="/homework", tags=["Homework"])
@@ -73,26 +78,13 @@ async def create_homework(
             homework_data.due_date, future_days=730, label="Homework due date"
         )
 
-        # Get teacher ID
-        teacher_id = None
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if teacher:
-                teacher_id = str(teacher["_id"])
-                group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
-                if (
-                    not group
-                    or (
-                        homework_data.group_id not in teacher.get("group_ids", [])
-                        and group.get("teacher_id") != teacher_id
-                    )
-                ):
-                    raise HTTPException(status_code=403, detail="You can only create homework for your own groups")
-        else:
-            # For managers/admins, get teacher from group
-            group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
-            if group:
-                teacher_id = group["teacher_id"]
+        if not ObjectId.is_valid(homework_data.group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_staff_access(db, current_user, group)
+        teacher_id = group.get("teacher_id")
         
         if not teacher_id:
             raise HTTPException(status_code=400, detail="Teacher not found")
@@ -123,19 +115,17 @@ async def create_homework(
         
         # Send notifications to students in the group
         try:
-            group = await db.groups.find_one({"_id": ObjectId(homework_data.group_id)})
-            if group:
-                student_ids = group.get("student_ids", [])
-                if student_ids:
-                    from notification_helpers import notify_homework_assigned
-                    due_date_str = homework_data.due_date.strftime("%B %d, %Y")
-                    background_tasks.add_task(
-                        notify_homework_assigned, db,
-                        student_ids=student_ids,
-                        homework_title=homework_data.title,
-                        due_date=due_date_str,
-                        group_name=group.get("name", "")
-                    )
+            student_ids = group.get("student_ids", [])
+            if student_ids:
+                from notification_helpers import notify_homework_assigned
+                due_date_str = homework_data.due_date.strftime("%B %d, %Y")
+                background_tasks.add_task(
+                    notify_homework_assigned, db,
+                    student_ids=student_ids,
+                    homework_title=homework_data.title,
+                    due_date=due_date_str,
+                    group_name=group.get("name", "")
+                )
         except Exception as e:
             # Log but don't fail the request
             import logging
@@ -169,18 +159,13 @@ async def delete_homework(
     if not homework:
         raise HTTPException(status_code=404, detail="Homework not found")
 
-    if current_user["role"] == "teacher":
-        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-        group = await db.groups.find_one({"_id": ObjectId(homework["group_id"])})
-        if (
-            not teacher
-            or not group
-            or (
-                homework["group_id"] not in teacher.get("group_ids", [])
-                and group.get("teacher_id") != str(teacher["_id"])
-            )
-        ):
-            raise HTTPException(status_code=403, detail="You can only delete homework for your own groups")
+    group_id = homework.get("group_id")
+    if not group_id or not ObjectId.is_valid(group_id):
+        raise HTTPException(status_code=409, detail="Homework has an invalid group")
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    await require_group_academic_staff_access(db, current_user, group)
 
     await db.homework.delete_one({"_id": ObjectId(homework_id)})
     await create_audit_log(
@@ -227,6 +212,13 @@ async def submit_homework(
         homework = await db.homework.find_one({"_id": ObjectId(submission.homework_id)})
         if not homework:
             raise HTTPException(status_code=404, detail="Homework not found")
+        group_id = homework.get("group_id")
+        if not group_id or not ObjectId.is_valid(group_id):
+            raise HTTPException(status_code=409, detail="Homework has an invalid group")
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_read_access(db, current_user, group)
         
         existing_submission = next(
             (s for s in homework.get("submissions", []) if s["student_id"] == student_id),
@@ -301,16 +293,7 @@ async def grade_homework(
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
 
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if (
-                not teacher
-                or (
-                    homework["group_id"] not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != str(teacher["_id"])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
+        await require_group_academic_staff_access(db, current_user, group)
 
         student = await db.students.find_one({
             "_id": ObjectId(grade_data.student_id),
@@ -409,45 +392,12 @@ async def get_group_homework(
     from server import db, serialize_doc
     
     try:
-        if current_user["role"] == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if (
-                not teacher
-                or not group
-                or (
-                    group_id not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != str(teacher["_id"])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({"user_id": str(current_user["_id"])})
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if (
-                not student
-                or not group
-                or (
-                    group_id not in student.get("group_ids", [])
-                    and str(student["_id"]) not in group.get("student_ids", [])
-                )
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent:
-                raise HTTPException(status_code=403, detail="Access denied")
-
-            children = await db.students.find({
-                "_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", []) if ObjectId.is_valid(sid)]},
-                "status": {"$ne": "archived"}
-            }).to_list(100)
-            group = await db.groups.find_one({"_id": ObjectId(group_id)})
-            if not group or not any(
-                group_id in child.get("group_ids", []) or str(child["_id"]) in group.get("student_ids", [])
-                for child in children
-            ):
-                raise HTTPException(status_code=403, detail="Access denied")
+        if not ObjectId.is_valid(group_id):
+            raise HTTPException(status_code=400, detail="Invalid group ID")
+        group = await db.groups.find_one({"_id": ObjectId(group_id)})
+        if not group:
+            raise HTTPException(status_code=404, detail="Group not found")
+        await require_group_academic_read_access(db, current_user, group)
 
         homework_list = await db.homework.find(
             {"group_id": group_id}
@@ -465,6 +415,8 @@ async def get_group_homework(
 
         return result
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -477,26 +429,15 @@ async def get_student_homework(
     from server import db, serialize_doc
     
     try:
-        # Check permissions
-        if current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent or student_id not in parent.get("student_ids", []):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            student = await db.students.find_one({
-                "_id": ObjectId(student_id),
-                "status": {"$ne": "archived"}
-            })
-            if not student or str(student["user_id"]) != str(current_user["_id"]):
-                raise HTTPException(status_code=403, detail="Access denied")
-        
-        # Get student's groups
+        if not ObjectId.is_valid(student_id):
+            raise HTTPException(status_code=400, detail="Invalid student ID")
         student = await db.students.find_one({
             "_id": ObjectId(student_id),
             "status": {"$ne": "archived"}
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        await require_student_academic_read_access(db, current_user, student)
         
         group_ids = set(student.get("group_ids", []))
         groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)

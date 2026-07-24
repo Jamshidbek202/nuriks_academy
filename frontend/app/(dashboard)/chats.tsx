@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  Alert,
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,13 +17,13 @@ import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Cross-platform alert
 const showAlert = (title: string, message: string) => {
   if (Platform.OS === 'web') {
     window.alert(`${title}\n\n${message}`);
   } else {
-    const { Alert } = require('react-native');
     Alert.alert(title, message);
   }
 };
@@ -152,6 +153,8 @@ export default function ChatsScreen() {
   // Check if user has chat access
   const hasAccess = user?.role && !['parent', 'manager'].includes(user.role);
 
+  useLiveRefresh(loadData, Boolean(hasAccess), `chat-list:${user?.id || user?._id || ''}`, 3000);
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -275,6 +278,9 @@ export default function ChatsScreen() {
             filteredConversations.map((conv) => (
               <TouchableOpacity
                 key={conv.id}
+                testID={`chat-conversation-${conv.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Open conversation with ${conv.other_participant?.name || 'user'}`}
                 style={styles.conversationCard}
                 onPress={() => handleOpenChat(conv.id)}
               >
@@ -339,6 +345,9 @@ export default function ChatsScreen() {
             filteredContacts.map((contact) => (
               <TouchableOpacity
                 key={contact.id}
+                testID={`chat-contact-${contact.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Start conversation with ${contact.name}`}
                 style={styles.contactCard}
                 onPress={() => handleStartChat(contact)}
               >

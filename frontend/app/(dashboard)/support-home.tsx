@@ -19,6 +19,7 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Booking {
   id: string;
@@ -77,7 +78,7 @@ export default function SupportHomeScreen() {
       try {
         const bookingsRes = await api.get('/support-bookings');
         setBookings(bookingsRes.data);
-      } catch (e) {
+      } catch {
         console.log('No bookings found or API not available');
         setBookings([]);
       }
@@ -88,6 +89,13 @@ export default function SupportHomeScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(
+    loadSupportData,
+    user?.role === 'support',
+    `support-bookings:${user?.id || user?._id || ''}`,
+    3000,
+  );
 
   const handleAcceptBooking = async (bookingId: string) => {
     try {
@@ -160,6 +168,7 @@ export default function SupportHomeScreen() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'confirmed': return COLORS.success;
+      case 'scheduled':
       case 'pending': return COLORS.warning;
       case 'completed': return COLORS.info;
       case 'cancelled': return COLORS.error;
@@ -170,7 +179,7 @@ export default function SupportHomeScreen() {
   const getFilteredBookings = () => {
     switch (activeTab) {
       case 'pending':
-        return bookings.filter(b => b.status === 'pending');
+        return bookings.filter(b => ['pending', 'scheduled'].includes(b.status));
       case 'today':
         return bookings.filter(b => b.booking_date === today);
       default:
@@ -178,7 +187,7 @@ export default function SupportHomeScreen() {
     }
   };
 
-  const pendingCount = bookings.filter(b => b.status === 'pending').length;
+  const pendingCount = bookings.filter(b => ['pending', 'scheduled'].includes(b.status)).length;
   const todayCount = bookings.filter(b => b.booking_date === today).length;
 
   if (loading) {
@@ -284,7 +293,7 @@ export default function SupportHomeScreen() {
                 )}
               </View>
 
-              {booking.status === 'pending' && (
+              {['pending', 'scheduled'].includes(booking.status) && (
                 <View style={styles.actionButtons}>
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.acceptBtn]}

@@ -407,7 +407,14 @@ export default function TestsScreen() {
           <Text style={styles.headerSubtitle}>Mid & End of Course Tests</Text>
         </View>
         {canManageTests && (
-          <TouchableOpacity style={styles.addButton} disabled={isCreating} onPress={openCreateModal}>
+          <TouchableOpacity
+            testID="tests-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add test"
+            style={styles.addButton}
+            disabled={isCreating}
+            onPress={openCreateModal}
+          >
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}
@@ -686,6 +693,7 @@ export default function TestsScreen() {
               />
 
               <CalendarDatePicker
+                testID="tests-test-date"
                 label="Test Date *"
                 value={formData.test_date}
                 onChange={(date) => setFormData({ ...formData, test_date: date })}
@@ -701,7 +709,7 @@ export default function TestsScreen() {
                 placeholder="100"
               />
 
-              <Button title="Create Test" onPress={handleCreateTest} loading={isCreating} disabled={isCreating} style={{ marginTop: SIZES.lg }} />
+              <Button testID="tests-create-button" title="Create Test" onPress={handleCreateTest} loading={isCreating} disabled={isCreating} style={{ marginTop: SIZES.lg }} />
             </ScrollView>
           </View>
         </View>

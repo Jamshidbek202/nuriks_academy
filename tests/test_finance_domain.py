@@ -31,8 +31,8 @@ from finance_service import seed_reception_user
 
 
 class FinanceDomainTests(unittest.TestCase):
-    def test_reception_seed_requires_branch_scope(self):
-        with self.assertRaisesRegex(ValueError, "must be assigned to a branch"):
+    def test_temporary_reception_seed_is_retired(self):
+        with self.assertRaisesRegex(ValueError, "phone-invited reception account"):
             import asyncio
 
             asyncio.run(seed_reception_user(None, None, "test-actor"))

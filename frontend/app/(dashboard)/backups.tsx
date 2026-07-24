@@ -8,13 +8,17 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Platform,
 } from 'react-native';
 import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../../src/services/api';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import { api, API_URL } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Backup {
   id: string;
@@ -26,18 +30,19 @@ interface Backup {
   collections: { [key: string]: number };
   total_records: number;
   size_estimate: string;
+  downloadable?: boolean;
 }
 
 const EXPORT_OPTIONS = [
   { collection: 'students', label: 'Students', icon: 'people' },
   { collection: 'teachers', label: 'Teachers', icon: 'person-circle' },
   { collection: 'payments', label: 'Payments', icon: 'card' },
-  { collection: 'attendance_records', label: 'Attendance', icon: 'checkbox' },
+  { collection: 'attendance', label: 'Attendance', icon: 'checkbox' },
   { collection: 'groups', label: 'Groups', icon: 'people-circle' },
 ];
 
 export default function BackupsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const [backups, setBackups] = useState<Backup[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -60,12 +65,49 @@ export default function BackupsScreen() {
     }
   };
 
+  useLiveRefresh(loadBackups, user?.role === 'super_admin', 'admin-backups', 5000);
+
+  const downloadFile = async (path: string, filename: string) => {
+    if (Platform.OS === 'web') {
+      const response = await api.get(path, { responseType: 'blob' });
+      const blob = response.data instanceof Blob ? response.data : new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (!FileSystem.documentDirectory || !token) {
+      throw new Error('Secure download storage is unavailable');
+    }
+    const target = `${FileSystem.documentDirectory}${filename}`;
+    const result = await FileSystem.downloadAsync(`${API_URL}/api${path}`, target, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (result.status < 200 || result.status >= 300) {
+      throw new Error(`Download failed with status ${result.status}`);
+    }
+    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri);
+  };
+
+  const handleDownloadBackup = async (backup: Backup) => {
+    const stamp = backup.created_at.replace(/[^0-9]/g, '').slice(0, 14);
+    await downloadFile(`/admin/backups/${backup.id}/download`, `nuriks-academy-backup-${stamp}.json.gz`);
+  };
+
   const handleCreateBackup = async () => {
     setCreating(true);
     try {
-      await api.post('/admin/backups');
-      Alert.alert('Success', 'Backup created successfully');
-      loadBackups();
+      const response = await api.post('/admin/backups');
+      const backup = response.data as Backup;
+      await handleDownloadBackup(backup);
+      Alert.alert('Success', 'Backup snapshot created, verified, and downloaded');
+      await loadBackups();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create backup');
     } finally {
@@ -73,13 +115,12 @@ export default function BackupsScreen() {
     }
   };
 
-  const handleExport = async (collection: string, format: 'excel' | 'pdf') => {
-    setExporting(collection);
+  const handleExport = async (collection: string, format: 'csv' | 'pdf') => {
+    setExporting(`${collection}-${format}`);
     try {
-      const res = await api.get(`/admin/export/${format}`, { params: { collection } });
-      // In a real app, this would download the file
-      // For now, show the record count
-      Alert.alert('Export Ready', `${res.data.record_count} ${collection} records ready for export.\n\nIn production, this would download as ${format.toUpperCase()}.`);
+      const stamp = new Date().toISOString().replace(/[^0-9]/g, '').slice(0, 14);
+      await downloadFile(`/admin/export/${format}?collection=${encodeURIComponent(collection)}`, `${collection}-${stamp}.${format}`);
+      Alert.alert('Export Ready', `${collection} data downloaded as ${format.toUpperCase()}.`);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to export data');
     } finally {
@@ -116,7 +157,14 @@ export default function BackupsScreen() {
           <Text style={styles.title}>Backups</Text>
           <Text style={styles.subtitle}>Data backup and export</Text>
         </View>
-        <TouchableOpacity style={styles.createButton} onPress={handleCreateBackup} disabled={creating}>
+        <TouchableOpacity
+          testID="backup-create-header-button"
+          accessibilityRole="button"
+          accessibilityLabel="Create and download backup"
+          style={styles.createButton}
+          onPress={handleCreateBackup}
+          disabled={creating}
+        >
           {creating ? (
             <ActivityIndicator size="small" color={COLORS.marbleDark} />
           ) : (
@@ -138,9 +186,9 @@ export default function BackupsScreen() {
           </View>
           <View style={styles.backupInfo}>
             <Text style={styles.backupTitle}>Create Manual Backup</Text>
-            <Text style={styles.backupDesc}>Backup all data collections</Text>
+            <Text style={styles.backupDesc}>Create a verified compressed snapshot and download it</Text>
           </View>
-          <Button title={creating ? 'Creating...' : 'Backup Now'} onPress={handleCreateBackup} disabled={creating} style={{ minWidth: 100 }} />
+          <Button testID="backup-create-button" title={creating ? 'Creating...' : 'Backup Now'} onPress={handleCreateBackup} disabled={creating} style={{ minWidth: 100 }} />
         </View>
 
         {/* Export Options */}
@@ -153,19 +201,39 @@ export default function BackupsScreen() {
               </View>
               <Text style={styles.exportLabel}>{option.label}</Text>
               <View style={styles.exportButtons}>
-                <TouchableOpacity style={styles.exportButton} onPress={() => handleExport(option.collection, 'excel')} disabled={exporting === option.collection}>
-                  {exporting === option.collection ? (
+                <TouchableOpacity
+                  testID={`backup-export-${option.collection}-csv`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Export ${option.label} as CSV`}
+                  style={styles.exportButton}
+                  onPress={() => handleExport(option.collection, 'csv')}
+                  disabled={exporting === `${option.collection}-csv`}
+                >
+                  {exporting === `${option.collection}-csv` ? (
                     <ActivityIndicator size="small" color={COLORS.success} />
                   ) : (
                     <>
                       <Ionicons name="document" size={16} color={COLORS.success} />
-                      <Text style={[styles.exportButtonText, { color: COLORS.success }]}>Excel</Text>
+                      <Text style={[styles.exportButtonText, { color: COLORS.success }]}>CSV</Text>
                     </>
                   )}
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.exportButton} onPress={() => handleExport(option.collection, 'pdf')} disabled={exporting === option.collection}>
-                  <Ionicons name="document-text" size={16} color={COLORS.error} />
-                  <Text style={[styles.exportButtonText, { color: COLORS.error }]}>PDF</Text>
+                <TouchableOpacity
+                  testID={`backup-export-${option.collection}-pdf`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Export ${option.label} as PDF`}
+                  style={styles.exportButton}
+                  onPress={() => handleExport(option.collection, 'pdf')}
+                  disabled={exporting === `${option.collection}-pdf`}
+                >
+                  {exporting === `${option.collection}-pdf` ? (
+                    <ActivityIndicator size="small" color={COLORS.error} />
+                  ) : (
+                    <>
+                      <Ionicons name="document-text" size={16} color={COLORS.error} />
+                      <Text style={[styles.exportButtonText, { color: COLORS.error }]}>PDF</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
@@ -176,7 +244,7 @@ export default function BackupsScreen() {
         <Text style={styles.sectionTitle}>Backup History</Text>
         {backups.length > 0 ? (
           backups.map((backup) => (
-            <View key={backup.id} style={styles.historyCard}>
+            <View key={backup.id} testID={`backup-history-${backup.id}`} style={styles.historyCard}>
               <View style={styles.historyHeader}>
                 <View style={[styles.statusDot, { backgroundColor: backup.status === 'completed' ? COLORS.success : COLORS.warning }]} />
                 <Text style={styles.historyType}>{backup.backup_type.toUpperCase()}</Text>
@@ -199,6 +267,18 @@ export default function BackupsScreen() {
                   </View>
                 ))}
               </View>
+              {backup.downloadable && (
+                <TouchableOpacity
+                  testID={`backup-download-${backup.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Download backup ${formatDate(backup.created_at)}`}
+                  style={styles.downloadButton}
+                  onPress={() => handleDownloadBackup(backup).catch((error: any) => Alert.alert('Error', error.message || 'Failed to download backup'))}
+                >
+                  <Ionicons name="download" size={18} color={COLORS.gold} />
+                  <Text style={styles.downloadText}>Download verified snapshot</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))
         ) : (
@@ -250,6 +330,8 @@ const styles = StyleSheet.create({
   historyCollections: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs },
   collectionBadge: { backgroundColor: COLORS.backgroundLight, paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm },
   collectionText: { fontSize: SIZES.fontXs, color: COLORS.textTertiary },
+  downloadButton: { marginTop: SIZES.md, paddingTop: SIZES.sm, borderTopWidth: 1, borderTopColor: COLORS.marbleGray, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.xs },
+  downloadText: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.gold },
   emptyState: { alignItems: 'center', paddingVertical: SIZES.xxl },
   emptyText: { fontSize: SIZES.fontLg, color: COLORS.textSecondary, marginTop: SIZES.md },
   emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs },

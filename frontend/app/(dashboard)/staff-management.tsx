@@ -1,589 +1,394 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
-  View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-  Modal,
-  Platform,
+  View,
 } from 'react-native';
-import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../../src/services/api';
+
+import { Text, TextInput } from '../../src/components/LocalizedText';
+import { api, apiErrorMessage } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
-import * as Clipboard from 'expo-clipboard';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 
-// Cross-platform alert helper
-const showAlert = (title: string, message: string, onOk?: () => void) => {
-  if (Platform.OS === 'web') {
-    window.alert(`${title}\n\n${message}`);
-    if (onOk) onOk();
-  } else {
-    const { Alert } = require('react-native');
-    Alert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
-  }
-};
+type StaffTab = 'leadership' | 'support';
+type AccountRole = 'manager' | 'reception' | 'support';
 
-// Cross-platform confirm helper
-const showConfirm = (title: string, message: string, onConfirm: () => void) => {
-  if (Platform.OS === 'web') {
-    if (window.confirm(`${title}\n\n${message}`)) {
-      onConfirm();
-    }
-  } else {
-    const { Alert } = require('react-native');
-    Alert.alert(title, message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Confirm', onPress: onConfirm, style: 'destructive' }
-    ]);
-  }
-};
-
-interface SupportStaff {
+interface StaffRecord {
   id: string;
-  user_id: string;
-  first_name: string;
-  last_name: string;
+  user_id?: string;
+  full_name?: string;
+  first_name?: string;
+  last_name?: string;
   phone: string;
   email?: string;
+  role?: AccountRole;
   is_active?: boolean;
-  login?: string;
+  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'phone_required';
+  phone_verified?: boolean;
+  invite_delivery_status?: string;
   last_login?: string;
 }
 
-export default function SupportStaffManagementScreen() {
+const showAlert = (title: string, message: string) => {
+  if (Platform.OS === 'web') window.alert(`${title}\n\n${message}`);
+  else Alert.alert(title, message);
+};
+
+const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+  if (Platform.OS === 'web') {
+    if (window.confirm(`${title}\n\n${message}`)) onConfirm();
+    return;
+  }
+  Alert.alert(title, message, [
+    { text: 'Cancel', style: 'cancel' },
+    { text: 'Confirm', style: 'destructive', onPress: onConfirm },
+  ]);
+};
+
+const displayName = (staff: StaffRecord) =>
+  staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim();
+
+const statusLabel = (staff: StaffRecord) => {
+  if (staff.account_status === 'pending_invite') return 'Invitation pending';
+  if (staff.account_status === 'phone_required') return 'Phone required';
+  if (staff.account_status === 'deactivated' || staff.is_active === false) return 'Deactivated';
+  return 'Active';
+};
+
+export default function StaffManagementScreen() {
   const { user } = useAuth();
-  const [staffList, setStaffList] = useState<SupportStaff[]>([]);
+  const isSuperAdmin = user?.role === 'super_admin';
+  const [tab, setTab] = useState<StaffTab>(isSuperAdmin ? 'leadership' : 'support');
+  const [records, setRecords] = useState<StaffRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [credentialModalVisible, setCredentialModalVisible] = useState(false);
-  const [selectedStaff, setSelectedStaff] = useState<SupportStaff | null>(null);
-  const [credentials, setCredentials] = useState<{ login: string; password: string } | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [isEditing, setIsEditing] = useState(false);
-  const [showInactive, setShowInactive] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
-
-  const [formData, setFormData] = useState({
+  const [search, setSearch] = useState('');
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selected, setSelected] = useState<StaffRecord | null>(null);
+  const [form, setForm] = useState({
     first_name: '',
     last_name: '',
-    phone: '',
+    phone: '+998',
     email: '',
+    role: 'manager' as AccountRole,
+    language_preference: 'ru',
   });
 
   const loadStaff = async () => {
+    if (!user || !['super_admin', 'manager'].includes(user.role)) return;
     try {
-      const response = await api.get('/support-staff', {
-        params: { include_inactive: showInactive }
-      });
-      setStaffList(response.data);
+      const response = tab === 'leadership'
+        ? await api.get('/staff-accounts', { params: { include_inactive: true } })
+        : await api.get('/support-staff', { params: { include_inactive: true } });
+      setRecords(response.data);
     } catch (error: any) {
-      console.error('Error loading support staff:', error);
-      showAlert('Error', error.response?.data?.detail || 'Failed to load support staff');
+      showAlert('Error', apiErrorMessage(error, 'Failed to load staff accounts'));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
 
-  useLiveRefresh(loadStaff, user?.role === 'super_admin', String(showInactive));
+  useLiveRefresh(loadStaff, Boolean(user && ['super_admin', 'manager'].includes(user.role)), `${tab}:${user?.role}`);
 
-  const handleCreateStaff = async () => {
-    if (!formData.first_name || !formData.last_name || !formData.phone) {
-      showAlert('Error', 'Please fill in required fields (Name & Phone)');
-      return;
-    }
-
-    setActionLoading(true);
-    try {
-      const response = await api.post('/support-staff', formData);
-      setModalVisible(false);
-      resetForm();
-      
-      // Show credentials modal
-      if (response.data.credentials) {
-        setCredentials(response.data.credentials);
-        setCredentialModalVisible(true);
-      }
-      
-      loadStaff();
-    } catch (error: any) {
-      showAlert('Error', error.response?.data?.detail || 'Failed to create support staff');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleUpdateStaff = async () => {
-    if (!selectedStaff) return;
-
-    setActionLoading(true);
-    try {
-      await api.put(`/support-staff/${selectedStaff.id}`, formData);
-      showAlert('Success', 'Support staff updated successfully');
-      setModalVisible(false);
-      setSelectedStaff(null);
-      setIsEditing(false);
-      resetForm();
-      loadStaff();
-    } catch (error: any) {
-      showAlert('Error', error.response?.data?.detail || 'Failed to update support staff');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
-  const handleDeactivate = (staff: SupportStaff) => {
-    showConfirm(
-      'Deactivate Support Staff',
-      `Are you sure you want to deactivate ${staff.first_name} ${staff.last_name}?\n\nThey will no longer be able to log in.`,
-      async () => {
-        setActionLoading(true);
-        try {
-          await api.patch(`/support-staff/${staff.id}/deactivate`);
-          showAlert('Success', 'Support staff deactivated');
-          setDetailModalVisible(false);
-          loadStaff();
-        } catch (error: any) {
-          showAlert('Error', error.response?.data?.detail || 'Failed to deactivate');
-        } finally {
-          setActionLoading(false);
-        }
-      }
-    );
-  };
-
-  const handleReactivate = (staff: SupportStaff) => {
-    showConfirm(
-      'Reactivate Support Staff',
-      `Reactivate ${staff.first_name} ${staff.last_name}?`,
-      async () => {
-        setActionLoading(true);
-        try {
-          await api.patch(`/support-staff/${staff.id}/reactivate`);
-          showAlert('Success', 'Support staff reactivated');
-          setDetailModalVisible(false);
-          loadStaff();
-        } catch (error: any) {
-          showAlert('Error', error.response?.data?.detail || 'Failed to reactivate');
-        } finally {
-          setActionLoading(false);
-        }
-      }
-    );
-  };
-
-  const handleResetPassword = (staff: SupportStaff) => {
-    showConfirm(
-      'Reset Password',
-      `Reset password for ${staff.first_name} ${staff.last_name}?\n\nA new password will be generated.`,
-      async () => {
-        setActionLoading(true);
-        try {
-          const response = await api.post(`/support-staff/${staff.id}/reset-password`);
-          setDetailModalVisible(false);
-          setCredentials({
-            login: response.data.login,
-            password: response.data.new_password
-          });
-          setCredentialModalVisible(true);
-        } catch (error: any) {
-          showAlert('Error', error.response?.data?.detail || 'Failed to reset password');
-        } finally {
-          setActionLoading(false);
-        }
-      }
-    );
-  };
-
-  const copyToClipboard = async (text: string) => {
-    await Clipboard.setStringAsync(text);
-    showAlert('Copied', 'Copied to clipboard');
-  };
-
-  const openEditModal = (staff: SupportStaff) => {
-    setSelectedStaff(staff);
-    setIsEditing(true);
-    setFormData({
-      first_name: staff.first_name,
-      last_name: staff.last_name,
-      phone: staff.phone || '',
-      email: staff.email || '',
-    });
-    setDetailModalVisible(false);
-    setModalVisible(true);
-  };
-
-  const openDetailModal = (staff: SupportStaff) => {
-    setSelectedStaff(staff);
-    setDetailModalVisible(true);
-  };
-
-  const resetForm = () => {
-    setFormData({
-      first_name: '',
-      last_name: '',
-      phone: '',
-      email: '',
-    });
-    setSelectedStaff(null);
-    setIsEditing(false);
-  };
-
-  const filteredStaff = staffList.filter(staff => {
-    const fullName = `${staff.first_name} ${staff.last_name}`.toLowerCase();
-    const phone = staff.phone?.toLowerCase() || '';
-    const query = searchQuery.toLowerCase();
-    return fullName.includes(query) || phone.includes(query);
+  const resetForm = () => setForm({
+    first_name: '',
+    last_name: '',
+    phone: '+998',
+    email: '',
+    role: tab === 'support' ? 'support' : 'manager',
+    language_preference: 'ru',
   });
 
-  // Check permissions
+  const openCreate = () => {
+    resetForm();
+    setCreateOpen(true);
+  };
+
+  const createStaff = async () => {
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.phone.trim()) {
+      showAlert('Required fields', 'Enter first name, last name, and phone number.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const response = tab === 'leadership'
+        ? await api.post('/staff-accounts', {
+            full_name: `${form.first_name.trim()} ${form.last_name.trim()}`,
+            phone: form.phone.trim(),
+            email: form.email.trim() || null,
+            role: form.role,
+            language_preference: form.language_preference,
+          })
+        : await api.post('/support-staff', {
+            first_name: form.first_name.trim(),
+            last_name: form.last_name.trim(),
+            phone: form.phone.trim(),
+            email: form.email.trim() || null,
+          });
+      setCreateOpen(false);
+      await loadStaff();
+      const delivery = response.data?.invite_delivery_status;
+      showAlert(
+        'Account created',
+        delivery === 'sent' || delivery === 'mock'
+          ? 'The invitation code was sent by SMS. The user must create their own password.'
+          : 'The account is pending activation, but the SMS was not sent. Check SMS settings, then use Send invitation code.',
+      );
+    } catch (error: any) {
+      showAlert('Could not create account', apiErrorMessage(error));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const accountPath = (staff: StaffRecord) =>
+    tab === 'leadership' ? `/staff-accounts/${staff.id}` : `/support-staff/${staff.id}`;
+
+  const sendAccessCode = async (staff: StaffRecord) => {
+    setActionLoading(true);
+    try {
+      const endpoint = tab === 'leadership'
+        ? `${accountPath(staff)}/send-access-code`
+        : `${accountPath(staff)}/reset-password`;
+      const response = await api.post(endpoint);
+      showAlert('SMS sent', response.data?.message || 'The access code was sent.');
+      setSelected(null);
+      await loadStaff();
+    } catch (error: any) {
+      showAlert('Could not send SMS', apiErrorMessage(error));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const changeActiveState = (staff: StaffRecord) => {
+    const deactivated = staff.account_status === 'deactivated' || (!staff.account_status && staff.is_active === false);
+    const action = deactivated ? 'reactivate' : 'deactivate';
+    showConfirm(
+      deactivated ? 'Reactivate account' : 'Deactivate account',
+      deactivated
+        ? `Reactivate ${displayName(staff)}? If activation was never completed, a new invitation will be sent.`
+        : `${displayName(staff)} will immediately lose access on every signed-in device.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.patch(`${accountPath(staff)}/${action}`);
+          setSelected(null);
+          await loadStaff();
+        } catch (error: any) {
+          showAlert('Account update failed', apiErrorMessage(error));
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    );
+  };
+
+  const filtered = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return records;
+    return records.filter((record) =>
+      displayName(record).toLowerCase().includes(query) || record.phone?.toLowerCase().includes(query),
+    );
+  }, [records, search]);
+
   if (!user || !['super_admin', 'manager'].includes(user.role)) {
     return (
-      <View style={styles.noAccessContainer}>
-        <Ionicons name="lock-closed" size={60} color={COLORS.textTertiary} />
-        <Text style={styles.noAccessText}>Access Denied</Text>
-      </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={COLORS.gold} />
+      <View style={styles.center}>
+        <Ionicons name="lock-closed" size={58} color={COLORS.textTertiary} />
+        <Text style={styles.emptyText}>Access denied</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Support Staff</Text>
+        <View>
+          <Text style={styles.title}>Staff Management</Text>
+          <Text style={styles.subtitle}>Phone invitations and account access</Text>
+        </View>
         <TouchableOpacity
+          testID={tab === 'support' ? 'support-staff-add-button' : 'staff-account-add-button'}
           style={styles.addButton}
-          onPress={() => {
-            resetForm();
-            setModalVisible(true);
-          }}
+          onPress={openCreate}
         >
           <Ionicons name="add" size={24} color={COLORS.marbleDark} />
         </TouchableOpacity>
       </View>
 
-      {/* Search & Filter */}
-      <View style={styles.searchContainer}>
-        <View style={styles.searchRow}>
-          <Ionicons name="search" size={20} color={COLORS.textTertiary} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search by name or phone..."
-            placeholderTextColor={COLORS.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
+      {isSuperAdmin && (
+        <View style={styles.tabs}>
+          <TouchableOpacity
+            testID="staff-leadership-tab"
+            style={[styles.tab, tab === 'leadership' && styles.tabActive]}
+            onPress={() => { setLoading(true); setTab('leadership'); }}
+          >
+            <Text style={[styles.tabText, tab === 'leadership' && styles.tabTextActive]}>Managers & Reception</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            testID="staff-support-tab"
+            style={[styles.tab, tab === 'support' && styles.tabActive]}
+            onPress={() => { setLoading(true); setTab('support'); }}
+          >
+            <Text style={[styles.tabText, tab === 'support' && styles.tabTextActive]}>Support Teachers</Text>
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[styles.filterButton, showInactive && styles.filterButtonActive]}
-          onPress={() => setShowInactive(!showInactive)}
-        >
-          <Text style={[styles.filterButtonText, showInactive && styles.filterButtonTextActive]}>
-            {showInactive ? 'Showing All' : 'Active Only'}
-          </Text>
-        </TouchableOpacity>
+      )}
+
+      <View style={styles.searchBox}>
+        <Ionicons name="search" size={19} color={COLORS.textTertiary} />
+        <TextInput style={styles.searchInput} value={search} onChangeText={setSearch} placeholder="Search name or phone" />
       </View>
 
-      {/* Staff List */}
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadStaff();
-            }}
-            tintColor={COLORS.gold}
-          />
-        }
-      >
-        {filteredStaff.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={60} color={COLORS.textTertiary} />
-            <Text style={styles.emptyText}>No support staff found</Text>
-          </View>
-        ) : (
-          filteredStaff.map((staff) => (
-            <TouchableOpacity
-              key={staff.id}
-              style={[styles.staffCard, !staff.is_active && styles.staffCardInactive]}
-              onPress={() => openDetailModal(staff)}
-            >
-              <View style={styles.avatarContainer}>
-                <View style={[styles.avatar, !staff.is_active && styles.avatarInactive]}>
-                  <Ionicons name="headset" size={24} color={staff.is_active ? COLORS.gold : COLORS.textTertiary} />
-                </View>
-                {staff.is_active !== false && (
-                  <View style={styles.onlineIndicator} />
-                )}
-              </View>
-              
-              <View style={styles.staffInfo}>
-                <Text style={styles.staffName}>
-                  {staff.first_name} {staff.last_name}
-                </Text>
-                <Text style={styles.staffPhone}>{staff.phone}</Text>
-                {staff.login && (
-                  <Text style={styles.staffLogin}>Login: {staff.login}</Text>
-                )}
-              </View>
-              
-              <View style={styles.staffStatus}>
-                <View style={[styles.statusBadge, staff.is_active !== false ? styles.activeBadge : styles.inactiveBadge]}>
-                  <Text style={[styles.statusText, staff.is_active !== false ? styles.activeText : styles.inactiveText]}>
-                    {staff.is_active !== false ? 'Active' : 'Inactive'}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
-
-      {/* Create/Edit Modal */}
-      <Modal
-        visible={modalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => {
-          setModalVisible(false);
-          resetForm();
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>
-                {isEditing ? 'Edit Support Staff' : 'Add Support Staff'}
-              </Text>
-              <TouchableOpacity onPress={() => {
-                setModalVisible(false);
-                resetForm();
-              }}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
+      {loading ? (
+        <View style={styles.center}><ActivityIndicator size="large" color={COLORS.gold} /></View>
+      ) : (
+        <ScrollView
+          style={styles.list}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStaff(); }} tintColor={COLORS.gold} />}
+        >
+          {filtered.length === 0 ? (
+            <View style={styles.empty}>
+              <Ionicons name="people-outline" size={54} color={COLORS.textTertiary} />
+              <Text style={styles.emptyText}>No staff accounts yet</Text>
             </View>
-
-            <ScrollView style={styles.modalBody}>
-              <Text style={styles.inputLabel}>First Name *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.first_name}
-                onChangeText={(text) => setFormData({ ...formData, first_name: text })}
-                placeholder="Enter first name"
-                placeholderTextColor={COLORS.textTertiary}
-              />
-
-              <Text style={styles.inputLabel}>Last Name *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.last_name}
-                onChangeText={(text) => setFormData({ ...formData, last_name: text })}
-                placeholder="Enter last name"
-                placeholderTextColor={COLORS.textTertiary}
-              />
-
-              <Text style={styles.inputLabel}>Phone *</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.phone}
-                onChangeText={(text) => setFormData({ ...formData, phone: text })}
-                placeholder="+998901234567"
-                placeholderTextColor={COLORS.textTertiary}
-                keyboardType="phone-pad"
-              />
-
-              <Text style={styles.inputLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={formData.email}
-                onChangeText={(text) => setFormData({ ...formData, email: text })}
-                placeholder="email@example.com"
-                placeholderTextColor={COLORS.textTertiary}
-                keyboardType="email-address"
-                autoCapitalize="none"
-              />
-
+          ) : filtered.map((staff) => {
+            const state = statusLabel(staff);
+            const active = state === 'Active';
+            const pending = state === 'Invitation pending';
+            return (
               <TouchableOpacity
-                style={[styles.submitButton, actionLoading && styles.buttonDisabled]}
-                onPress={isEditing ? handleUpdateStaff : handleCreateStaff}
+                key={staff.id}
+                testID={tab === 'support' ? `support-staff-card-${staff.id}` : `staff-account-card-${staff.id}`}
+                style={styles.card}
+                onPress={() => setSelected(staff)}
+              >
+                <View style={styles.avatar}>
+                  <Ionicons name={staff.role === 'reception' ? 'call' : staff.role === 'manager' ? 'briefcase' : 'headset'} size={23} color={COLORS.gold} />
+                </View>
+                <View style={styles.cardBody}>
+                  <Text style={styles.name}>{displayName(staff)}</Text>
+                  <Text style={styles.phone}>{staff.phone}</Text>
+                  <Text style={styles.role}>{staff.role === 'reception' ? 'Reception' : staff.role === 'manager' ? 'Manager' : 'Support teacher'}</Text>
+                </View>
+                <View style={[styles.badge, active ? styles.badgeActive : pending ? styles.badgePending : styles.badgeInactive]}>
+                  <Text style={styles.badgeText}>{state}</Text>
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      )}
+
+      <Modal visible={createOpen} transparent animationType="slide" onRequestClose={() => setCreateOpen(false)}>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>{tab === 'leadership' ? 'Create staff account' : 'Add support teacher'}</Text>
+              <TouchableOpacity onPress={() => setCreateOpen(false)}><Ionicons name="close" size={25} color={COLORS.textPrimary} /></TouchableOpacity>
+            </View>
+            <ScrollView keyboardShouldPersistTaps="handled">
+              {tab === 'leadership' && (
+                <>
+                  <Text style={styles.label}>Position *</Text>
+                  <View style={styles.roleChoices}>
+                    {(['manager', 'reception'] as AccountRole[]).map((role) => (
+                      <TouchableOpacity
+                        key={role}
+                        testID={`staff-role-${role}`}
+                        style={[styles.roleChoice, form.role === role && styles.roleChoiceActive]}
+                        onPress={() => setForm({ ...form, role })}
+                      >
+                        <Text style={[styles.roleChoiceText, form.role === role && styles.roleChoiceTextActive]}>{role === 'manager' ? 'Manager' : 'Reception'}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+              <Text style={styles.label}>First name *</Text>
+              <TextInput testID="staff-first-name-input" style={styles.input} value={form.first_name} onChangeText={(first_name) => setForm({ ...form, first_name })} />
+              <Text style={styles.label}>Last name *</Text>
+              <TextInput testID="staff-last-name-input" style={styles.input} value={form.last_name} onChangeText={(last_name) => setForm({ ...form, last_name })} />
+              <Text style={styles.label}>Phone *</Text>
+              <TextInput testID="staff-phone-input" style={styles.input} value={form.phone} onChangeText={(phone) => setForm({ ...form, phone })} keyboardType="phone-pad" placeholder="+998 90 123 45 67" />
+              <Text style={styles.label}>Email</Text>
+              <TextInput style={styles.input} value={form.email} onChangeText={(email) => setForm({ ...form, email })} keyboardType="email-address" autoCapitalize="none" />
+              {tab === 'leadership' && (
+                <>
+                  <Text style={styles.label}>Invitation language</Text>
+                  <View style={styles.roleChoices}>
+                    {['ru', 'uz', 'en'].map((language) => (
+                      <TouchableOpacity key={language} style={[styles.languageChoice, form.language_preference === language && styles.roleChoiceActive]} onPress={() => setForm({ ...form, language_preference: language })}>
+                        <Text style={[styles.roleChoiceText, form.language_preference === language && styles.roleChoiceTextActive]}>{language.toUpperCase()}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+              <Text style={styles.inviteNote}>The user will receive a six-digit SMS code and create their own password. No temporary password is stored or shown.</Text>
+              <TouchableOpacity
+                testID={tab === 'support' ? 'support-staff-save-button' : 'staff-account-save-button'}
+                style={[styles.primary, actionLoading && styles.disabled]}
+                onPress={createStaff}
                 disabled={actionLoading}
               >
-                {actionLoading ? (
-                  <ActivityIndicator size="small" color={COLORS.marbleDark} />
-                ) : (
-                  <Text style={styles.submitButtonText}>
-                    {isEditing ? 'Update' : 'Create Staff'}
-                  </Text>
-                )}
+                {actionLoading ? <ActivityIndicator color={COLORS.marbleDark} /> : <Text style={styles.primaryText}>Create and send invitation</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* Detail Modal */}
-      <Modal
-        visible={detailModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setDetailModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={Boolean(selected)} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Support Staff Details</Text>
-              <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
+              <Text style={styles.modalTitle}>Account details</Text>
+              <TouchableOpacity onPress={() => setSelected(null)}><Ionicons name="close" size={25} color={COLORS.textPrimary} /></TouchableOpacity>
             </View>
+            {selected && (
+              <>
+                <Text style={styles.detailName}>{displayName(selected)}</Text>
+                <Text style={styles.detail}>{selected.phone}</Text>
+                {!!selected.email && <Text style={styles.detail}>{selected.email}</Text>}
+                <Text style={styles.detail}>Status: {statusLabel(selected)}</Text>
+                {!!selected.last_login && <Text style={styles.detail}>Last sign in: {new Date(selected.last_login).toLocaleString()}</Text>}
 
-            {selectedStaff && (
-              <ScrollView style={styles.modalBody}>
-                <View style={styles.detailSection}>
-                  <View style={styles.detailAvatarContainer}>
-                    <View style={[styles.detailAvatar, selectedStaff.is_active === false && styles.avatarInactive]}>
-                      <Ionicons name="headset" size={40} color={selectedStaff.is_active !== false ? COLORS.gold : COLORS.textTertiary} />
-                    </View>
-                    <View style={[styles.statusBadgeLarge, selectedStaff.is_active !== false ? styles.activeBadge : styles.inactiveBadge]}>
-                      <Text style={[styles.statusTextLarge, selectedStaff.is_active !== false ? styles.activeText : styles.inactiveText]}>
-                        {selectedStaff.is_active !== false ? 'Active' : 'Inactive'}
-                      </Text>
-                    </View>
-                  </View>
-                  
-                  <Text style={styles.detailName}>
-                    {selectedStaff.first_name} {selectedStaff.last_name}
-                  </Text>
-                </View>
-
-                <View style={styles.detailRow}>
-                  <Ionicons name="call" size={20} color={COLORS.gold} />
-                  <Text style={styles.detailText}>{selectedStaff.phone}</Text>
-                </View>
-
-                {selectedStaff.email && (
-                  <View style={styles.detailRow}>
-                    <Ionicons name="mail" size={20} color={COLORS.gold} />
-                    <Text style={styles.detailText}>{selectedStaff.email}</Text>
-                  </View>
-                )}
-
-                {selectedStaff.login && (
-                  <View style={styles.detailRow}>
-                    <Ionicons name="person" size={20} color={COLORS.gold} />
-                    <Text style={styles.detailText}>Login: {selectedStaff.login}</Text>
-                  </View>
-                )}
-
-                <View style={styles.actionButtons}>
+                {selected.account_status !== 'deactivated' && (
                   <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => openEditModal(selectedStaff)}
-                  >
-                    <Ionicons name="create" size={20} color={COLORS.info} />
-                    <Text style={[styles.actionButtonText, { color: COLORS.info }]}>Edit</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={styles.actionButton}
-                    onPress={() => handleResetPassword(selectedStaff)}
+                    testID={tab === 'support' ? 'support-staff-reset-password-button' : 'staff-account-send-code-button'}
+                    style={styles.action}
+                    onPress={() => sendAccessCode(selected)}
                     disabled={actionLoading}
                   >
-                    <Ionicons name="key" size={20} color={COLORS.warning} />
-                    <Text style={[styles.actionButtonText, { color: COLORS.warning }]}>Reset Password</Text>
+                    <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.warning} />
+                    <Text style={styles.actionText}>{selected.account_status === 'pending_invite' ? 'Send invitation code' : 'Send password reset code'}</Text>
                   </TouchableOpacity>
-
-                  {selectedStaff.is_active !== false ? (
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => handleDeactivate(selectedStaff)}
-                      disabled={actionLoading}
-                    >
-                      <Ionicons name="close-circle" size={20} color={COLORS.error} />
-                      <Text style={[styles.actionButtonText, { color: COLORS.error }]}>Deactivate</Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => handleReactivate(selectedStaff)}
-                      disabled={actionLoading}
-                    >
-                      <Ionicons name="checkmark-circle" size={20} color={COLORS.success} />
-                      <Text style={[styles.actionButtonText, { color: COLORS.success }]}>Reactivate</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </ScrollView>
+                )}
+                <TouchableOpacity
+                  testID={tab === 'support'
+                    ? (selected.account_status === 'deactivated' ? 'support-staff-reactivate-button' : 'support-staff-deactivate-button')
+                    : (selected.account_status === 'deactivated' ? 'staff-reactivate-button' : 'staff-deactivate-button')}
+                  style={styles.action}
+                  onPress={() => changeActiveState(selected)}
+                  disabled={actionLoading}
+                >
+                  <Ionicons name={selected.account_status === 'deactivated' ? 'checkmark-circle' : 'close-circle'} size={20} color={selected.account_status === 'deactivated' ? COLORS.success : COLORS.error} />
+                  <Text style={styles.actionText}>{selected.account_status === 'deactivated' ? 'Reactivate' : 'Deactivate'}</Text>
+                </TouchableOpacity>
+              </>
             )}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Credentials Modal */}
-      <Modal
-        visible={credentialModalVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setCredentialModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.credentialModal}>
-            <View style={styles.credentialHeader}>
-              <Ionicons name="checkmark-circle" size={50} color={COLORS.success} />
-              <Text style={styles.credentialTitle}>Credentials Generated</Text>
-            </View>
-
-            {credentials && (
-              <View style={styles.credentialBox}>
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialLabel}>Login:</Text>
-                  <Text style={styles.credentialValue}>{credentials.login}</Text>
-                  <TouchableOpacity onPress={() => copyToClipboard(credentials.login)}>
-                    <Ionicons name="copy" size={20} color={COLORS.gold} />
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialLabel}>Password:</Text>
-                  <Text style={styles.credentialValue}>{credentials.password}</Text>
-                  <TouchableOpacity onPress={() => copyToClipboard(credentials.password)}>
-                    <Ionicons name="copy" size={20} color={COLORS.gold} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.credentialNote}>
-              Please save these credentials securely. The password cannot be recovered later.
-            </Text>
-
-            <TouchableOpacity
-              style={styles.credentialButton}
-              onPress={() => {
-                setCredentialModalVisible(false);
-                setCredentials(null);
-              }}
-            >
-              <Text style={styles.credentialButtonText}>Done</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -592,365 +397,51 @@ export default function SupportStaffManagementScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-  noAccessContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.background,
-  },
-  noAccessText: {
-    fontSize: SIZES.fontLg,
-    color: COLORS.textSecondary,
-    marginTop: SIZES.md,
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: SIZES.lg,
-    paddingBottom: SIZES.md,
-    backgroundColor: COLORS.marbleDark,
-  },
-  headerTitle: {
-    fontSize: SIZES.fontXxl,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: COLORS.gold,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.sm,
-    gap: SIZES.sm,
-  },
-  searchRow: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusMd,
-    paddingHorizontal: SIZES.md,
-    borderWidth: 1,
-    borderColor: COLORS.marbleGray,
-  },
-  searchInput: {
-    flex: 1,
-    paddingVertical: SIZES.sm,
-    paddingHorizontal: SIZES.sm,
-    fontSize: SIZES.fontMd,
-    color: COLORS.textPrimary,
-  },
-  filterButton: {
-    paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.sm,
-    borderRadius: SIZES.radiusMd,
-    backgroundColor: COLORS.backgroundCard,
-    borderWidth: 1,
-    borderColor: COLORS.marbleGray,
-  },
-  filterButtonActive: {
-    backgroundColor: COLORS.gold + '30',
-    borderColor: COLORS.gold,
-  },
-  filterButtonText: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textSecondary,
-  },
-  filterButtonTextActive: {
-    color: COLORS.gold,
-    fontWeight: '600',
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: SIZES.md,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: SIZES.xl * 2,
-  },
-  emptyText: {
-    fontSize: SIZES.fontMd,
-    color: COLORS.textSecondary,
-    marginTop: SIZES.md,
-  },
-  staffCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusMd,
-    padding: SIZES.md,
-    marginBottom: SIZES.sm,
-    ...SHADOWS.small,
-  },
-  staffCardInactive: {
-    opacity: 0.7,
-  },
-  avatarContainer: {
-    position: 'relative',
-    marginRight: SIZES.md,
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: COLORS.gold + '30',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarInactive: {
-    backgroundColor: COLORS.marbleGray,
-  },
-  onlineIndicator: {
-    position: 'absolute',
-    bottom: 2,
-    right: 2,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: COLORS.success,
-    borderWidth: 2,
-    borderColor: COLORS.backgroundCard,
-  },
-  staffInfo: {
-    flex: 1,
-  },
-  staffName: {
-    fontSize: SIZES.fontMd,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-  },
-  staffPhone: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textSecondary,
-    marginTop: 2,
-  },
-  staffLogin: {
-    fontSize: SIZES.fontXs,
-    color: COLORS.textTertiary,
-    marginTop: 2,
-  },
-  staffStatus: {
-    alignItems: 'flex-end',
-  },
-  statusBadge: {
-    paddingHorizontal: SIZES.sm,
-    paddingVertical: 2,
-    borderRadius: SIZES.radiusSm,
-    marginBottom: SIZES.xs,
-  },
-  statusBadgeLarge: {
-    paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.xs,
-    borderRadius: SIZES.radiusFull,
-  },
-  activeBadge: {
-    backgroundColor: COLORS.success + '20',
-  },
-  inactiveBadge: {
-    backgroundColor: COLORS.error + '20',
-  },
-  statusText: {
-    fontSize: SIZES.fontXs,
-    fontWeight: '600',
-  },
-  statusTextLarge: {
-    fontSize: SIZES.fontSm,
-    fontWeight: '600',
-  },
-  activeText: {
-    color: COLORS.success,
-  },
-  inactiveText: {
-    color: COLORS.error,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: COLORS.overlay,
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: COLORS.backgroundCard,
-    borderTopLeftRadius: SIZES.radiusLg,
-    borderTopRightRadius: SIZES.radiusLg,
-    maxHeight: '90%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: SIZES.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.marbleGray,
-  },
-  modalTitle: {
-    fontSize: SIZES.fontXl,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  modalBody: {
-    padding: SIZES.lg,
-  },
-  inputLabel: {
-    fontSize: SIZES.fontSm,
-    fontWeight: '600',
-    color: COLORS.textSecondary,
-    marginBottom: SIZES.xs,
-    marginTop: SIZES.md,
-  },
-  input: {
-    backgroundColor: COLORS.backgroundLight,
-    borderRadius: SIZES.radiusMd,
-    padding: SIZES.md,
-    fontSize: SIZES.fontMd,
-    color: COLORS.textPrimary,
-    borderWidth: 1,
-    borderColor: COLORS.marbleGray,
-  },
-  submitButton: {
-    backgroundColor: COLORS.gold,
-    borderRadius: SIZES.radiusMd,
-    padding: SIZES.md,
-    alignItems: 'center',
-    marginTop: SIZES.xl,
-    marginBottom: SIZES.lg,
-  },
-  buttonDisabled: {
-    opacity: 0.7,
-  },
-  submitButtonText: {
-    fontSize: SIZES.fontMd,
-    fontWeight: 'bold',
-    color: COLORS.marbleDark,
-  },
-  detailSection: {
-    alignItems: 'center',
-    marginBottom: SIZES.lg,
-  },
-  detailAvatarContainer: {
-    alignItems: 'center',
-    marginBottom: SIZES.md,
-  },
-  detailAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: COLORS.gold + '30',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: SIZES.sm,
-  },
-  detailName: {
-    fontSize: SIZES.fontXl,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: SIZES.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.marbleGray,
-    gap: SIZES.md,
-  },
-  detailText: {
-    fontSize: SIZES.fontMd,
-    color: COLORS.textSecondary,
-    flex: 1,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-around',
-    marginTop: SIZES.xl,
-    gap: SIZES.md,
-  },
-  actionButton: {
-    alignItems: 'center',
-    padding: SIZES.md,
-    minWidth: 100,
-  },
-  actionButtonText: {
-    fontSize: SIZES.fontSm,
-    fontWeight: '600',
-    marginTop: SIZES.xs,
-  },
-  credentialModal: {
-    backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusLg,
-    margin: SIZES.lg,
-    padding: SIZES.xl,
-    alignItems: 'center',
-  },
-  credentialHeader: {
-    alignItems: 'center',
-    marginBottom: SIZES.lg,
-  },
-  credentialTitle: {
-    fontSize: SIZES.fontXl,
-    fontWeight: 'bold',
-    color: COLORS.textPrimary,
-    marginTop: SIZES.md,
-  },
-  credentialBox: {
-    backgroundColor: COLORS.backgroundLight,
-    borderRadius: SIZES.radiusMd,
-    padding: SIZES.lg,
-    width: '100%',
-    marginBottom: SIZES.md,
-  },
-  credentialRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: SIZES.sm,
-    gap: SIZES.sm,
-  },
-  credentialLabel: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textSecondary,
-    width: 80,
-  },
-  credentialValue: {
-    fontSize: SIZES.fontMd,
-    fontWeight: '600',
-    color: COLORS.textPrimary,
-    flex: 1,
-  },
-  credentialNote: {
-    fontSize: SIZES.fontSm,
-    color: COLORS.textTertiary,
-    textAlign: 'center',
-    marginBottom: SIZES.lg,
-  },
-  credentialButton: {
-    backgroundColor: COLORS.gold,
-    borderRadius: SIZES.radiusMd,
-    paddingVertical: SIZES.md,
-    paddingHorizontal: SIZES.xl * 2,
-  },
-  credentialButtonText: {
-    fontSize: SIZES.fontMd,
-    fontWeight: 'bold',
-    color: COLORS.marbleDark,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
+  header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
+  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 3 },
+  addButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold },
+  tabs: { flexDirection: 'row', padding: SIZES.sm, gap: SIZES.sm },
+  tab: { flex: 1, minHeight: 44, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SIZES.sm },
+  tabActive: { backgroundColor: COLORS.gold + '25', borderWidth: 1, borderColor: COLORS.gold },
+  tabText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, textAlign: 'center' },
+  tabTextActive: { color: COLORS.gold, fontWeight: '700' },
+  searchBox: { marginHorizontal: SIZES.md, marginBottom: SIZES.sm, backgroundColor: COLORS.backgroundCard, borderColor: COLORS.marbleGray, borderWidth: 1, borderRadius: SIZES.radiusMd, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.md },
+  searchInput: { flex: 1, color: COLORS.textPrimary, padding: SIZES.sm, minHeight: 44 },
+  list: { flex: 1, paddingHorizontal: SIZES.md },
+  card: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, flexDirection: 'row', alignItems: 'center', ...SHADOWS.small },
+  avatar: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', alignItems: 'center', justifyContent: 'center', marginRight: SIZES.md },
+  cardBody: { flex: 1 },
+  name: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
+  phone: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 2 },
+  role: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: 2 },
+  badge: { maxWidth: 105, borderRadius: SIZES.radiusSm, paddingHorizontal: SIZES.sm, paddingVertical: 5 },
+  badgeActive: { backgroundColor: COLORS.success + '25' },
+  badgePending: { backgroundColor: COLORS.warning + '25' },
+  badgeInactive: { backgroundColor: COLORS.error + '20' },
+  badgeText: { color: COLORS.textPrimary, fontSize: 11, textAlign: 'center', fontWeight: '600' },
+  empty: { alignItems: 'center', paddingVertical: 70 },
+  emptyText: { color: COLORS.textSecondary, fontSize: SIZES.fontMd, marginTop: SIZES.md },
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', alignItems: 'center', justifyContent: 'center', padding: SIZES.md },
+  modal: { width: '100%', maxWidth: 520, maxHeight: '90%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SIZES.md },
+  modalTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: 'bold' },
+  label: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600', marginTop: SIZES.sm, marginBottom: SIZES.xs },
+  input: { backgroundColor: COLORS.backgroundLight, color: COLORS.textPrimary, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, padding: SIZES.md },
+  roleChoices: { flexDirection: 'row', gap: SIZES.sm },
+  roleChoice: { flex: 1, padding: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center' },
+  languageChoice: { paddingHorizontal: SIZES.lg, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center' },
+  roleChoiceActive: { borderColor: COLORS.gold, backgroundColor: COLORS.gold + '20' },
+  roleChoiceText: { color: COLORS.textSecondary },
+  roleChoiceTextActive: { color: COLORS.gold, fontWeight: '700' },
+  inviteNote: { color: COLORS.textTertiary, fontSize: SIZES.fontSm, lineHeight: 19, marginTop: SIZES.md },
+  primary: { minHeight: SIZES.touchTarget, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center', marginTop: SIZES.lg },
+  primaryText: { color: COLORS.marbleDark, fontWeight: 'bold' },
+  disabled: { opacity: 0.6 },
+  detailName: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: 'bold', marginBottom: SIZES.sm },
+  detail: { color: COLORS.textSecondary, fontSize: SIZES.fontMd, marginBottom: SIZES.sm },
+  action: { minHeight: 48, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, marginTop: SIZES.sm },
+  actionText: { color: COLORS.textPrimary, fontWeight: '600' },
 });

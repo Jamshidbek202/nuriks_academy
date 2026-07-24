@@ -7,7 +7,13 @@ from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime
 from models import Student, StudentCreate, StudentStatus
-from auth import get_current_user, require_role, generate_student_id, get_password_hash
+from auth import get_current_user, require_role, generate_student_id
+from phone_auth import (
+    OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
+    invited_user_document, issue_invitation, normalize_phone,
+    phone_required_user_document,
+)
+from pymongo import ReturnDocument
 from student_lifecycle import (
     StudentLifecycleConflict,
     archive_student_account,
@@ -31,9 +37,71 @@ async def get_next_student_id(db):
     result = await db.counters.find_one_and_update(
         {"_id": "student_id"},
         {"$inc": {"seq": 1}},
-        return_document=True
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
     )
     return generate_student_id(result["seq"])
+
+
+def require_branch_scope(current_user: dict, requested_branch_id: Optional[str] = None) -> Optional[str]:
+    """Return the branch visible to a branch-scoped role and reject overrides."""
+    if current_user.get("role") == "super_admin":
+        return requested_branch_id
+
+    own_branch_id = current_user.get("branch_id")
+    if requested_branch_id and requested_branch_id != own_branch_id:
+        raise HTTPException(status_code=403, detail="Cannot access another branch")
+    return own_branch_id
+
+
+async def require_student_read_access(db, current_user: dict, student: dict) -> None:
+    """Keep direct student records private to the user's permitted scope."""
+    role = current_user.get("role")
+    student_id = str(student["_id"])
+    if role == "super_admin":
+        return
+    if role in {"manager", "reception", "support"}:
+        if student.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Student belongs to another branch")
+        return
+    if role == "student":
+        if str(student.get("user_id")) != str(current_user.get("_id")):
+            raise HTTPException(status_code=403, detail="Access denied")
+        return
+    if role == "parent":
+        parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+        if not parent or student_id not in parent.get("student_ids", []):
+            raise HTTPException(status_code=403, detail="Access denied")
+        return
+    if role == "teacher":
+        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        if not teacher:
+            raise HTTPException(status_code=403, detail="Access denied")
+        teacher_group_ids = [
+            ObjectId(group_id)
+            for group_id in teacher.get("group_ids", [])
+            if ObjectId.is_valid(group_id)
+        ]
+        assigned = await db.groups.find_one({
+            "$and": [
+                {"$or": [
+                    {"_id": {"$in": teacher_group_ids}},
+                    {"teacher_id": str(teacher["_id"])},
+                ]},
+                {"$or": [
+                    {"student_ids": student_id},
+                    {"_id": {"$in": [
+                        ObjectId(group_id)
+                        for group_id in student.get("group_ids", [])
+                        if ObjectId.is_valid(group_id)
+                    ]}},
+                ]},
+            ]
+        })
+        if not assigned:
+            raise HTTPException(status_code=403, detail="Student is not assigned to this teacher")
+        return
+    raise HTTPException(status_code=403, detail="Access denied")
 
 @router.post("", response_model=Student)
 async def create_student(
@@ -47,48 +115,67 @@ async def create_student(
     # Check permissions
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    student_branch_id = require_branch_scope(current_user, student_data.branch_id)
     
     try:
         # Admin-created students should inherit the creator's branch unless an
         # explicit branch was selected. Otherwise branch-scoped staff cannot
         # see the new profile.
-        student_branch_id = student_data.branch_id or current_user.get("branch_id")
+        student_branch_id = student_branch_id or current_user.get("branch_id")
 
         # Generate student ID
         student_id = await get_next_student_id(db)
         
         # Create parent if parent info provided
         parent_id = None
-        if student_data.parent_phone or student_data.parent_name:
+        parent_phone = None
+        invitation_users = []
+        if student_data.parent_name and not student_data.parent_phone:
+            raise HTTPException(status_code=400, detail="Parent phone is required when parent information is provided")
+        if student_data.parent_phone:
+            try:
+                parent_phone = normalize_phone(student_data.parent_phone)
+            except PhoneValidationError as error:
+                raise HTTPException(status_code=400, detail=f"Parent phone: {error}") from error
             # Check if parent already exists
-            existing_parent = await db.parents.find_one({"phone": student_data.parent_phone})
+            existing_parent_user = await db.users.find_one({"phone_normalized": parent_phone})
+            existing_parent = None
+            if existing_parent_user:
+                if existing_parent_user.get("role") != "parent":
+                    raise HTTPException(status_code=409, detail="Parent phone is already used by another account")
+                existing_parent = await db.parents.find_one({"user_id": str(existing_parent_user["_id"])})
             
             if existing_parent:
                 parent_id = str(existing_parent["_id"])
             else:
-                # Create new parent user
                 parent_names = student_data.parent_name.split() if student_data.parent_name else ["Parent", "User"]
-                parent_user = {
-                    "login": f"parent_{student_data.parent_phone}",
-                    "password_hash": get_password_hash("Parent@2025"),
-                    "email": None,
-                    "phone": student_data.parent_phone,
-                    "full_name": student_data.parent_name or "Parent",
-                    "role": "parent",
-                    "is_active": True,
-                    "two_factor_enabled": False,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow(),
-                    "branch_id": student_branch_id
-                }
-                parent_user_result = await db.users.insert_one(parent_user)
+                if existing_parent_user:
+                    parent_user = existing_parent_user
+                    parent_user_id = existing_parent_user["_id"]
+                    if existing_parent_user.get("account_status") == "pending_invite":
+                        invitation_users.append(existing_parent_user)
+                else:
+                    parent_user = invited_user_document(
+                        phone=parent_phone,
+                        full_name=student_data.parent_name or "Parent",
+                        role="parent",
+                        email=None,
+                        branch_id=student_branch_id,
+                        language_preference=current_user.get("language_preference", "ru"),
+                        created_by=str(current_user["_id"]),
+                    )
+                    parent_user_result = await db.users.insert_one(parent_user)
+                    parent_user["_id"] = parent_user_result.inserted_id
+                    parent_user_id = parent_user_result.inserted_id
+                    invitation_users.append(parent_user)
                 
                 # Create parent profile
                 parent_profile = {
-                    "user_id": str(parent_user_result.inserted_id),
+                    "user_id": str(parent_user_id),
                     "first_name": parent_names[0],
                     "last_name": parent_names[-1] if len(parent_names) > 1 else "",
-                    "phone": student_data.parent_phone,
+                    "phone": parent_phone,
                     "email": None,
                     "student_ids": [],
                     "created_at": datetime.utcnow()
@@ -96,21 +183,46 @@ async def create_student(
                 parent_result = await db.parents.insert_one(parent_profile)
                 parent_id = str(parent_result.inserted_id)
         
-        # Create student user
-        student_user = {
-            "login": student_id.lower(),
-            "password_hash": get_password_hash("Student@2025"),
-            "email": student_data.email,
-            "phone": student_data.phone,
-            "full_name": f"{student_data.first_name} {student_data.last_name}",
-            "role": "student",
-            "is_active": True,
-            "two_factor_enabled": False,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow(),
-            "branch_id": student_branch_id
-        }
+        student_phone = None
+        student_contact_phone = None
+        if student_data.phone:
+            try:
+                student_phone = normalize_phone(student_data.phone)
+                student_contact_phone = student_phone
+            except PhoneValidationError as error:
+                raise HTTPException(status_code=400, detail=f"Student phone: {error}") from error
+            duplicate_phone = await db.users.find_one({"phone_normalized": student_phone})
+            if duplicate_phone:
+                if duplicate_phone.get("role") == "parent" and student_phone == parent_phone:
+                    # A child may share the parent's contact number, but one
+                    # phone cannot authenticate two separate accounts.
+                    student_phone = None
+                else:
+                    raise HTTPException(status_code=409, detail="Student phone is already used by another account")
+        if student_phone:
+            student_user = invited_user_document(
+                phone=student_phone,
+                full_name=f"{student_data.first_name} {student_data.last_name}",
+                role="student",
+                email=student_data.email,
+                branch_id=student_branch_id,
+                language_preference=current_user.get("language_preference", "ru"),
+                created_by=str(current_user["_id"]),
+            )
+        else:
+            student_user = phone_required_user_document(
+                login=student_id.lower(),
+                full_name=f"{student_data.first_name} {student_data.last_name}",
+                role="student",
+                email=student_data.email,
+                branch_id=student_branch_id,
+                language_preference=current_user.get("language_preference", "ru"),
+                created_by=str(current_user["_id"]),
+            )
         student_user_result = await db.users.insert_one(student_user)
+        student_user["_id"] = student_user_result.inserted_id
+        if student_phone:
+            invitation_users.append(student_user)
         
         # Create student profile
         student = {
@@ -120,7 +232,7 @@ async def create_student(
             "first_name": student_data.first_name,
             "last_name": student_data.last_name,
             "date_of_birth": student_data.date_of_birth,
-            "phone": student_data.phone,
+            "phone": student_contact_phone,
             "email": student_data.email,
             "photo": student_data.photo,
             "address": student_data.address,
@@ -140,6 +252,17 @@ async def create_student(
                 {"_id": ObjectId(parent_id)},
                 {"$push": {"student_ids": str(result.inserted_id)}}
             )
+
+        invite_status = {}
+        for invited_user in invitation_users:
+            try:
+                delivery = await issue_invitation(
+                    db, invited_user, actor_id=str(current_user["_id"]),
+                    request_ip=request.client.host if request.client else None,
+                )
+                invite_status[invited_user["role"]] = delivery.delivery_status
+            except (OtpDeliveryError, OtpRateLimitError):
+                invite_status[invited_user["role"]] = "failed"
         
         # Create audit log
         await create_audit_log(
@@ -147,13 +270,15 @@ async def create_student(
             "create",
             "student",
             str(result.inserted_id),
-            {"student_id": student_id},
+            {"student_id": student_id, "invite_delivery_status": invite_status},
             request.client.host if request.client else None
         )
 
         student["id"] = str(result.inserted_id)
         return serialize_doc(student)
         
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -177,12 +302,13 @@ async def get_students(
         else:
             query["status"] = {"$ne": StudentStatus.ARCHIVED}
         
-        # Filter by branch
-        if branch_id:
-            query["branch_id"] = branch_id
-        elif current_user["role"] not in ["super_admin", "parent", "student"]:
-            # Non-super admins see only their branch
-            query["branch_id"] = current_user.get("branch_id")
+        # Filter by branch. A query parameter must never let a scoped role
+        # escape the branch stored on its authenticated account.
+        if current_user["role"] == "super_admin":
+            if branch_id:
+                query["branch_id"] = branch_id
+        elif current_user["role"] not in ["parent", "student", "teacher"]:
+            query["branch_id"] = require_branch_scope(current_user, branch_id)
 
         # Teachers must always receive the active students in their assigned
         # groups. This also handles legacy records whose branch is missing or
@@ -241,7 +367,9 @@ async def get_students(
         
         students = await db.students.find(query).skip(skip).limit(limit).to_list(limit)
         return [serialize_doc(s) for s in students]
-        
+
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -261,14 +389,7 @@ async def get_student(
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
         
-        # Check permissions
-        if current_user["role"] == "parent":
-            parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-            if not parent or student_id not in parent.get("student_ids", []):
-                raise HTTPException(status_code=403, detail="Access denied")
-        elif current_user["role"] == "student":
-            if str(student["user_id"]) != str(current_user["_id"]):
-                raise HTTPException(status_code=403, detail="Access denied")
+        await require_student_read_access(db, current_user, student)
         
         return serialize_doc(student)
         
@@ -294,12 +415,19 @@ async def update_student(
         existing = await db.students.find_one({"_id": ObjectId(student_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Student not found")
+        require_student_manager(current_user, existing)
         
+        normalized_contact = None
+        if student_data.phone:
+            try:
+                normalized_contact = normalize_phone(student_data.phone)
+            except PhoneValidationError as error:
+                raise HTTPException(status_code=400, detail=f"Student phone: {error}") from error
         update_data = {
             "first_name": student_data.first_name,
             "last_name": student_data.last_name,
             "date_of_birth": student_data.date_of_birth,
-            "phone": student_data.phone,
+            "phone": normalized_contact,
             "email": student_data.email,
             "photo": student_data.photo,
             "address": student_data.address,
@@ -311,16 +439,57 @@ async def update_student(
             {"$set": update_data}
         )
         
-        # Update user info
+        user = await db.users.find_one({"_id": ObjectId(existing["user_id"])})
+        if not user:
+            raise HTTPException(status_code=404, detail="Student user account not found")
+        auth_phone = normalized_contact
+        if normalized_contact and existing.get("parent_id"):
+            parent = await db.parents.find_one({"_id": ObjectId(existing["parent_id"])})
+            if parent:
+                parent_user = await db.users.find_one({"_id": ObjectId(parent["user_id"])})
+                if parent_user and parent_user.get("phone_normalized") == normalized_contact:
+                    auth_phone = None
+        if auth_phone:
+            duplicate = await db.users.find_one({
+                "phone_normalized": auth_phone,
+                "_id": {"$ne": user["_id"]},
+            })
+            if duplicate:
+                raise HTTPException(status_code=409, detail="Student phone is already used by another account")
+        phone_changed = user.get("phone_normalized") != auth_phone
+        user_updates = {
+            "full_name": f"{student_data.first_name} {student_data.last_name}",
+            "email": student_data.email,
+            "phone": auth_phone,
+            "phone_normalized": auth_phone,
+            "updated_at": datetime.utcnow(),
+        }
+        user_update: dict = {"$set": user_updates}
+        if phone_changed:
+            user_updates.update({
+                "login": auth_phone or existing["student_id"].lower(),
+                "password_hash": None,
+                "phone_verified": False,
+                "is_active": False,
+                "account_status": "pending_invite" if auth_phone else "phone_required",
+                "invite_delivery_status": "pending" if auth_phone else None,
+            })
+            user_update["$inc"] = {"token_version": 1}
         await db.users.update_one(
             {"_id": ObjectId(existing["user_id"])},
-            {"$set": {
-                "full_name": f"{student_data.first_name} {student_data.last_name}",
-                "email": student_data.email,
-                "phone": student_data.phone,
-                "updated_at": datetime.utcnow()
-            }}
+            user_update,
         )
+        if phone_changed and auth_phone:
+            refreshed = await db.users.find_one({"_id": user["_id"]})
+            try:
+                await issue_invitation(
+                    db, refreshed, actor_id=str(current_user["_id"]),
+                    request_ip=request.client.host if request.client else None,
+                )
+            except (OtpDeliveryError, OtpRateLimitError):
+                await db.users.update_one(
+                    {"_id": user["_id"]}, {"$set": {"invite_delivery_status": "failed"}},
+                )
         
         await create_audit_log(
             str(current_user["_id"]),

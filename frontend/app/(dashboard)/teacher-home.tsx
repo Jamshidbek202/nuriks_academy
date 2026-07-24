@@ -80,7 +80,7 @@ export default function TeacherHomeScreen() {
       teacherGroups.forEach((group: Group) => {
         if (group.schedule) {
           group.schedule.forEach((sched) => {
-            if (sched.day === today) {
+          if (sched.day.toLowerCase() === today.toLowerCase()) {
               todaySchedule.push({ group, schedule: sched });
             }
           });

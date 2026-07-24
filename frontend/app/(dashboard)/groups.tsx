@@ -579,6 +579,9 @@ export default function GroupsScreen() {
         </View>
         {canCreateGroup && (
           <TouchableOpacity
+            testID="groups-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add group"
             style={styles.addButton}
             onPress={() => {
               resetForm();
@@ -620,8 +623,14 @@ export default function GroupsScreen() {
         }
       >
         {filteredGroups.map((group) => (
-          <TouchableOpacity key={group.id} style={styles.groupCard} onPress={() => openDetailModal(group)}>
-            <View style={styles.groupHeader}>
+          <View key={group.id} style={styles.groupCard}>
+            <TouchableOpacity
+              testID={`group-card-${group.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open group ${group.name}`}
+              onPress={() => openDetailModal(group)}
+            >
+            <View style={[styles.groupHeader, canDeleteGroup && styles.groupHeaderWithDelete]}>
               <View style={styles.groupIcon}>
                 <Ionicons name="people-circle" size={32} color={COLORS.gold} />
               </View>
@@ -639,27 +648,6 @@ export default function GroupsScreen() {
                   <Ionicons name="person" size={12} color={COLORS.textTertiary} /> {getTeacherName(group.teacher_id, group.teacher_name)}
                 </Text>
               </View>
-              {canDeleteGroup && (
-                <TouchableOpacity
-                  style={styles.cardDeleteButton}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete group ${group.name}`}
-                  disabled={deletingGroupId === group.id}
-                  onPress={(event) => {
-                    event.stopPropagation();
-                    handleDeleteGroup(group);
-                  }}
-                >
-                  {deletingGroupId === group.id ? (
-                    <ActivityIndicator size="small" color={COLORS.error} />
-                  ) : (
-                    <>
-                      <Ionicons name="trash-outline" size={18} color={COLORS.error} />
-                      <Text style={styles.cardDeleteText}>Delete</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              )}
             </View>
 
             <View style={styles.groupStats}>
@@ -702,7 +690,26 @@ export default function GroupsScreen() {
                 )}
               </View>
             )}
-          </TouchableOpacity>
+            </TouchableOpacity>
+            {canDeleteGroup && (
+              <TouchableOpacity
+                style={styles.cardDeleteButton}
+                accessibilityRole="button"
+                accessibilityLabel={`Delete group ${group.name}`}
+                disabled={deletingGroupId === group.id}
+                onPress={() => handleDeleteGroup(group)}
+              >
+                {deletingGroupId === group.id ? (
+                  <ActivityIndicator size="small" color={COLORS.error} />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={18} color={COLORS.error} />
+                    <Text style={styles.cardDeleteText}>Delete</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
+          </View>
         ))}
 
         {filteredGroups.length === 0 && (
@@ -738,7 +745,7 @@ export default function GroupsScreen() {
                   </TouchableOpacity>
                 )}
                 {selectedGroup && canEditGroup && (
-                  <TouchableOpacity onPress={() => openEditModal(selectedGroup)}>
+                  <TouchableOpacity testID="group-edit-button" accessibilityRole="button" accessibilityLabel="Edit group" onPress={() => openEditModal(selectedGroup)}>
                     <Ionicons name="create-outline" size={24} color={COLORS.gold} />
                   </TouchableOpacity>
                 )}
@@ -829,7 +836,7 @@ export default function GroupsScreen() {
                       Students ({getGroupStudents(selectedGroup.student_ids || []).length})
                     </Text>
                     {canManageGroupStudents && (
-                      <TouchableOpacity style={styles.addStudentBtn} onPress={() => { setStudentSearchQuery(''); setStudentModalVisible(true); }}>
+                      <TouchableOpacity testID="group-add-student-button" style={styles.addStudentBtn} onPress={() => { setStudentSearchQuery(''); setStudentModalVisible(true); }}>
                         <Ionicons name="person-add" size={18} color={COLORS.gold} />
                         <Text style={styles.addStudentText}>Add</Text>
                       </TouchableOpacity>
@@ -853,6 +860,7 @@ export default function GroupsScreen() {
                         </View>
                         {canManageGroupStudents && (
                           <TouchableOpacity
+                            testID={`group-remove-student-${student.id}`}
                             style={styles.removeStudentBtn}
                             disabled={removingStudentId === student.id}
                             onPress={() => handleRemoveStudentFromGroup(student)}
@@ -904,7 +912,12 @@ export default function GroupsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add Student</Text>
-              <TouchableOpacity onPress={() => { setStudentModalVisible(false); setStudentSearchQuery(''); }}>
+              <TouchableOpacity
+                testID="group-add-student-close"
+                accessibilityRole="button"
+                accessibilityLabel="Close add student"
+                onPress={() => { setStudentModalVisible(false); setStudentSearchQuery(''); }}
+              >
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -932,6 +945,7 @@ export default function GroupsScreen() {
                 getFilteredAvailableStudents().map((student) => (
                   <TouchableOpacity
                     key={student.id}
+                    testID={`group-select-student-${student.id}`}
                     style={styles.studentSelectItem}
                     onPress={() => handleAddStudentToGroup(student.id)}
                   >
@@ -1000,6 +1014,7 @@ export default function GroupsScreen() {
               <Text style={styles.formLabel}>Course *</Text>
               <View style={styles.pickerContainer}>
                 <Picker
+                  testID="group-course-picker"
                   selectedValue={formData.course_id}
                   onValueChange={(value) => setFormData({ ...formData, course_id: value, level: '' })}
                   style={styles.picker}
@@ -1018,6 +1033,7 @@ export default function GroupsScreen() {
                   <Text style={styles.formLabel}>Level</Text>
                   <View style={styles.pickerContainer}>
                     <Picker
+                      testID="group-level-picker"
                       selectedValue={formData.level}
                       onValueChange={(value) => setFormData({ ...formData, level: value })}
                       style={styles.picker}
@@ -1044,6 +1060,7 @@ export default function GroupsScreen() {
                   <Text style={styles.formLabel}>Teacher *</Text>
                   <View style={styles.pickerContainer}>
                     <Picker
+                      testID="group-teacher-picker"
                       selectedValue={formData.teacher_id}
                       onValueChange={(value) => setFormData({ ...formData, teacher_id: value })}
                       style={styles.picker}
@@ -1071,6 +1088,7 @@ export default function GroupsScreen() {
               <Text style={styles.formLabel}>Program *</Text>
               <View style={styles.pickerContainer}>
                 <Picker
+                  testID="group-program-picker"
                   selectedValue={formData.program_code}
                   onValueChange={(value: ProgramCode) => setFormData({ ...formData, program_code: value })}
                   style={styles.picker}
@@ -1086,6 +1104,7 @@ export default function GroupsScreen() {
               <Text style={styles.formLabel}>Class format *</Text>
               <View style={styles.pickerContainer}>
                 <Picker
+                  testID="group-format-picker"
                   selectedValue={formData.group_format}
                   onValueChange={(value: GroupFormat) => setFormData({ ...formData, group_format: value })}
                   style={styles.picker}
@@ -1125,6 +1144,7 @@ export default function GroupsScreen() {
               </View>
 
               <CalendarDatePicker
+                testID="group-finance-effective-date"
                 label="Finance effective date *"
                 value={formData.finance_effective_from}
                 onChange={(finance_effective_from) => setFormData({ ...formData, finance_effective_from })}
@@ -1142,6 +1162,7 @@ export default function GroupsScreen() {
                 <View style={styles.scheduleFormRow}>
                   <View style={[styles.pickerContainer, { flex: 1 }]}>
                     <Picker
+                      testID="group-schedule-day-picker"
                       selectedValue={scheduleForm.day}
                       onValueChange={(value) => setScheduleForm({ ...scheduleForm, day: value })}
                       style={styles.pickerSmall}
@@ -1180,7 +1201,7 @@ export default function GroupsScreen() {
                     placeholder="Room 101"
                     style={{ flex: 1 }}
                   />
-                  <TouchableOpacity style={styles.addScheduleBtn} onPress={addScheduleItem}>
+                  <TouchableOpacity testID="group-add-schedule-button" style={styles.addScheduleBtn} onPress={addScheduleItem}>
                     <Ionicons name="add" size={24} color={COLORS.marbleDark} />
                   </TouchableOpacity>
                 </View>
@@ -1206,6 +1227,7 @@ export default function GroupsScreen() {
               )}
 
               <Button
+                testID="group-save-button"
                 title={isEditing ? 'Update Group' : 'Create Group'}
                 onPress={isEditing ? handleUpdateGroup : handleCreateGroup}
                 style={{ marginTop: SIZES.lg }}
@@ -1302,6 +1324,9 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: SIZES.md,
   },
+  groupHeaderWithDelete: {
+    paddingRight: 78,
+  },
   groupIcon: {
     width: 48,
     height: 48,
@@ -1315,6 +1340,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cardDeleteButton: {
+    position: 'absolute',
+    top: SIZES.md,
+    right: SIZES.md,
+    zIndex: 2,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
@@ -1322,7 +1351,6 @@ const styles = StyleSheet.create({
     paddingVertical: SIZES.xs,
     borderRadius: SIZES.radiusSm,
     backgroundColor: COLORS.error + '18',
-    marginLeft: SIZES.sm,
   },
   cardDeleteText: {
     fontSize: SIZES.fontXs,

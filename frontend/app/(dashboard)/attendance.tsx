@@ -174,12 +174,15 @@ export default function AttendanceScreen() {
   );
 
   useLiveRefresh(
-    () => {
-      loadGroups();
-      loadStudents();
+    async () => {
+      await Promise.all([
+        loadGroups(),
+        loadStudents(),
+        selectedGroupId ? loadGroupAttendance() : Promise.resolve(),
+      ]);
     },
     true,
-    'attendance-memberships',
+    `attendance:${selectedGroupId || ''}:${selectedDate}`,
     3000,
   );
 

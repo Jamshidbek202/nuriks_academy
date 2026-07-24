@@ -1,6 +1,7 @@
-"""
-Seed script to create test users for all 6 roles
-Run this script to generate test accounts for RBAC testing
+"""Legacy disposable-QA fixture generator.
+
+This script intentionally uses shared test passwords and must never target the
+live academy database. Production accounts are provisioned by phone invite.
 """
 import asyncio
 import os
@@ -13,7 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
-from passlib.context import CryptContext
+from auth import get_password_hash
 
 load_dotenv()
 
@@ -21,12 +22,6 @@ load_dotenv()
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'nurik_academy')]
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
 
 async def get_next_student_id():
     """Get next student ID using atomic counter"""
@@ -42,6 +37,14 @@ async def get_next_student_id():
 
 async def seed_test_users():
     """Create test users for all 6 roles"""
+    environment = os.environ.get("APP_ENV", "").strip().lower()
+    database_name = os.environ.get("DB_NAME", "")
+    if environment not in {"test", "qa", "app_qa", "finance_qa", "sandbox"} or not any(
+        marker in database_name.lower() for marker in ("test", "qa", "sandbox")
+    ):
+        raise RuntimeError(
+            "Refusing to seed shared-password fixtures outside an explicitly named disposable QA database"
+        )
     
     # Get branch (should exist from init)
     branch = await db.branches.find_one()

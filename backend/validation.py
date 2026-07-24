@@ -1,5 +1,6 @@
 """Shared validation helpers for user-supplied dates and numeric values."""
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 import re
 
 from fastapi import HTTPException
@@ -13,7 +14,7 @@ def as_utc_naive(value: datetime) -> datetime:
 
 def require_date_window(value: datetime, *, past_days: int = 0, future_days: int = 0, label: str = "Date") -> datetime:
     normalized = as_utc_naive(value)
-    today = datetime.utcnow().date()
+    today = datetime.now(ZoneInfo("Asia/Tashkent")).date()
     earliest = today - timedelta(days=past_days)
     latest = today + timedelta(days=future_days)
     if normalized.date() < earliest or normalized.date() > latest:
@@ -34,7 +35,7 @@ def require_date_string_window(value: str, *, future_days: int, label: str = "Da
         parsed = datetime.strptime(value, "%Y-%m-%d").date()
     except ValueError:
         raise HTTPException(status_code=400, detail=f"{label} is not a valid calendar date")
-    today = datetime.utcnow().date()
+    today = datetime.now(ZoneInfo("Asia/Tashkent")).date()
     if parsed < today or parsed > today + timedelta(days=future_days):
         raise HTTPException(status_code=400, detail=f"{label} must be between today and {future_days} days from now")
     return parsed

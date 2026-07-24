@@ -341,6 +341,9 @@ export default function JournalScreen() {
         </View>
         {canManageJournal && (
           <TouchableOpacity
+            testID="journal-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add journal entry"
             style={[styles.addButton, !selectedGroup && styles.addButtonDisabled]}
             onPress={openCreateModal}
             disabled={!selectedGroup}
@@ -519,6 +522,7 @@ export default function JournalScreen() {
               <View style={styles.formRow}>
                 <View style={{ flex: 1 }}>
                   <CalendarDatePicker
+                    testID="journal-lesson-date"
                     label="Lesson Date"
                     value={formData.lesson_date}
                     onChange={(date) => setFormData({ ...formData, lesson_date: date })}
@@ -528,6 +532,8 @@ export default function JournalScreen() {
                 </View>
                 <View style={{ width: 100, marginLeft: SIZES.sm }}>
                   <Input
+                    testID="journal-lesson-number"
+                    accessibilityLabel="Lesson number"
                     label="Lesson #"
                     value={formData.lesson_number.toString()}
                     onChangeText={(text) => setFormData({ ...formData, lesson_number: parseInt(text) || 1 })}
@@ -589,6 +595,7 @@ export default function JournalScreen() {
               )}
 
               <Button
+                testID="journal-save-button"
                 title={isEditing ? 'Update Entry' : 'Create Entry'}
                 onPress={handleCreateEntry}
                 loading={isSaving}

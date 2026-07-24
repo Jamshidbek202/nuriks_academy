@@ -20,6 +20,7 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Certificate {
   id: string;
@@ -51,7 +52,6 @@ export default function CertificatesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
@@ -75,19 +75,19 @@ export default function CertificatesScreen() {
       setStudents(studentsRes.data);
       setCourses(coursesRes.data);
       
-      // Load certificates for all students (admin) or specific student
-      if (isAdmin) {
-        const allCerts: Certificate[] = [];
-        for (const student of studentsRes.data.slice(0, 20)) {
-          try {
-            const certsRes = await api.get(`/certificates/student/${student.id}`);
-            allCerts.push(...certsRes.data);
-          } catch (e) {
-            // Student may not have certificates
-          }
+      // `/students` is already role-scoped: admins receive their visible
+      // branch, students receive themselves, and parents receive children.
+      const allCerts: Certificate[] = [];
+      for (const student of studentsRes.data.slice(0, 100)) {
+        try {
+          const certsRes = await api.get(`/certificates/student/${student.id}`);
+          allCerts.push(...certsRes.data);
+        } catch {
+          // A legacy/unlinked profile should not hide certificates for the
+          // remaining visible students.
         }
-        setCertificates(allCerts);
       }
+      setCertificates(allCerts);
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -95,6 +95,8 @@ export default function CertificatesScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadData, Boolean(user), `certificates:${user?.id || user?._id || ''}`, 5000);
 
   const handleCreateCertificate = async () => {
     if (!formData.student_id || !formData.course_id) {
@@ -194,7 +196,13 @@ export default function CertificatesScreen() {
           <Text style={styles.headerSubtitle}>Course completion certificates</Text>
         </View>
         {isAdmin && (
-          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+          <TouchableOpacity
+            testID="certificate-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Issue certificate"
+            style={styles.addButton}
+            onPress={() => { resetForm(); setModalVisible(true); }}
+          >
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}
@@ -218,7 +226,7 @@ export default function CertificatesScreen() {
       >
         {certificates.length > 0 ? (
           certificates.map((cert) => (
-            <View key={cert.id} style={styles.certificateCard}>
+            <View key={cert.id} testID={`certificate-card-${cert.id}`} style={styles.certificateCard}>
               <View style={styles.certificateHeader}>
                 <View style={styles.certificateIcon}>
                   <Ionicons name="ribbon" size={32} color={COLORS.gold} />
@@ -242,6 +250,9 @@ export default function CertificatesScreen() {
               </View>
 
               <TouchableOpacity
+                testID={`certificate-download-${cert.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Download certificate ${cert.certificate_id}`}
                 style={styles.downloadButton}
                 onPress={() => handleDownloadCertificate(cert)}
                 disabled={downloading === cert.id}
@@ -272,7 +283,12 @@ export default function CertificatesScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Issue Certificate</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
+              <TouchableOpacity
+                testID="certificate-close-button"
+                accessibilityRole="button"
+                accessibilityLabel="Close certificate form"
+                onPress={() => setModalVisible(false)}
+              >
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -281,6 +297,7 @@ export default function CertificatesScreen() {
               <Text style={styles.formLabel}>Student</Text>
               <View style={styles.pickerContainer}>
                 <Picker
+                  testID="certificate-student-picker"
                   selectedValue={formData.student_id}
                   onValueChange={(value) => setFormData({ ...formData, student_id: value })}
                   style={styles.picker}
@@ -301,6 +318,7 @@ export default function CertificatesScreen() {
               <Text style={styles.formLabel}>Course</Text>
               <View style={styles.pickerContainer}>
                 <Picker
+                  testID="certificate-course-picker"
                   selectedValue={formData.course_id}
                   onValueChange={(value) => setFormData({ ...formData, course_id: value })}
                   style={styles.picker}
@@ -332,7 +350,7 @@ export default function CertificatesScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Button title="Issue Certificate" onPress={handleCreateCertificate} style={{ marginTop: SIZES.lg }} />
+              <Button testID="certificate-issue-button" title="Issue Certificate" onPress={handleCreateCertificate} style={{ marginTop: SIZES.lg }} />
             </ScrollView>
           </View>
         </View>

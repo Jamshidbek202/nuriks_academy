@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status, Header
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 import pyotp
@@ -20,16 +20,23 @@ if not SECRET_KEY:
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 security = HTTPBearer()
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a plain password against a hashed password"""
-    return pwd_context.verify(plain_password, hashed_password)
+    if not isinstance(plain_password, str) or not isinstance(hashed_password, str):
+        return False
+    try:
+        return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("ascii"))
+    except (TypeError, ValueError, UnicodeError):
+        return False
 
 def get_password_hash(password: str) -> str:
     """Hash a password"""
-    return pwd_context.hash(password)
+    encoded = password.encode("utf-8")
+    if len(encoded) > 72:
+        raise ValueError("Password exceeds bcrypt's 72-byte limit")
+    return bcrypt.hashpw(encoded, bcrypt.gensalt()).decode("ascii")
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     """Create a JWT access token"""
@@ -103,6 +110,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     from bson import ObjectId
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if user is None:
+        raise credentials_exception
+    if int(payload.get("token_version", 0)) != int(user.get("token_version", 0)):
         raise credentials_exception
     if not user.get("is_active", True):
         raise HTTPException(

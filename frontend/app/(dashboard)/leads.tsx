@@ -47,7 +47,7 @@ export default function LeadsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
-  const [selectedLead, setSelectedLead] = useState(null);
+  const [selectedLead, setSelectedLead] = useState<any | null>(null);
   const [courses, setCourses] = useState([]);
   
   // Convert confirmation modal state
@@ -121,7 +121,7 @@ export default function LeadsScreen() {
       setModalVisible(false);
       resetForm();
       loadLeads();
-    } catch (error) {
+    } catch {
       showAlert('Error', 'Failed to create lead');
     }
   };
@@ -154,8 +154,9 @@ export default function LeadsScreen() {
   const handleUpdateStatus = async (leadId: string, newStatus: string) => {
     try {
       await api.put(`/leads/${leadId}`, { status: newStatus });
+      setSelectedLead((current: any) => current?.id === leadId ? { ...current, status: newStatus } : current);
       loadLeads();
-    } catch (error) {
+    } catch {
       showAlert('Error', 'Failed to update status');
     }
   };
@@ -227,6 +228,9 @@ export default function LeadsScreen() {
           <Text style={styles.headerSubtitle}>{leads.length} total leads</Text>
         </View>
         <TouchableOpacity
+          testID="leads-add-button"
+          accessibilityRole="button"
+          accessibilityLabel="Add Lead"
           style={styles.addButton}
           onPress={() => setModalVisible(true)}
         >
@@ -244,6 +248,9 @@ export default function LeadsScreen() {
         {leads.map((lead: any) => (
           <TouchableOpacity
             key={lead.id}
+            testID={`lead-card-${lead.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`Open lead ${lead.first_name} ${lead.last_name}`}
             style={styles.leadCard}
             onPress={() => setSelectedLead(lead)}
           >
@@ -283,8 +290,12 @@ export default function LeadsScreen() {
             
             {lead.status !== 'enrolled' && lead.status !== 'lost' && (
               <TouchableOpacity
+                testID={`lead-convert-${lead.id}`}
                 style={styles.convertButton}
-                onPress={() => handleConvertToStudent(lead)}
+                onPress={(event) => {
+                  event.stopPropagation();
+                  handleConvertToStudent(lead);
+                }}
               >
                 <Text style={styles.convertButtonText}>Convert to Student</Text>
               </TouchableOpacity>
@@ -423,6 +434,73 @@ export default function LeadsScreen() {
         </View>
       </Modal>
 
+      {/* Lead Detail Modal */}
+      <Modal
+        visible={Boolean(selectedLead)}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setSelectedLead(null)}
+      >
+        <View style={styles.confirmModalOverlay}>
+          <View testID="lead-detail-modal" style={styles.leadDetailContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Lead Details</Text>
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close lead details"
+                onPress={() => setSelectedLead(null)}
+              >
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {selectedLead ? (
+              <View style={styles.leadDetailBody}>
+                <Text style={styles.leadDetailName}>{selectedLead.first_name} {selectedLead.last_name}</Text>
+                <Text style={styles.leadDetailValue}>{selectedLead.phone}</Text>
+                {selectedLead.age ? <Text style={styles.leadDetailValue}>Age: {selectedLead.age}</Text> : null}
+                <Text style={styles.leadDetailValue}>Source: {selectedLead.source?.replace('_', ' ')}</Text>
+                {selectedLead.notes ? <Text style={styles.leadDetailNotes}>{selectedLead.notes}</Text> : null}
+
+                <Text style={styles.label}>Status</Text>
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    testID="lead-status-picker"
+                    selectedValue={selectedLead.status}
+                    enabled={!selectedLead.converted_to_student_id && selectedLead.status !== 'enrolled'}
+                    onValueChange={(value) => {
+                      if (value !== selectedLead.status) void handleUpdateStatus(selectedLead.id, value);
+                    }}
+                    style={styles.picker}
+                    itemStyle={styles.pickerItem}
+                    dropdownIconColor={COLORS.gold}
+                  >
+                    {LEAD_STATUSES.filter((status) => (
+                      status.value !== 'enrolled' || selectedLead.status === 'enrolled'
+                    )).map((status) => (
+                      <LocalizedPickerItem key={status.value} label={status.label} value={status.value} />
+                    ))}
+                  </Picker>
+                </View>
+
+                {!selectedLead.converted_to_student_id && selectedLead.status !== 'enrolled' && selectedLead.status !== 'lost' ? (
+                  <TouchableOpacity
+                    testID={`lead-detail-convert-${selectedLead.id}`}
+                    style={styles.convertButton}
+                    onPress={() => {
+                      const lead = selectedLead;
+                      setSelectedLead(null);
+                      handleConvertToStudent(lead);
+                    }}
+                  >
+                    <Text style={styles.convertButtonText}>Convert to Student</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       {/* Convert Confirmation Modal */}
       <Modal
         visible={confirmModalVisible}
@@ -453,6 +531,7 @@ export default function LeadsScreen() {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="lead-convert-confirm"
                 style={[styles.confirmButton, converting && styles.buttonDisabled]}
                 onPress={performConversion}
                 disabled={converting}
@@ -484,37 +563,26 @@ export default function LeadsScreen() {
             
             {conversionResult && (
               <View style={styles.credentialsContainer}>
-                <Text style={styles.credentialsLabel}>Student Credentials</Text>
+                <Text style={styles.credentialsLabel}>Account activation</Text>
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialKey}>Student ID:</Text>
                   <Text style={styles.credentialValue}>{conversionResult.student_id}</Text>
                 </View>
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialKey}>Login:</Text>
-                  <Text style={styles.credentialValue}>{conversionResult.student_login}</Text>
-                </View>
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialKey}>Password:</Text>
-                  <Text style={styles.credentialValue}>{conversionResult.student_password}</Text>
-                </View>
-                
-                {conversionResult.parent_login && (
-                  <>
-                    <Text style={[styles.credentialsLabel, { marginTop: SIZES.md }]}>Parent Credentials</Text>
-                    <View style={styles.credentialRow}>
-                      <Text style={styles.credentialKey}>Login:</Text>
-                      <Text style={styles.credentialValue}>{conversionResult.parent_login}</Text>
-                    </View>
-                    <View style={styles.credentialRow}>
-                      <Text style={styles.credentialKey}>Password:</Text>
-                      <Text style={styles.credentialValue}>{conversionResult.parent_password}</Text>
-                    </View>
-                  </>
-                )}
+                <Text style={styles.credentialValue}>
+                  {conversionResult.invite_delivery_status?.parent === 'sent' || conversionResult.invite_delivery_status?.parent === 'mock'
+                    ? 'The parent invitation code was sent by SMS.'
+                    : conversionResult.invite_delivery_status?.student === 'sent' || conversionResult.invite_delivery_status?.student === 'mock'
+                      ? 'The student invitation code was sent by SMS.'
+                      : 'The student record was created. Add a unique phone number before enabling student login.'}
+                </Text>
+                <Text style={[styles.credentialValue, { marginTop: SIZES.sm }]}>
+                  The account owner creates their own password. Staff cannot see or set it.
+                </Text>
               </View>
             )}
             
             <TouchableOpacity
+              testID="lead-conversion-done"
               style={styles.successButton}
               onPress={() => {
                 setSuccessModalVisible(false);
@@ -671,6 +739,35 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontXl,
     fontWeight: 'bold',
     color: COLORS.textPrimary,
+  },
+  leadDetailContent: {
+    width: '92%',
+    maxWidth: 520,
+    backgroundColor: COLORS.backgroundCard,
+    borderRadius: SIZES.radiusLg,
+    overflow: 'hidden',
+    ...SHADOWS.large,
+  },
+  leadDetailBody: {
+    padding: SIZES.lg,
+    gap: SIZES.sm,
+  },
+  leadDetailName: {
+    fontSize: SIZES.fontXl,
+    fontWeight: '700',
+    color: COLORS.textPrimary,
+  },
+  leadDetailValue: {
+    fontSize: SIZES.fontMd,
+    color: COLORS.textSecondary,
+    textTransform: 'capitalize',
+  },
+  leadDetailNotes: {
+    fontSize: SIZES.fontMd,
+    color: COLORS.textPrimary,
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
   },
   modalForm: {
     padding: SIZES.lg,

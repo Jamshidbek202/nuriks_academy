@@ -8,16 +8,15 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  Alert,
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
-import { api } from '../../src/services/api';
+import { api, apiErrorMessage } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
-import * as Clipboard from 'expo-clipboard';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Cross-platform alert helper
@@ -26,7 +25,6 @@ const showAlert = (title: string, message: string, onOk?: () => void) => {
     window.alert(`${title}\n\n${message}`);
     if (onOk) onOk();
   } else {
-    const { Alert } = require('react-native');
     Alert.alert(title, message, [{ text: 'OK', onPress: onOk }]);
   }
 };
@@ -38,7 +36,6 @@ const showConfirm = (title: string, message: string, onConfirm: () => void) => {
       onConfirm();
     }
   } else {
-    const { Alert } = require('react-native');
     Alert.alert(title, message, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Confirm', onPress: onConfirm, style: 'destructive' }
@@ -59,7 +56,9 @@ interface Teacher {
   group_ids: string[];
   branch_id?: string;
   is_active?: boolean;
-  login?: string;
+  account_status?: 'pending_invite' | 'active' | 'deactivated';
+  phone_verified?: boolean;
+  invite_delivery_status?: string;
 }
 
 interface Course {
@@ -80,9 +79,7 @@ export default function TeachersScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
-  const [credentialModalVisible, setCredentialModalVisible] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
-  const [credentials, setCredentials] = useState<{ login: string; password: string } | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [courses, setCourses] = useState<Course[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
@@ -101,18 +98,7 @@ export default function TeachersScreen() {
   const loadTeachers = async () => {
     try {
       const response = await api.get('/teachers');
-      // Fetch status for each teacher
-      const teachersWithStatus = await Promise.all(
-        response.data.map(async (teacher: Teacher) => {
-          try {
-            const statusRes = await api.get(`/teachers/${teacher.id}/status`);
-            return { ...teacher, is_active: statusRes.data.is_active, login: statusRes.data.login };
-          } catch {
-            return teacher;
-          }
-        })
-      );
-      setTeachers(teachersWithStatus);
+      setTeachers(response.data);
     } catch (error) {
       console.error('Error loading teachers:', error);
       showAlert('Error', 'Failed to load teachers');
@@ -154,20 +140,18 @@ export default function TeachersScreen() {
 
     setActionLoading(true);
     try {
-      await api.post('/teachers', formData);
+      const response = await api.post('/teachers', formData);
       setModalVisible(false);
       resetForm();
-      
-      // Show credentials
-      setCredentials({
-        login: `teacher_${formData.phone}`,
-        password: 'Teacher@2025'
-      });
-      setCredentialModalVisible(true);
-      
-      loadTeachers();
+      await loadTeachers();
+      showAlert(
+        'Teacher account created',
+        ['sent', 'mock'].includes(response.data?.invite_delivery_status)
+          ? 'An invitation code was sent by SMS. The teacher will create their own password.'
+          : 'The account is pending activation, but the SMS was not sent. Check SMS settings and send the invitation again.',
+      );
     } catch (error: any) {
-      showAlert('Error', error.response?.data?.detail || 'Failed to create teacher');
+      showAlert('Error', apiErrorMessage(error, 'Failed to create teacher'));
     } finally {
       setActionLoading(false);
     }
@@ -235,29 +219,20 @@ export default function TeachersScreen() {
   const handleResetPassword = (teacher: Teacher) => {
     showConfirm(
       'Reset Password',
-      `Reset password for ${teacher.first_name} ${teacher.last_name}?\n\nA new password will be generated.`,
+      `${teacher.account_status === 'pending_invite' ? 'Send another invitation code' : 'Send a password reset code'} to ${teacher.first_name} ${teacher.last_name}?`,
       async () => {
         setActionLoading(true);
         try {
           const response = await api.post(`/teachers/${teacher.id}/reset-password`);
           setDetailModalVisible(false);
-          setCredentials({
-            login: response.data.login,
-            password: response.data.new_password
-          });
-          setCredentialModalVisible(true);
+          showAlert('SMS sent', response.data?.message || 'The access code was sent.');
         } catch (error: any) {
-          showAlert('Error', error.response?.data?.detail || 'Failed to reset password');
+          showAlert('Error', apiErrorMessage(error, 'Failed to send access code'));
         } finally {
           setActionLoading(false);
         }
       }
     );
-  };
-
-  const copyToClipboard = async (text: string) => {
-    await Clipboard.setStringAsync(text);
-    showAlert('Copied', 'Copied to clipboard');
   };
 
   const openEditModal = (teacher: Teacher) => {
@@ -329,6 +304,9 @@ export default function TeachersScreen() {
           <Text style={styles.headerSubtitle}>{teachers.length} total teachers</Text>
         </View>
         <TouchableOpacity
+          testID="teachers-add-button"
+          accessibilityRole="button"
+          accessibilityLabel="Add teacher"
           style={styles.addButton}
           onPress={() => {
             resetForm();
@@ -370,6 +348,9 @@ export default function TeachersScreen() {
           return (
             <TouchableOpacity
               key={teacher.id}
+              testID={`teacher-card-${teacher.id}`}
+              accessibilityRole="button"
+              accessibilityLabel={`Open teacher ${teacher.first_name} ${teacher.last_name}`}
               style={styles.teacherCard}
               onPress={() => openDetailModal(teacher)}
             >
@@ -400,8 +381,8 @@ export default function TeachersScreen() {
                   </View>
                 </View>
                 <View style={styles.statusIndicator}>
-                  <View style={[styles.statusDot, { backgroundColor: COLORS.success }]} />
-                  <Text style={styles.statusLabel}>Active</Text>
+                  <View style={[styles.statusDot, { backgroundColor: teacher.account_status === 'pending_invite' ? COLORS.warning : teacher.account_status === 'deactivated' ? COLORS.error : COLORS.success }]} />
+                  <Text style={styles.statusLabel}>{teacher.account_status === 'pending_invite' ? 'Invitation pending' : teacher.account_status === 'deactivated' ? 'Deactivated' : 'Active'}</Text>
                 </View>
               </View>
             </TouchableOpacity>
@@ -459,7 +440,7 @@ export default function TeachersScreen() {
                   )}
                   <View style={styles.detailRow}>
                     <Ionicons name="log-in" size={18} color={COLORS.gold} />
-                    <Text style={styles.detailValue}>Login: teacher_{selectedTeacher.phone}</Text>
+                    <Text style={styles.detailValue}>Login: {selectedTeacher.phone}</Text>
                   </View>
                 </View>
 
@@ -495,10 +476,14 @@ export default function TeachersScreen() {
 
                 <View style={styles.detailSection}>
                   <Text style={styles.detailLabel}>Status</Text>
-                  <View style={[styles.statusBadgeLarge, { backgroundColor: (selectedTeacher.is_active !== false ? COLORS.success : COLORS.error) + '20' }]}>
-                    <View style={[styles.statusDotLarge, { backgroundColor: selectedTeacher.is_active !== false ? COLORS.success : COLORS.error }]} />
-                    <Text style={[styles.statusTextLarge, { color: selectedTeacher.is_active !== false ? COLORS.success : COLORS.error }]}>
-                      {selectedTeacher.is_active !== false ? 'Active' : 'Inactive'}
+                  <View style={[styles.statusBadgeLarge, { backgroundColor: (selectedTeacher.account_status === 'pending_invite' ? COLORS.warning : selectedTeacher.account_status === 'deactivated' ? COLORS.error : COLORS.success) + '20' }]}>
+                    <View style={[styles.statusDotLarge, { backgroundColor: selectedTeacher.account_status === 'pending_invite' ? COLORS.warning : selectedTeacher.account_status === 'deactivated' ? COLORS.error : COLORS.success }]} />
+                    <Text style={[styles.statusTextLarge, { color: selectedTeacher.account_status === 'pending_invite' ? COLORS.warning : selectedTeacher.account_status === 'deactivated' ? COLORS.error : COLORS.success }]}>
+                      {selectedTeacher.account_status === 'pending_invite'
+                        ? 'Invitation pending'
+                        : selectedTeacher.account_status === 'deactivated'
+                          ? 'Deactivated'
+                          : 'Active'}
                     </Text>
                   </View>
                 </View>
@@ -506,6 +491,7 @@ export default function TeachersScreen() {
                 {/* Action Buttons */}
                 <View style={styles.actionButtonsRow}>
                   <TouchableOpacity
+                    testID="teacher-edit-button"
                     style={styles.actionButton}
                     onPress={() => openEditModal(selectedTeacher)}
                   >
@@ -514,16 +500,20 @@ export default function TeachersScreen() {
                   </TouchableOpacity>
 
                   <TouchableOpacity
+                    testID="teacher-reset-password-button"
                     style={styles.actionButton}
                     onPress={() => handleResetPassword(selectedTeacher)}
                     disabled={actionLoading}
                   >
                     <Ionicons name="key" size={24} color={COLORS.warning} />
-                    <Text style={[styles.actionButtonText, { color: COLORS.warning }]}>Reset Password</Text>
+                    <Text style={[styles.actionButtonText, { color: COLORS.warning }]}>
+                      {selectedTeacher.account_status === 'pending_invite' ? 'Send Invitation' : 'Reset Password'}
+                    </Text>
                   </TouchableOpacity>
 
-                  {selectedTeacher.is_active !== false ? (
+                  {selectedTeacher.account_status !== 'deactivated' ? (
                     <TouchableOpacity
+                      testID="teacher-deactivate-button"
                       style={styles.actionButton}
                       onPress={() => handleDeactivateTeacher(selectedTeacher)}
                       disabled={actionLoading}
@@ -533,6 +523,7 @@ export default function TeachersScreen() {
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity
+                      testID="teacher-reactivate-button"
                       style={styles.actionButton}
                       onPress={() => handleReactivateTeacher(selectedTeacher)}
                       disabled={actionLoading}
@@ -544,57 +535,6 @@ export default function TeachersScreen() {
                 </View>
               </ScrollView>
             )}
-          </View>
-        </View>
-      </Modal>
-
-      {/* Credentials Modal */}
-      <Modal
-        visible={credentialModalVisible}
-        animationType="fade"
-        transparent={true}
-        onRequestClose={() => setCredentialModalVisible(false)}
-      >
-        <View style={styles.credentialModalOverlay}>
-          <View style={styles.credentialModal}>
-            <View style={styles.credentialHeader}>
-              <Ionicons name="checkmark-circle" size={50} color={COLORS.success} />
-              <Text style={styles.credentialTitle}>Credentials Generated</Text>
-            </View>
-
-            {credentials && (
-              <View style={styles.credentialBox}>
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialLabel}>Login:</Text>
-                  <Text style={styles.credentialValue}>{credentials.login}</Text>
-                  <TouchableOpacity onPress={() => copyToClipboard(credentials.login)}>
-                    <Ionicons name="copy" size={20} color={COLORS.gold} />
-                  </TouchableOpacity>
-                </View>
-                
-                <View style={styles.credentialRow}>
-                  <Text style={styles.credentialLabel}>Password:</Text>
-                  <Text style={styles.credentialValue}>{credentials.password}</Text>
-                  <TouchableOpacity onPress={() => copyToClipboard(credentials.password)}>
-                    <Ionicons name="copy" size={20} color={COLORS.gold} />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            )}
-
-            <Text style={styles.credentialNote}>
-              Please save these credentials securely. The password cannot be recovered later.
-            </Text>
-
-            <TouchableOpacity
-              style={styles.credentialButton}
-              onPress={() => {
-                setCredentialModalVisible(false);
-                setCredentials(null);
-              }}
-            >
-              <Text style={styles.credentialButtonText}>Done</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -681,7 +621,8 @@ export default function TeachersScreen() {
               </View>
 
               <Button
-                title={isEditing ? 'Update Teacher' : 'Create Teacher'}
+                testID="teacher-save-button"
+                title={isEditing ? 'Update Teacher' : 'Create & Send Invitation'}
                 onPress={isEditing ? handleUpdateTeacher : handleCreateTeacher}
                 style={{ marginTop: SIZES.lg }}
               />

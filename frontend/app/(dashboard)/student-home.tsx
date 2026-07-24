@@ -79,7 +79,6 @@ interface Notification {
 }
 
 export default function StudentHomeScreen() {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { user } = useAuth();
   const router = useRouter();
   const unreadCount = useUnreadNotifications();
@@ -120,7 +119,7 @@ export default function StudentHomeScreen() {
         try {
           const groupsRes = await api.get('/groups');
           setGroups(groupsRes.data);
-        } catch (e) {
+        } catch {
           setGroups([]);
         }
 
@@ -134,7 +133,7 @@ export default function StudentHomeScreen() {
             present,
             rate: records.length > 0 ? Math.round((present / records.length) * 100) : 0,
           });
-        } catch (e) {
+        } catch {
           setAttendanceStats({ total: 0, present: 0, rate: 0 });
         }
 
@@ -144,7 +143,7 @@ export default function StudentHomeScreen() {
           setUpcomingBookings(bookingsRes.data.filter((b: Booking) => 
             b.status === 'scheduled' || b.status === 'confirmed'
           ).slice(0, 5));
-        } catch (e) {
+        } catch {
           setUpcomingBookings([]);
         }
       }
@@ -153,14 +152,14 @@ export default function StudentHomeScreen() {
       try {
         const supportRes = await api.get('/support');
         setSupportStaff(supportRes.data);
-      } catch (e) {
+      } catch {
         setSupportStaff([]);
       }
 
       try {
         const notificationRes = await api.get('/notifications', { params: { limit: 20 } });
         setNotifications(notificationRes.data);
-      } catch (e) {
+      } catch {
         setNotifications([]);
       }
 
@@ -196,9 +195,11 @@ export default function StudentHomeScreen() {
   }, [user?.id, user?._id]);
 
   useLiveRefresh(
-    refreshStudentMembership,
+    async () => {
+      await Promise.all([loadStudentData(), refreshStudentMembership()]);
+    },
     Boolean(user),
-    `student-membership:${user?.id || user?._id || ''}`,
+    `student-home:${user?.id || user?._id || ''}`,
     3000,
   );
 

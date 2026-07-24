@@ -321,7 +321,13 @@ export default function HomeworkScreen() {
           <Text style={styles.headerSubtitle}>Assign and track homework</Text>
         </View>
         {canManageHomework && (
-          <TouchableOpacity style={styles.addButton} onPress={() => { resetForm(); setModalVisible(true); }}>
+          <TouchableOpacity
+            testID="homework-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add homework"
+            style={styles.addButton}
+            onPress={() => { resetForm(); setModalVisible(true); }}
+          >
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}
@@ -365,6 +371,9 @@ export default function HomeworkScreen() {
             return (
               <TouchableOpacity
                 key={hw.id}
+                testID={`homework-card-${hw.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Open homework ${hw.title}`}
                 style={styles.homeworkCard}
                 onPress={() => { setSelectedHomework(hw); setDetailModalVisible(true); }}
               >
@@ -479,6 +488,7 @@ export default function HomeworkScreen() {
                 </View>
                 {canManageHomework && (
                   <Button
+                    testID="homework-delete-button"
                     title="Delete Homework"
                     variant="outline"
                     loading={deletingHomeworkId === selectedHomework.id}
@@ -559,6 +569,7 @@ export default function HomeworkScreen() {
               />
 
               <CalendarDatePicker
+                testID="homework-due-date"
                 label="Due Date *"
                 value={formData.due_date}
                 onChange={(date) => setFormData({ ...formData, due_date: date })}
@@ -567,7 +578,7 @@ export default function HomeworkScreen() {
                 placeholder="Choose a due date"
               />
 
-              <Button title="Create Homework" onPress={handleCreateHomework} style={{ marginTop: SIZES.lg }} />
+              <Button testID="homework-create-button" title="Create Homework" onPress={handleCreateHomework} style={{ marginTop: SIZES.lg }} />
             </ScrollView>
           </View>
         </View>

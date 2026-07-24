@@ -10,6 +10,7 @@ import {
   Platform,
   Image,
   Linking,
+  Alert,
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,7 +30,6 @@ const showAlert = (title: string, message: string) => {
   if (Platform.OS === 'web') {
     window.alert(`${title}\n\n${message}`);
   } else {
-    const { Alert } = require('react-native');
     Alert.alert(title, message);
   }
 };
@@ -65,7 +65,11 @@ export default function ConversationScreen() {
         wsRef.current.close();
       }
     };
-  }, [id]);
+    // These helpers are deliberately owned by this connection lifecycle. The
+    // identity values below are every value their callbacks read that may
+    // change while the screen remains mounted.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, token, currentUserId, router]);
 
   const connectWebSocket = () => {
     if (!token) return;
@@ -441,7 +445,13 @@ export default function ConversationScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity
+          testID="chat-back-button"
+          accessibilityRole="button"
+          accessibilityLabel="Back to conversations"
+          onPress={() => router.back()}
+          style={styles.backButton}
+        >
           <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
         </TouchableOpacity>
         
@@ -493,6 +503,7 @@ export default function ConversationScreen() {
           </TouchableOpacity>
           
           <TextInput
+            testID="chat-message-input"
             style={styles.textInput}
             placeholder="Type a message..."
             placeholderTextColor={COLORS.textTertiary}
@@ -503,6 +514,9 @@ export default function ConversationScreen() {
           />
           
           <TouchableOpacity
+            testID="chat-send-button"
+            accessibilityRole="button"
+            accessibilityLabel="Send message"
             style={[styles.sendButton, (!newMessage.trim() || sending) && styles.sendButtonDisabled]}
             onPress={sendMessage}
             disabled={!newMessage.trim() || sending}

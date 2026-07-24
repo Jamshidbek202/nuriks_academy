@@ -171,7 +171,9 @@ async def can_chat_with(current_user: dict, other_user_id: str, db) -> tuple[boo
     # 2. Support staff
     if current_role == "student":
         if other_role == "support":
-            return True, "Student can chat with support"
+            if other_user.get("branch_id") == current_user.get("branch_id"):
+                return True, "Student can chat with support"
+            return False, "You can only chat with support staff from your branch"
         
         if other_role == "teacher":
             # Check if teacher is assigned to student's groups
@@ -211,7 +213,9 @@ async def can_chat_with(current_user: dict, other_user_id: str, db) -> tuple[boo
     # 1. All students
     if current_role == "support":
         if other_role == "student":
-            return True, "Support can chat with students"
+            if other_user.get("branch_id") == current_user.get("branch_id"):
+                return True, "Support can chat with students"
+            return False, "You can only chat with students from your branch"
         return False, "Support can only chat with students"
     
     return False, "Chat access not allowed"
@@ -274,7 +278,8 @@ async def get_chat_contacts(
         # Get all support staff
         support_users = await db.users.find({
             "role": "support",
-            "is_active": True
+            "is_active": True,
+            "branch_id": current_user.get("branch_id"),
         }).to_list(100)
         
         for s in support_users:
@@ -314,7 +319,10 @@ async def get_chat_contacts(
     
     # Support: Get all students
     if role == "support":
-        students = await db.students.find({"status": "active"}).to_list(500)
+        students = await db.students.find({
+            "status": "active",
+            "branch_id": current_user.get("branch_id"),
+        }).to_list(500)
         
         for s in students:
             student_user = await db.users.find_one({"_id": ObjectId(s["user_id"])})

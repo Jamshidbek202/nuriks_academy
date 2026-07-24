@@ -17,6 +17,7 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface NewsItem {
   id: string;
@@ -67,6 +68,8 @@ export default function NewsScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadNews, canManageNews, 'admin-news', 3000);
 
   const openCreateModal = () => {
     setEditingNews(null);
@@ -176,7 +179,13 @@ export default function NewsScreen() {
           </Text>
         </View>
         {canManageNews && (
-          <TouchableOpacity style={styles.addButton} onPress={openCreateModal}>
+          <TouchableOpacity
+            testID="news-add-button"
+            accessibilityRole="button"
+            accessibilityLabel="Add News"
+            style={styles.addButton}
+            onPress={openCreateModal}
+          >
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}

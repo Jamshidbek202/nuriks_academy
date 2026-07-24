@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Platform, AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { useRouter } from 'expo-router';
@@ -41,6 +41,61 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const knownWebNotificationIds = useRef(new Set<string>());
   const webInboxInitialized = useRef(false);
 
+  const handleAppStateChange = useCallback(async (nextAppState: AppStateStatus) => {
+    if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+      const badge = await Notifications.getBadgeCountAsync();
+      setUnreadCount(badge);
+    }
+    appState.current = nextAppState;
+  }, []);
+
+  const handleNotificationNavigation = useCallback((incomingNotification: Notifications.Notification) => {
+    const data = incomingNotification.request.content.data;
+    if (!data || !user) return;
+
+    const notificationType = data.type as string;
+    switch (notificationType) {
+      case 'homework':
+      case 'homework_assigned':
+        router.push('/(dashboard)/homework');
+        break;
+      case 'payment':
+      case 'payment_reminder':
+        router.push('/(dashboard)/payments');
+        break;
+      case 'test':
+      case 'test_scheduled':
+        router.push('/(dashboard)/tests');
+        break;
+      case 'news':
+      case 'news_announcement':
+        router.push('/(dashboard)/news');
+        break;
+      case 'chat':
+      case 'chat_message': {
+        const conversationId = data.conversation_id as string;
+        router.push(conversationId ? `/chat/${conversationId}` : '/(dashboard)/chats');
+        break;
+      }
+      case 'certificate':
+        router.push('/(dashboard)/certificates');
+        break;
+      case 'attendance':
+        router.push('/(dashboard)/attendance');
+        break;
+      case 'grade':
+        router.push('/(dashboard)/progress');
+        break;
+      case 'lesson_reminder':
+      default:
+        router.push('/(dashboard)');
+        break;
+    }
+
+    void Notifications.setBadgeCountAsync(0);
+    setUnreadCount(0);
+  }, [router, user]);
+
   useEffect(() => {
     if (Platform.OS === 'web') return;
 
@@ -74,7 +129,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       }
       subscription.remove();
     };
-  }, [pushToken]);
+  }, [pushToken, handleAppStateChange, handleNotificationNavigation]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !userId) {
@@ -117,81 +172,6 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       clearInterval(timer);
     };
   }, [userId]);
-
-  const handleAppStateChange = async (nextAppState: AppStateStatus) => {
-    if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
-      // App came to foreground - check for pending notifications
-      const badge = await Notifications.getBadgeCountAsync();
-      setUnreadCount(badge);
-    }
-    appState.current = nextAppState;
-  };
-
-  const handleNotificationNavigation = (notification: Notifications.Notification) => {
-    const data = notification.request.content.data;
-    
-    if (!data || !user) return;
-
-    const notificationType = data.type as string;
-    
-    // Navigate based on notification type
-    switch (notificationType) {
-      case 'homework':
-      case 'homework_assigned':
-        router.push('/(dashboard)/homework');
-        break;
-        
-      case 'payment':
-      case 'payment_reminder':
-        router.push('/(dashboard)/payments');
-        break;
-        
-      case 'test':
-      case 'test_scheduled':
-        router.push('/(dashboard)/tests');
-        break;
-        
-      case 'news':
-      case 'news_announcement':
-        router.push('/(dashboard)/news');
-        break;
-        
-      case 'chat':
-      case 'chat_message':
-        const conversationId = data.conversation_id as string;
-        if (conversationId) {
-          router.push(`/chat/${conversationId}`);
-        } else {
-          router.push('/(dashboard)/chats');
-        }
-        break;
-        
-      case 'lesson_reminder':
-        router.push('/(dashboard)');
-        break;
-        
-      case 'certificate':
-        router.push('/(dashboard)/certificates');
-        break;
-        
-      case 'attendance':
-        router.push('/(dashboard)/attendance');
-        break;
-
-      case 'grade':
-        router.push('/(dashboard)/progress');
-        break;
-        
-      default:
-        // Default to dashboard
-        router.push('/(dashboard)');
-        break;
-    }
-    
-    // Clear badge count after navigation
-    Notifications.setBadgeCountAsync(0);
-    setUnreadCount(0);
-  };
 
   return (
     <NotificationContext.Provider 

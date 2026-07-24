@@ -435,12 +435,29 @@ async def send_notification(
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Admin access required")
-    
-    recipient_ids = set(notification.target_user_ids or [])
+
+    branch_id = current_user.get("branch_id") if current_user["role"] == "manager" else None
+    recipient_ids = set()
+    requested_user_ids = set(notification.target_user_ids or [])
+    if requested_user_ids:
+        invalid_ids = [user_id for user_id in requested_user_ids if not ObjectId.is_valid(user_id)]
+        if invalid_ids:
+            raise HTTPException(status_code=400, detail="A target user ID is invalid")
+        target_query = {
+            "_id": {"$in": [ObjectId(user_id) for user_id in requested_user_ids]},
+            "is_active": True,
+        }
+        if branch_id is not None:
+            target_query["branch_id"] = branch_id
+        target_users = await db.users.find(target_query).to_list(len(requested_user_ids))
+        recipient_ids.update(str(user["_id"]) for user in target_users)
+        if len(recipient_ids) != len(requested_user_ids):
+            raise HTTPException(status_code=403, detail="A target user is outside your branch or inactive")
     if notification.target_roles:
-        users = await db.users.find({
-            "role": {"$in": notification.target_roles}, "is_active": True,
-        }).to_list(5000)
+        role_query = {"role": {"$in": notification.target_roles}, "is_active": True}
+        if branch_id is not None:
+            role_query["branch_id"] = branch_id
+        users = await db.users.find(role_query).to_list(5000)
         recipient_ids.update(str(user["_id"]) for user in users)
     
     # Save notification to history
@@ -452,6 +469,7 @@ async def send_notification(
         "target_user_ids": notification.target_user_ids,
         "sent_by": str(current_user["_id"]),
         "sent_count": len(recipient_ids),
+        "branch_id": branch_id,
         "created_at": datetime.utcnow()
     }
     await db.notification_history.insert_one(notif_doc)
@@ -514,7 +532,10 @@ async def get_notification_history(
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    notifications = await db.notification_history.find({}).sort(
+    query = {}
+    if current_user["role"] == "manager":
+        query["branch_id"] = current_user.get("branch_id")
+    notifications = await db.notification_history.find(query).sort(
         "created_at", -1
     ).skip(skip).limit(limit).to_list(limit)
     

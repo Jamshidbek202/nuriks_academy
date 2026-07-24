@@ -1,4 +1,4 @@
-"""One-command deterministic, transactional, API, and live-browser finance QA."""
+"""One-command whole-app, deterministic finance, transactional, and browser QA."""
 
 from __future__ import annotations
 
@@ -104,8 +104,11 @@ def main() -> None:
         "DISABLE_SCHEDULER": "1",
         "RUN_FINANCE_MONGO_QA": "1",
         "RUN_FINANCE_E2E": "1",
+        "RUN_APP_E2E": "1",
         "DB_NAME": database_name,
+        "MONGO_TLS": "false",
         "SECRET_KEY": "finance-qa-only-secret-not-for-production",
+        "SMS_DELIVERY_MODE": "mock",
         "PYTHONPATH": str(REPO_ROOT / "backend"),
         "FINANCE_QA_PYTHON": python,
         "EXPO_PUBLIC_BACKEND_URL": "http://127.0.0.1:8001",
@@ -162,7 +165,14 @@ def main() -> None:
         )
         run_stage(
             report,
-            "reset and seed isolated browser database",
+            "phone invitation, role provisioning, and password recovery suite",
+            [python, str(REPO_ROOT / "finance_qa/phone_auth_runner.py")],
+            env,
+            REPO_ROOT,
+        )
+        run_stage(
+            report,
+            "reset and seed isolated whole-app browser database",
             [python, "-m", "finance_qa.mongo_support", "--reset", "--browser"],
             env,
             REPO_ROOT,
@@ -175,6 +185,20 @@ def main() -> None:
                 env,
                 REPO_ROOT / "frontend",
             )
+        run_stage(
+            report,
+            "all-role desktop and phone whole-app browser suite",
+            ["npm", "run", "test:app-e2e"],
+            env,
+            REPO_ROOT / "frontend",
+        )
+        run_stage(
+            report,
+            "reset finance browser database after whole-app mutations",
+            [python, "-m", "finance_qa.mongo_support", "--reset", "--browser"],
+            env,
+            REPO_ROOT,
+        )
         run_stage(
             report,
             "four-session finance-wide live browser reconciliation",

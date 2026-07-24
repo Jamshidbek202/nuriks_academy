@@ -284,6 +284,9 @@ export default function ProfileScreen() {
           <View style={styles.menuCard}>
             {user?.role === 'super_admin' && (
               <TouchableOpacity
+                testID="profile-system-settings-button"
+                accessibilityRole="button"
+                accessibilityLabel="System Settings"
                 style={styles.menuItem}
                 onPress={() => router.push('/(dashboard)/settings')}
               >
@@ -292,7 +295,13 @@ export default function ProfileScreen() {
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowLanguageModal(true)}>
+            <TouchableOpacity
+              testID="profile-language-button"
+              accessibilityRole="button"
+              accessibilityLabel="App language"
+              style={styles.menuItem}
+              onPress={() => setShowLanguageModal(true)}
+            >
               <Ionicons name="language" size={24} color={COLORS.gold} />
               <View style={styles.menuTextContent}>
                 <Text style={[styles.menuText, styles.menuTextNested]}>App language</Text>
@@ -300,13 +309,25 @@ export default function ProfileScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.menuItem} onPress={() => setShowNotificationModal(true)}>
+            <TouchableOpacity
+              testID="profile-notifications-button"
+              accessibilityRole="button"
+              accessibilityLabel="Notifications"
+              style={styles.menuItem}
+              onPress={() => setShowNotificationModal(true)}
+            >
               <Ionicons name="notifications" size={24} color={COLORS.info} />
               <Text style={styles.menuText}>Notifications</Text>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </TouchableOpacity>
             {user?.role !== 'super_admin' && (
-              <TouchableOpacity style={styles.menuItem} onPress={() => setShowHelpModal(true)}>
+              <TouchableOpacity
+                testID="profile-help-button"
+                accessibilityRole="button"
+                accessibilityLabel="Help and Support"
+                style={styles.menuItem}
+                onPress={() => setShowHelpModal(true)}
+              >
                 <Ionicons name="help-circle" size={24} color={COLORS.success} />
                 <Text style={styles.menuText}>Help & Support</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
@@ -317,6 +338,9 @@ export default function ProfileScreen() {
 
         {/* Logout Button */}
         <TouchableOpacity
+          testID="profile-logout-button"
+          accessibilityRole="button"
+          accessibilityLabel="Logout"
           style={styles.logoutButton}
           onPress={handleLogoutPress}
           activeOpacity={0.7}
@@ -352,6 +376,9 @@ export default function ProfileScreen() {
               return (
                 <TouchableOpacity
                   key={option}
+                  testID={`profile-language-option-${option}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use ${LANGUAGE_LABELS[option]}`}
                   style={[styles.languageOption, selected && styles.languageOptionSelected]}
                   onPress={() => handleLanguageChange(option)}
                   disabled={languageSaving !== null}
@@ -394,6 +421,9 @@ export default function ProfileScreen() {
             </Text>
             <View style={styles.modalButtons}>
               <TouchableOpacity
+                testID="profile-logout-cancel"
+                accessibilityRole="button"
+                accessibilityLabel="Cancel logout"
                 style={[styles.modalButton, styles.cancelButton]}
                 onPress={cancelLogout}
                 disabled={isLoggingOut}
@@ -401,6 +431,9 @@ export default function ProfileScreen() {
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
+                testID="profile-logout-confirm"
+                accessibilityRole="button"
+                accessibilityLabel="Confirm logout"
                 style={[styles.modalButton, styles.confirmButton]}
                 onPress={confirmLogout}
                 disabled={isLoggingOut}
@@ -429,7 +462,13 @@ export default function ProfileScreen() {
                   {user?.role?.replace('_', ' ') || 'Account'} settings
                 </Text>
               </View>
-              <TouchableOpacity onPress={() => setShowNotificationModal(false)} style={styles.closeButton}>
+              <TouchableOpacity
+                testID="profile-notifications-close"
+                accessibilityRole="button"
+                accessibilityLabel="Close notification settings"
+                onPress={() => setShowNotificationModal(false)}
+                style={styles.closeButton}
+              >
                 <Ionicons name="close" size={22} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -465,6 +504,8 @@ export default function ProfileScreen() {
                       <Text style={styles.notificationPreferenceDescription}>{option.description}</Text>
                     </View>
                     <Switch
+                      testID={`profile-notification-${key}`}
+                      accessibilityLabel={option.title}
                       value={notificationPreferences[key]}
                       onValueChange={() => {
                         if (key !== 'payment_reminders') handleNotificationToggle(key);
@@ -497,6 +538,9 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               )}
               <TouchableOpacity
+                testID="profile-notifications-save"
+                accessibilityRole="button"
+                accessibilityLabel="Save notification settings"
                 style={[
                   styles.saveNotificationButton,
                   (!hasNotificationChanges || notificationSaving) && styles.saveNotificationButtonDisabled,
@@ -549,6 +593,9 @@ export default function ProfileScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              testID="profile-help-chat"
+              accessibilityRole="button"
+              accessibilityLabel="Chat with Admin"
               style={styles.helpActionCard}
               onPress={handleChatWithAdmin}
               disabled={helpChatLoading}

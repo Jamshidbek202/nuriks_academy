@@ -3,7 +3,6 @@ import {
   View,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
   Switch,
@@ -14,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface FeatureFlags {
   homework_submission: boolean;
@@ -57,6 +57,8 @@ export default function FeatureFlagsScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadFlags, user?.role === 'super_admin', 'feature-flags', 3000);
 
   const toggleFlag = async (key: string, value: boolean) => {
     setSaving(key);
@@ -115,6 +117,8 @@ export default function FeatureFlagsScreen() {
                 <ActivityIndicator size="small" color={COLORS.gold} />
               ) : (
                 <Switch
+                  testID={`feature-flag-${feature.key}`}
+                  accessibilityLabel={feature.label}
                   value={flags?.[feature.key as keyof FeatureFlags] || false}
                   onValueChange={(value) => toggleFlag(feature.key, value)}
                   trackColor={{ false: COLORS.marbleGray, true: COLORS.gold + '50' }}

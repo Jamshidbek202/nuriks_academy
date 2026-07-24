@@ -47,6 +47,10 @@ QA_USERS = {
     "manager_a": "qa_manager_a",
     "manager_b": "qa_manager_b",
     "reception_a": "qa_reception_a",
+    "teacher_a": "qa_teacher_a",
+    "student_a": "qa_student_a",
+    "parent_a": "qa_parent_a",
+    "support_a": "qa_support_a",
 }
 
 
@@ -97,6 +101,10 @@ async def seed_finance_qa_database(db) -> dict:
         (QA_USERS["manager_a"], "QA Manager A", "manager", str(branch_a["_id"])),
         (QA_USERS["manager_b"], "QA Manager B", "manager", str(branch_b["_id"])),
         (QA_USERS["reception_a"], "QA Reception A", "reception", str(branch_a["_id"])),
+        (QA_USERS["teacher_a"], "Live Teacher", "teacher", str(branch_a["_id"])),
+        (QA_USERS["student_a"], "Live Student", "student", str(branch_a["_id"])),
+        (QA_USERS["parent_a"], "Live Parent", "parent", str(branch_a["_id"])),
+        (QA_USERS["support_a"], "Live Support", "support", str(branch_a["_id"])),
     )
     users = {}
     for login, full_name, role, branch_id in user_templates:
@@ -157,8 +165,13 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
     assert_disposable_database_name(db.name)
     branch_id = fixture["branch_a_id"]
     manager = await db.users.find_one({"login": QA_USERS["manager_a"]})
+    teacher_user = await db.users.find_one({"login": QA_USERS["teacher_a"]})
+    student_user = await db.users.find_one({"login": QA_USERS["student_a"]})
+    parent_user = await db.users.find_one({"login": QA_USERS["parent_a"]})
+    support_user = await db.users.find_one({"login": QA_USERS["support_a"]})
     service_month = date.today().strftime("%Y-%m")
     month_start = date.fromisoformat(f"{service_month}-01")
+    fixture_day = date.today().strftime("%A").lower()
     now = datetime.utcnow()
 
     course = await db.courses.find_one({"qa_key": "finance-live-course"})
@@ -182,7 +195,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
         teacher = {
             "_id": ObjectId(),
             "qa_key": "finance-live-teacher",
-            "user_id": str(ObjectId()),
+            "user_id": str(teacher_user["_id"]),
             "first_name": "Live",
             "last_name": "Teacher",
             "phone": "+998900001101",
@@ -196,13 +209,19 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
             "created_at": now,
         }
         await db.teachers.insert_one(teacher)
+    else:
+        await db.teachers.update_one(
+            {"_id": teacher["_id"]},
+            {"$set": {"user_id": str(teacher_user["_id"]), "branch_id": branch_id}},
+        )
+        teacher = await db.teachers.find_one({"_id": teacher["_id"]})
 
     parent = await db.parents.find_one({"qa_key": "finance-live-parent"})
     if not parent:
         parent = {
             "_id": ObjectId(),
             "qa_key": "finance-live-parent",
-            "user_id": str(ObjectId()),
+            "user_id": str(parent_user["_id"]),
             "first_name": "Live",
             "last_name": "Parent",
             "phone": "+998900001103",
@@ -211,6 +230,12 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
             "created_at": now,
         }
         await db.parents.insert_one(parent)
+    else:
+        await db.parents.update_one(
+            {"_id": parent["_id"]},
+            {"$set": {"user_id": str(parent_user["_id"])}},
+        )
+        parent = await db.parents.find_one({"_id": parent["_id"]})
 
     student = await db.students.find_one({"qa_key": "finance-live-student"})
     if not student:
@@ -218,7 +243,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
             "_id": ObjectId(),
             "qa_key": "finance-live-student",
             "student_id": "QA-LIVE-001",
-            "user_id": str(ObjectId()),
+            "user_id": str(student_user["_id"]),
             "parent_id": str(parent["_id"]),
             "first_name": "Live",
             "last_name": "Student",
@@ -240,6 +265,43 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
             {"_id": parent["_id"]},
             {"$addToSet": {"student_ids": str(student["_id"])}},
         )
+    else:
+        await db.students.update_one(
+            {"_id": student["_id"]},
+            {"$set": {
+                "user_id": str(student_user["_id"]),
+                "parent_id": str(parent["_id"]),
+                "branch_id": branch_id,
+            }},
+        )
+        await db.parents.update_one(
+            {"_id": parent["_id"]},
+            {"$addToSet": {"student_ids": str(student["_id"])}},
+        )
+        student = await db.students.find_one({"_id": student["_id"]})
+
+    support = await db.support_staff.find_one({"qa_key": "whole-app-live-support"})
+    if not support:
+        support = {
+            "_id": ObjectId(),
+            "qa_key": "whole-app-live-support",
+            "user_id": str(support_user["_id"]),
+            "first_name": "Live",
+            "last_name": "Support",
+            "phone": "+998900001104",
+            "email": None,
+            "photo": None,
+            "available_hours": {"start": "09:00", "end": "18:00"},
+            "branch_id": branch_id,
+            "created_at": now,
+        }
+        await db.support_staff.insert_one(support)
+    else:
+        await db.support_staff.update_one(
+            {"_id": support["_id"]},
+            {"$set": {"user_id": str(support_user["_id"]), "branch_id": branch_id}},
+        )
+        support = await db.support_staff.find_one({"_id": support["_id"]})
 
     group = await db.groups.find_one({"qa_key": "finance-live-group"})
     if not group:
@@ -250,7 +312,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
             "course_id": str(course["_id"]),
             "teacher_id": str(teacher["_id"]),
             "schedule": [{
-                "day": "monday",
+                "day": fixture_day,
                 "start_time": "18:00",
                 "end_time": "19:30",
                 "room": "QA Live",
@@ -286,7 +348,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
                 group_format=GroupFormat.NORMAL,
                 effective_from=month_start,
                 schedule=[ScheduleSlot(
-                    day="monday",
+                    day=fixture_day,
                     start_time="18:00",
                     end_time="19:30",
                     room="QA Live",
@@ -336,9 +398,12 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
 
     return {
         "service_month": service_month,
+        "course_id": str(course["_id"]),
         "group_id": str(group["_id"]),
         "student_id": str(student["_id"]),
         "teacher_id": str(teacher["_id"]),
+        "parent_id": str(parent["_id"]),
+        "support_staff_id": str(support["_id"]),
         "unresolved_occurrence_ids": [str(row["_id"]) for row in occurrences[:2]],
     }
 

@@ -15,6 +15,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Import role-specific screens
 import ParentHomeScreen from './parent-home';
@@ -49,6 +50,13 @@ export default function DashboardHome() {
       setLoading(false);
     }
   }, [user]);
+
+  useLiveRefresh(
+    loadDashboardData,
+    user?.role === 'super_admin' || user?.role === 'manager',
+    `dashboard:${user?.role || ''}:${user?.branch_id || ''}`,
+    5000,
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -171,13 +179,13 @@ export default function DashboardHome() {
             </View>
           </View>
 
-          {/* Admin Quick Actions (Super Admin Only) */}
-          {user?.role === 'super_admin' && (
+          {/* Staff operations available within each role's backend permissions. */}
+          {['super_admin', 'manager'].includes(user?.role || '') && (
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Staff Management</Text>
               <View style={styles.adminGrid}>
                 <AdminCard icon="school" label="Teachers" onPress={() => router.push('/(dashboard)/teachers')} />
-                <AdminCard icon="headset" label="Support Staff" onPress={() => router.push('/(dashboard)/staff-management')} />
+                <AdminCard icon="headset" label={user?.role === 'super_admin' ? 'Staff Accounts' : 'Support Staff'} onPress={() => router.push('/(dashboard)/staff-management')} />
                 <AdminCard icon="people" label="Groups" onPress={() => router.push('/(dashboard)/groups')} />
                 <AdminCard icon="people-circle" label="Leads / CRM" onPress={() => router.push('/(dashboard)/leads')} />
               </View>
@@ -193,6 +201,7 @@ export default function DashboardHome() {
                 <AdminCard icon="toggle" label="Feature Flags" onPress={() => router.push('/(dashboard)/feature-flags')} />
                 <AdminCard icon="analytics" label="Analytics" onPress={() => router.push('/(dashboard)/analytics')} />
                 <AdminCard icon="newspaper" label="News" onPress={() => router.push('/(dashboard)/news')} />
+                <AdminCard icon="ribbon" label="Certificates" onPress={() => router.push('/(dashboard)/certificates')} />
                 <AdminCard icon="document-text" label="Audit Logs" onPress={() => router.push('/(dashboard)/audit-logs')} />
                 <AdminCard icon="cloud-upload" label="Backups" onPress={() => router.push('/(dashboard)/backups')} />
               </View>

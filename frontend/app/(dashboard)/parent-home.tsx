@@ -81,7 +81,7 @@ export default function ParentHomeScreen() {
             present,
             rate: records.length > 0 ? Math.round((present / records.length) * 100) : 0,
           });
-        } catch (e) {
+        } catch {
           setAttendanceStats({ total: 0, present: 0, rate: 0 });
         }
 
@@ -89,7 +89,7 @@ export default function ParentHomeScreen() {
         try {
           const paymentsRes = await api.get('/payments/history');
           setRecentPayments(paymentsRes.data.slice(0, 3));
-        } catch (e) {
+        } catch {
           setRecentPayments([]);
         }
       }
@@ -98,7 +98,7 @@ export default function ParentHomeScreen() {
       try {
         const notifRes = await api.get('/notifications');
         setNotifications(notifRes.data.slice(0, 10));
-      } catch (e) {
+      } catch {
         setNotifications([]);
       }
     } catch (error) {

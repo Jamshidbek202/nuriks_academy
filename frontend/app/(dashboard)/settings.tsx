@@ -34,35 +34,19 @@ interface SystemSettings {
   payme_merchant_id?: string;
 }
 
-interface Branch {
-  id: string;
-  name: string;
-  address: string;
-  phone?: string;
-  email?: string;
-  is_active: boolean;
-}
-
 export default function SettingsScreen() {
   const { user } = useAuth();
   const [settings, setSettings] = useState<SystemSettings | null>(null);
-  const [branches, setBranches] = useState<Branch[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const [branchModalVisible, setBranchModalVisible] = useState(false);
   const [editField, setEditField] = useState<{ key: string; label: string; value: string }>({ key: '', label: '', value: '' });
-  const [newBranch, setNewBranch] = useState({ name: '', address: '', phone: '', email: '' });
 
   const loadSettings = async () => {
     try {
-      const [settingsRes, branchesRes] = await Promise.all([
-        api.get('/admin/settings'),
-        api.get('/admin/branches')
-      ]);
+      const settingsRes = await api.get('/admin/settings');
       setSettings(settingsRes.data);
-      setBranches(branchesRes.data);
     } catch (error) {
       console.error('Error loading settings:', error);
     } finally {
@@ -83,25 +67,6 @@ export default function SettingsScreen() {
       loadSettings();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to update settings');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleAddBranch = async () => {
-    if (!newBranch.name || !newBranch.address) {
-      Alert.alert('Error', 'Branch name and address are required');
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.post('/admin/branches', newBranch);
-      Alert.alert('Success', 'Branch added successfully');
-      setBranchModalVisible(false);
-      setNewBranch({ name: '', address: '', phone: '', email: '' });
-      loadSettings();
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to add branch');
     } finally {
       setSaving(false);
     }
@@ -180,36 +145,6 @@ export default function SettingsScreen() {
           <SettingRow icon="wallet" label="Payme Merchant ID" value={settings?.payme_merchant_id || 'Not set'} onPress={() => openEditModal('payme_merchant_id', 'Payme Merchant ID', settings?.payme_merchant_id || '')} />
         </View>
 
-        {/* Branch Management */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Branch Management</Text>
-          <TouchableOpacity style={styles.addButton} onPress={() => setBranchModalVisible(true)}>
-            <Ionicons name="add" size={20} color={COLORS.gold} />
-          </TouchableOpacity>
-        </View>
-        <View style={styles.card}>
-          {branches.length > 0 ? (
-            branches.map((branch) => (
-              <View key={branch.id} style={styles.branchItem}>
-                <View style={styles.branchIcon}>
-                  <Ionicons name="storefront" size={24} color={COLORS.gold} />
-                </View>
-                <View style={styles.branchInfo}>
-                  <Text style={styles.branchName}>{branch.name}</Text>
-                  <Text style={styles.branchAddress}>{branch.address}</Text>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: branch.is_active ? COLORS.success + '20' : COLORS.error + '20' }]}>
-                  <Text style={[styles.statusText, { color: branch.is_active ? COLORS.success : COLORS.error }]}>
-                    {branch.is_active ? 'Active' : 'Inactive'}
-                  </Text>
-                </View>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyText}>No branches configured</Text>
-          )}
-        </View>
-
         <View style={{ height: 100 }} />
       </ScrollView>
 
@@ -219,7 +154,7 @@ export default function SettingsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Edit {editField.label}</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close setting editor" onPress={() => setEditModalVisible(false)}>
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -243,30 +178,18 @@ export default function SettingsScreen() {
         </View>
       </Modal>
 
-      {/* Add Branch Modal */}
-      <Modal visible={branchModalVisible} animationType="slide" transparent onRequestClose={() => setBranchModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Branch</Text>
-              <TouchableOpacity onPress={() => setBranchModalVisible(false)}>
-                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-              </TouchableOpacity>
-            </View>
-            <TextInput style={styles.modalInput} value={newBranch.name} onChangeText={(text) => setNewBranch({ ...newBranch, name: text })} placeholder="Branch Name *" placeholderTextColor={COLORS.textTertiary} />
-            <TextInput style={styles.modalInput} value={newBranch.address} onChangeText={(text) => setNewBranch({ ...newBranch, address: text })} placeholder="Address *" placeholderTextColor={COLORS.textTertiary} />
-            <TextInput style={styles.modalInput} value={newBranch.phone} onChangeText={(text) => setNewBranch({ ...newBranch, phone: text })} placeholder="Phone" placeholderTextColor={COLORS.textTertiary} />
-            <TextInput style={styles.modalInput} value={newBranch.email} onChangeText={(text) => setNewBranch({ ...newBranch, email: text })} placeholder="Email" placeholderTextColor={COLORS.textTertiary} />
-            <Button title={saving ? 'Adding...' : 'Add Branch'} onPress={handleAddBranch} disabled={saving} />
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
 
 const SettingRow = ({ icon, label, value, onPress }: { icon: string; label: string; value: string; onPress?: () => void }) => (
-  <TouchableOpacity style={styles.settingRow} onPress={onPress} disabled={!onPress}>
+  <TouchableOpacity
+    style={styles.settingRow}
+    onPress={onPress}
+    disabled={!onPress}
+    accessibilityRole={onPress ? 'button' : undefined}
+    accessibilityLabel={onPress ? `Edit ${label}` : undefined}
+  >
     <View style={styles.settingIcon}><Ionicons name={icon as any} size={20} color={COLORS.gold} /></View>
     <View style={styles.settingContent}>
       <Text style={styles.settingLabel}>{label}</Text>
@@ -286,23 +209,13 @@ const styles = StyleSheet.create({
   title: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.xs },
   content: { flex: 1, padding: SIZES.md },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: SIZES.md, marginBottom: SIZES.sm },
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.gold, marginTop: SIZES.md, marginBottom: SIZES.sm },
-  addButton: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
   card: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, ...SHADOWS.small, overflow: 'hidden' },
   settingRow: { flexDirection: 'row', alignItems: 'center', padding: SIZES.md, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   settingIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   settingContent: { flex: 1 },
   settingLabel: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   settingValue: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, fontWeight: '500', marginTop: 2 },
-  branchItem: { flexDirection: 'row', alignItems: 'center', padding: SIZES.md, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
-  branchIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
-  branchInfo: { flex: 1 },
-  branchName: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
-  branchAddress: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 2 },
-  statusBadge: { paddingHorizontal: SIZES.sm, paddingVertical: 4, borderRadius: SIZES.radiusSm },
-  statusText: { fontSize: SIZES.fontXs, fontWeight: '600' },
-  emptyText: { padding: SIZES.lg, textAlign: 'center', color: COLORS.textTertiary },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, padding: SIZES.lg, paddingBottom: 40 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SIZES.lg },
