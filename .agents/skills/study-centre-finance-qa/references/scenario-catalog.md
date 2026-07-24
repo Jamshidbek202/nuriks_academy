@@ -66,3 +66,32 @@
 - Fail audit logging, notification queueing, and SMS delivery after the financial commit.
 - Run staged loads such as 10, 100, and 500 groups across 24 service months.
 - Track runtime, peak memory, record counts, unique-index conflicts, retries, and reconciliation differences.
+
+## UI interaction and live synchronization
+
+- Keep super-admin and manager sessions open on the same month while either
+  role creates, edits, finalizes, pays, corrects, or reverses a record.
+- Seed known branch revenue so a manager cannot incorrectly show zero and a
+  global super-admin total cannot incorrectly remain below that branch total.
+- Reproduce stale totals in both directions, including admin 10,000,000 versus
+  manager 13,000,000 and admin 3,000,000 versus manager 0, when the ledger says
+  both views should include the changed branch amount.
+- Add and edit an expense and confirm rows, accrued expenses, outstanding
+  expenses, profit, and both authorized sessions update without refresh.
+- Click Finalize month through the UI. Confirm its dialog, loading state,
+  request, completion or explicit readiness error, invoices, revenue, payroll,
+  and observer-session updates. A silent no-op is a failure.
+- Open expense correction and Pay from cashbox through their actual buttons.
+  Confirm the controls are clickable, the cash-shift prerequisites are clear,
+  and the outgoing payment, cashbox, outstanding amount, and totals reconcile.
+- Exercise every finance-page button in enabled, disabled, success, validation,
+  and server-error states. Confirm a second rapid click cannot duplicate money.
+- Scan the application for date entry. Require a calendar control for dates and
+  a separate time control when time is needed; flag raw combined date-time text
+  entry as a usability and correctness risk.
+- Run core interactions at desktop and phone widths. Confirm controls remain
+  visible, scrollable, tappable, and free of overlays.
+- Repeat the two-session stale-state pattern across every server-backed app
+  route and every visible create/edit/delete/status control, not Finance alone.
+- Measure click feedback, request duration, and observer synchronization; never
+  hide stale behavior behind a manual refresh or a long fixed sleep.

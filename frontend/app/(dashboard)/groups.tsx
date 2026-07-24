@@ -20,6 +20,7 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 
 interface Schedule {
   day: string;
@@ -1123,11 +1124,10 @@ export default function GroupsScreen() {
                 </Text>
               </View>
 
-              <Input
+              <CalendarDatePicker
                 label="Finance effective date *"
                 value={formData.finance_effective_from}
-                onChangeText={(text) => setFormData({ ...formData, finance_effective_from: text })}
-                placeholder="YYYY-MM-DD"
+                onChange={(finance_effective_from) => setFormData({ ...formData, finance_effective_from })}
               />
 
               <Input

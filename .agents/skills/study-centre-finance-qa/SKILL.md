@@ -1,6 +1,6 @@
 ---
 name: study-centre-finance-qa
-description: Deterministically audit and stress-test Nurik's Academy finance behavior, lesson-based billing, month and date transitions, payments, payroll, expenses, cash reconciliation, financial dashboards, idempotency, and finance permissions. Use when testing finance changes, running pre-release or shadow-mode checks, reproducing a money defect, generating month scenarios, validating super-admin authority, validating manager branch isolation, or investigating mismatches between API, database, and UI financial values.
+description: Deterministically audit and stress-test Nurik's Academy finance behavior, UI interactions, live synchronization, lesson-based billing, month and date transitions, payments, payroll, expenses, cash reconciliation, financial dashboards, idempotency, and finance permissions. Use when testing finance changes, buttons or forms that appear unresponsive, stale cross-user UI data, date/time controls, pre-release or shadow-mode checks, money defects, month scenarios, super-admin authority, manager branch isolation, or mismatches between API, database, and UI financial values.
 ---
 
 # Study Centre Finance QA
@@ -25,6 +25,7 @@ Read the following references before selecting scenarios:
 - [financial-contract.md](references/financial-contract.md) for accounting invariants and approved values.
 - [role-contract.md](references/role-contract.md) for super-admin and manager rules.
 - [scenario-catalog.md](references/scenario-catalog.md) for date, failure, concurrency, and load coverage.
+- [ui-interaction-contract.md](references/ui-interaction-contract.md) for button behavior, calendar/time inputs, speed, and cross-session stale-data checks.
 
 When source code and a reference disagree, report the disagreement as a finding. Do not silently treat current behavior as the approved rule.
 
@@ -73,6 +74,22 @@ Only after proving the database is disposable:
 9. Drop only the unique campaign database after retaining the sanitized report.
 
 Do not mark database coverage complete when MongoDB transaction behavior, indexes, or concurrent writes were replaced with simplistic mocks.
+
+## Run the real UI interaction audit
+
+Use a real browser against the disposable database. Follow
+[ui-interaction-contract.md](references/ui-interaction-contract.md) completely.
+
+- Inventory every visible control by page, tab, role, and prerequisite state.
+- Click the real control without forced clicks or direct API substitution.
+- Prove immediate feedback, one intended request, the expected committed result,
+  the correct audit trail, and the correct visible projection.
+- Keep super-admin, manager, and reception sessions open concurrently. After
+  each mutation, reconcile the actor and every affected observer without
+  refresh, navigation, or relogin.
+- Fail any silent button, stale amount, stuck spinner, overlapping control,
+  swallowed error, or UI value that disagrees with the scoped API and ledger.
+- Do not treat API-only or database-only coverage as proof that the UI works.
 
 ## Check roles explicitly
 

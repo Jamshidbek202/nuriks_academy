@@ -119,11 +119,19 @@ async def seed_finance_qa_database(db) -> dict:
         )
         users[login] = await db.users.find_one({"login": login})
 
-    await db.counters.update_one(
-        {"_id": "finance_receipt_number"},
-        {"$setOnInsert": {"seq": 0}},
-        upsert=True,
-    )
+    for counter_id in (
+        "student_id",
+        "payment_id",
+        "lead_id",
+        "booking_id",
+        "certificate_id",
+        "finance_receipt_number",
+    ):
+        await db.counters.update_one(
+            {"_id": counter_id},
+            {"$setOnInsert": {"seq": 0}},
+            upsert=True,
+        )
     policies = await seed_default_finance_configuration(
         db, str(users[QA_USERS["super_admin"]]["_id"])
     )

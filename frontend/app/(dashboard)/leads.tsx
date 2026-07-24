@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   ScrollView,
@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -70,11 +71,6 @@ export default function LeadsScreen() {
     notes: '',
   });
 
-  useEffect(() => {
-    loadLeads();
-    loadCourses();
-  }, []);
-
   const loadLeads = async () => {
     try {
       const response = await api.get('/leads');
@@ -96,6 +92,13 @@ export default function LeadsScreen() {
       console.error('Error loading courses:', error);
     }
   };
+
+  useLiveRefresh(
+    () => Promise.all([loadLeads(), loadCourses()]).then(() => undefined),
+    true,
+    'leads-and-courses',
+    3000,
+  );
 
   const handleCreateLead = async () => {
     if (!formData.first_name || !formData.last_name || !formData.phone) {

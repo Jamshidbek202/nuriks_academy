@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   ScrollView,
@@ -15,6 +15,8 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
+import { TimePicker } from '../../src/components/DateTimePicker';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface SystemSettings {
   academy_name: string;
@@ -53,10 +55,6 @@ export default function SettingsScreen() {
   const [editField, setEditField] = useState<{ key: string; label: string; value: string }>({ key: '', label: '', value: '' });
   const [newBranch, setNewBranch] = useState({ name: '', address: '', phone: '', email: '' });
 
-  useEffect(() => {
-    loadSettings();
-  }, []);
-
   const loadSettings = async () => {
     try {
       const [settingsRes, branchesRes] = await Promise.all([
@@ -72,6 +70,8 @@ export default function SettingsScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadSettings, user?.role === 'super_admin', 'system-settings');
 
   const handleSave = async () => {
     if (!editField.key) return;
@@ -223,13 +223,21 @@ export default function SettingsScreen() {
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
-            <TextInput
-              style={styles.modalInput}
-              value={editField.value}
-              onChangeText={(text) => setEditField({ ...editField, value: text })}
-              placeholder={`Enter ${editField.label}`}
-              placeholderTextColor={COLORS.textTertiary}
-            />
+            {['working_hours_start', 'working_hours_end'].includes(editField.key) ? (
+              <TimePicker
+                testID="settings-working-hours-time"
+                value={editField.value}
+                onChange={(value) => setEditField({ ...editField, value })}
+              />
+            ) : (
+              <TextInput
+                style={styles.modalInput}
+                value={editField.value}
+                onChangeText={(text) => setEditField({ ...editField, value: text })}
+                placeholder={`Enter ${editField.label}`}
+                placeholderTextColor={COLORS.textTertiary}
+              />
+            )}
             <Button title={saving ? 'Saving...' : 'Save'} onPress={handleSave} disabled={saving} />
           </View>
         </View>

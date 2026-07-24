@@ -13,12 +13,12 @@ import {
 import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
-import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
@@ -60,13 +60,8 @@ export default function StudentsScreen() {
     }
   }, [statusFilter]);
 
-  // Dashboard tabs stay mounted. Refresh on every return so newly converted
-  // leads and status changes are visible without restarting the app.
-  useFocusEffect(
-    useCallback(() => {
-      loadStudents();
-    }, [loadStudents])
-  );
+  // Keep converted leads and lifecycle changes synchronized across staff sessions.
+  useLiveRefresh(loadStudents, true, statusFilter, 3000);
 
   const loadCourses = async () => {
     try {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   ScrollView,
@@ -18,6 +18,7 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import * as Clipboard from 'expo-clipboard';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -97,12 +98,6 @@ export default function TeachersScreen() {
     courses: [] as string[],
   });
 
-  useEffect(() => {
-    loadTeachers();
-    loadCourses();
-    loadGroups();
-  }, []);
-
   const loadTeachers = async () => {
     try {
       const response = await api.get('/teachers');
@@ -144,6 +139,12 @@ export default function TeachersScreen() {
       console.error('Error loading groups:', error);
     }
   };
+
+  useLiveRefresh(
+    () => Promise.all([loadTeachers(), loadCourses(), loadGroups()]).then(() => undefined),
+    ['super_admin', 'manager'].includes(user?.role || ''),
+    user?.role || '',
+  );
 
   const handleCreateTeacher = async () => {
     if (!formData.first_name || !formData.last_name || !formData.phone) {

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SHADOWS, SIZES } from '../constants/theme';
 
 interface CalendarDatePickerProps {
+  testID?: string;
   label?: string;
   value: string;
   onChange: (date: string) => void;
@@ -33,6 +34,7 @@ function toDateString(date: Date) {
 }
 
 export function CalendarDatePicker({
+  testID,
   label,
   value,
   onChange,
@@ -95,7 +97,7 @@ export function CalendarDatePicker({
   return (
     <>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <TouchableOpacity style={[styles.input, style]} onPress={() => setVisible(true)} accessibilityRole="button">
+      <TouchableOpacity testID={testID} style={[styles.input, style]} onPress={() => setVisible(true)} accessibilityRole="button" accessibilityLabel={value || placeholder}>
         <Ionicons name="calendar-outline" size={20} color={COLORS.gold} />
         <Text style={[styles.inputText, !formattedValue && styles.placeholder]}>
           {formattedValue || placeholder}
@@ -107,13 +109,13 @@ export function CalendarDatePicker({
         <View style={styles.overlay}>
           <View style={styles.calendar}>
             <View style={styles.header}>
-              <TouchableOpacity disabled={mode === 'month' ? !canMoveYear(-1) : !canMoveTo(-1)} onPress={() => mode === 'month' ? moveYear(-1) : moveMonth(-1)} style={styles.iconButton}>
+              <TouchableOpacity testID={`${testID || 'calendar'}-previous`} disabled={mode === 'month' ? !canMoveYear(-1) : !canMoveTo(-1)} onPress={() => mode === 'month' ? moveYear(-1) : moveMonth(-1)} style={styles.iconButton}>
                 <Ionicons name="chevron-back" size={24} color={(mode === 'month' ? canMoveYear(-1) : canMoveTo(-1)) ? COLORS.textPrimary : COLORS.textTertiary} />
               </TouchableOpacity>
               <Text style={styles.monthTitle}>
                 {mode === 'month' ? visibleMonth.getFullYear() : visibleMonth.toLocaleDateString(getActiveLocale(), { month: 'long', year: 'numeric' })}
               </Text>
-              <TouchableOpacity disabled={mode === 'month' ? !canMoveYear(1) : !canMoveTo(1)} onPress={() => mode === 'month' ? moveYear(1) : moveMonth(1)} style={styles.iconButton}>
+              <TouchableOpacity testID={`${testID || 'calendar'}-next`} disabled={mode === 'month' ? !canMoveYear(1) : !canMoveTo(1)} onPress={() => mode === 'month' ? moveYear(1) : moveMonth(1)} style={styles.iconButton}>
                 <Ionicons name="chevron-forward" size={24} color={(mode === 'month' ? canMoveYear(1) : canMoveTo(1)) ? COLORS.textPrimary : COLORS.textTertiary} />
               </TouchableOpacity>
             </View>
@@ -127,6 +129,7 @@ export function CalendarDatePicker({
                   const disabled = Boolean((minimum && candidateEnd < minimum) || (maximum && candidate > maximum));
                   return (
                     <TouchableOpacity
+                      testID={`${testID || 'calendar'}-option-${monthValue}`}
                       key={monthValue}
                       disabled={disabled}
                       style={[styles.monthButton, value === monthValue && styles.selectedDay]}
@@ -148,6 +151,7 @@ export function CalendarDatePicker({
                 const selected = dateValue === value;
                 return (
                   <TouchableOpacity
+                    testID={`${testID || 'calendar'}-option-${dateValue}`}
                     key={dateValue}
                     disabled={disabled}
                     style={[styles.day, selected && styles.selectedDay]}

@@ -1,4 +1,4 @@
 interface:
   display_name: "Study Centre Finance QA"
-  short_description: "Stress-test finance and role isolation"
-  default_prompt: "Use $study-centre-finance-qa to run deterministic finance, super-admin, and manager checks in shadow mode."
+  short_description: "Audit finance, buttons, and live UI state"
+  default_prompt: "Use $study-centre-finance-qa to test every finance control, reconcile money, and detect stale cross-role UI data."

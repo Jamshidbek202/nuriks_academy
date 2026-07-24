@@ -1,4 +1,5 @@
 import { APIRequestContext, Browser, BrowserContext, expect, Page, test } from '@playwright/test';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const API_URL = 'http://127.0.0.1:8001/api';
 const PASSWORD = 'FinanceQA@2026';
@@ -68,6 +69,7 @@ const ids = {
   cashRemovalPurpose: 'finance-cash-removal-purpose',
   cashRemovalSubmit: 'finance-cash-removal-submit',
   discrepancyReason: 'finance-discrepancy-reason',
+  discrepancyInvestigate: 'finance-discrepancy-investigate',
   discrepancyAccept: 'finance-discrepancy-accept',
   cashReversalReason: 'finance-cash-reversal-reason',
   cashReversalSubmit: 'finance-cash-reversal-submit',
@@ -88,6 +90,12 @@ const ids = {
   billingReason: 'finance-billing-reason',
   billingSubmit: 'finance-billing-submit',
   lessonGroup: 'finance-lesson-group',
+  closureTitle: 'finance-closure-title',
+  closureReason: 'finance-closure-reason',
+  closureStarts: 'finance-closure-starts',
+  closureEnds: 'finance-closure-ends',
+  closureSubmit: 'finance-closure-submit',
+  finalizeMonth: 'finance-finalize-month',
 };
 
 type Position = Record<string, number | boolean | string | null | undefined>;
@@ -95,6 +103,7 @@ type Session = {
   context: BrowserContext;
   page: Page;
   frames: string[];
+  dialogs: string[];
 };
 
 const parseUzs = (text: string | null) => {
@@ -112,6 +121,12 @@ const tashkentParts = () => Object.fromEntries(
 const serviceMonth = () => {
   const value = tashkentParts();
   return `${value.year}-${value.month}`;
+};
+
+const monthOffset = (month: string, offset: number) => {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const value = new Date(year, monthNumber - 1 + offset, 1);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
 };
 
 async function apiLogin(request: APIRequestContext, login: string) {
@@ -148,7 +163,11 @@ async function loginUi(browser: Browser, loginName: string, financeTabName = 'Fi
   const context = await browser.newContext();
   const page = await context.newPage();
   const frames: string[] = [];
-  page.on('dialog', (dialog) => void dialog.accept());
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(`${dialog.type()}:${dialog.message()}`);
+    void dialog.accept();
+  });
   page.on('websocket', (socket) => {
     socket.on('framereceived', (event) => frames.push(String(event.payload)));
   });
@@ -160,7 +179,59 @@ async function loginUi(browser: Browser, loginName: string, financeTabName = 'Fi
   await expect(financeTab).toBeVisible({ timeout: 15_000 });
   await financeTab.click();
   await expect(page.getByTestId(ids.screen)).toBeVisible({ timeout: 15_000 });
-  return { context, page, frames };
+  return { context, page, frames, dialogs };
+}
+
+const closureKindPicker = (page: Page) => page.locator('select').filter({
+  has: page.locator('option[value="unexpected"]'),
+});
+
+const closureScopePicker = (page: Page) => page.locator('select').filter({
+  has: page.locator('option', { hasText: 'All centre / branch groups' }),
+});
+
+async function fillClosure(
+  page: Page,
+  values: {
+    title: string;
+    reason: string;
+    kind: 'holiday' | 'unexpected';
+    groupId: string;
+    startsAt: string;
+    endsAt: string;
+  },
+) {
+  await page.getByTestId(ids.closureTitle).fill(values.title);
+  await page.getByTestId(ids.closureReason).fill(values.reason);
+  await closureKindPicker(page).selectOption(values.kind);
+  await closureScopePicker(page).selectOption(values.groupId);
+  await selectDateTime(page, ids.closureStarts, values.startsAt);
+  await selectDateTime(page, ids.closureEnds, values.endsAt);
+}
+
+async function selectDateTime(page: Page, testId: string, value: string) {
+  const [date, time] = value.split('T');
+  const currentValue = await page.getByTestId(`${testId}-date`).getAttribute('aria-label');
+  const parsedCurrent = new Date(`${currentValue || ''}T00:00:00`);
+  const currentYear = Number.isNaN(parsedCurrent.getTime()) ? new Date().getFullYear() : parsedCurrent.getFullYear();
+  const targetYear = Number(date.slice(0, 4));
+  const targetMonth = Number(date.slice(5, 7));
+  const localeMonth = new Date(targetYear, targetMonth - 1, 1).toLocaleString('en-US', { month: 'short' });
+  const currentMonth = Number.isNaN(parsedCurrent.getTime()) ? new Date().getMonth() + 1 : parsedCurrent.getMonth() + 1;
+  const difference = ((targetYear - currentYear) * 12) + targetMonth - currentMonth;
+
+  await page.getByTestId(`${testId}-date`).click();
+  const navigation = page.getByTestId(`${testId}-date-${difference >= 0 ? 'next' : 'previous'}`);
+  for (let index = 0; index < Math.abs(difference); index += 1) await navigation.click({ timeout: LIVE_TIMEOUT_MS });
+  const dateOption = page.getByTestId(`${testId}-date-option-${date}`);
+  await expect(dateOption).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+  await dateOption.click({ timeout: LIVE_TIMEOUT_MS });
+
+  await page.getByTestId(`${testId}-time`).click();
+  await page.getByTestId(`${testId}-time-hour`).selectOption(time.slice(0, 2));
+  await page.getByTestId(`${testId}-time-minute`).selectOption(time.slice(3, 5));
+  await page.getByTestId(`${testId}-time-apply`).click();
+  await expect(page.getByTestId(testId)).toContainText(localeMonth);
 }
 
 async function expectLiveMoney(page: Page, testId: string, expected: number) {
@@ -206,9 +277,18 @@ async function waitForRows<T extends { id: string }>(
   return rows;
 }
 
-test('every finance-page domain synchronizes live across authorized sessions', async ({ browser, request }) => {
-  test.setTimeout(180_000);
+test('every finance-page domain synchronizes live across authorized sessions', async ({ browser, request }, testInfo) => {
+  test.setTimeout(300_000);
   const month = serviceMonth();
+  const mongoUrl = process.env.MONGO_URL;
+  const databaseName = process.env.DB_NAME;
+  expect(mongoUrl).toBeTruthy();
+  expect(databaseName).toMatch(/(?:^|[_-])(test|qa|sandbox|shadow)(?:[_-]|$)/i);
+  const mongoClient = new MongoClient(mongoUrl!);
+  await mongoClient.connect();
+  const qaDb = mongoClient.db(databaseName);
+  const focusedEvidence: Record<string, unknown>[] = [];
+  const focusedFailures: string[] = [];
   const managerToken = await apiLogin(request, 'qa_manager_a');
   const managerBToken = await apiLogin(request, 'qa_manager_b');
   const superToken = await apiLogin(request, 'qa_superadmin');
@@ -236,10 +316,11 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   let finalizedInvoice: any;
   let teacherEarning: any;
   let shift: any;
+  let lockedOccurrenceForClosure: any;
   let secondReceipt: any;
   let otherExpense: any;
 
-  await test.step('closures and lesson resolution update both finance calendars live', async () => {
+  await test.step('all closure kinds and scopes work through the UI and synchronize live', async () => {
     const occurrences = await apiGet<any[]>(
       request,
       managerToken,
@@ -247,33 +328,166 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
     const unresolved = occurrences.filter((row) => row.resolution_status === 'unresolved');
     expect(unresolved).toHaveLength(2);
-    for (const page of [manager.page, superAdmin.page]) {
+    lockedOccurrenceForClosure = unresolved[1];
+    for (const page of [manager.page, managerB.page, superAdmin.page]) {
       await page.getByTestId(ids.closuresTab).click();
+    }
+    for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.lessonGroup).selectOption(group.id);
       await expect(page.getByTestId(`finance-lesson-row-${unresolved[0].id}`)).toBeVisible();
     }
 
+    manager.dialogs.length = 0;
+    let validationRequests = 0;
+    const validationListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().endsWith('/api/finance/closures')) validationRequests += 1;
+    };
+    manager.page.on('request', validationListener);
+    await manager.page.getByTestId(ids.closureTitle).fill('');
+    await manager.page.getByTestId(ids.closureReason).fill('x');
+    await manager.page.getByTestId(ids.closureSubmit).click();
+    await manager.page.waitForTimeout(300);
+    manager.page.off('request', validationListener);
+    expect(validationRequests).toBe(0);
+    if (!manager.dialogs.some((message) => message.includes('Title and reason are required'))) {
+      focusedFailures.push('Closure required-field validation produced no visible feedback.');
+    }
+
     managerB.frames.length = 0;
-    const closureTitle = `Live closure ${Date.now()}`;
-    const closure = await apiPost<any>(request, managerToken, '/finance/closures', {
-      title: closureTitle,
-      reason: 'Finance-wide live UI closure test',
+    const groupClosureTitle = `Group unexpected closure ${Date.now()}`;
+    await fillClosure(manager.page, {
+      title: groupClosureTitle,
+      reason: 'Group-scoped unexpected closure through the manager UI',
       kind: 'unexpected',
-      starts_at: `${unresolved[0].local_date}T00:00`,
-      ends_at: `${unresolved[0].local_date}T23:59`,
-      branch_id: null,
-      group_ids: [group.id],
+      groupId: group.id,
+      startsAt: `${unresolved[0].local_date}T00:00`,
+      endsAt: `${unresolved[0].local_date}T23:59`,
     });
+    let closureRequestCount = 0;
+    const closureRequestListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().endsWith('/api/finance/closures')) closureRequestCount += 1;
+    };
+    manager.page.on('request', closureRequestListener);
+    const groupClosureStartedAt = Date.now();
+    const [groupClosureResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/finance/closures')),
+      manager.page.getByTestId(ids.closureSubmit).click(),
+    ]);
+    manager.page.off('request', closureRequestListener);
+    expect(groupClosureResponse.ok(), await groupClosureResponse.text()).toBeTruthy();
+    expect(closureRequestCount).toBe(1);
+    const groupClosure = await groupClosureResponse.json();
+    expect(groupClosure.kind).toBe('unexpected');
+    expect(groupClosure.branch_id).toBe(group.branch_id);
+    expect(groupClosure.group_ids).toEqual([group.id]);
     for (const page of [manager.page, superAdmin.page]) {
-      const closureRow = page.getByTestId(`finance-closure-row-${closure.id}`);
-      await expect(closureRow).toContainText(closureTitle, { timeout: LIVE_TIMEOUT_MS });
+      const closureRow = page.getByTestId(`finance-closure-row-${groupClosure.id}`);
+      await expect(closureRow).toContainText(groupClosureTitle, { timeout: LIVE_TIMEOUT_MS });
       await expect(page.getByTestId(`finance-lesson-row-${unresolved[0].id}`)).toContainText(
         'centre closed',
         { timeout: LIVE_TIMEOUT_MS },
       );
     }
-    await managerB.page.waitForTimeout(750);
+    const groupClosureObserverMs = Date.now() - groupClosureStartedAt;
+    await expect(managerB.page.getByTestId(`finance-closure-row-${groupClosure.id}`)).toHaveCount(0);
+    await managerB.page.waitForTimeout(300);
     expect(managerB.frames.some((frame) => frame.includes('finance_changed'))).toBe(false);
+
+    const branchClosureTitle = `Branch holiday closure ${Date.now()}`;
+    await manager.page.setViewportSize({ width: 390, height: 844 });
+    await fillClosure(manager.page, {
+      title: branchClosureTitle,
+      reason: 'Branch-wide official holiday through the manager UI',
+      kind: 'holiday',
+      groupId: '',
+      startsAt: `${monthOffset(month, 1)}-10T00:00`,
+      endsAt: `${monthOffset(month, 1)}-10T23:59`,
+    });
+    let branchClosureRequestCount = 0;
+    const branchClosureListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().endsWith('/api/finance/closures')) branchClosureRequestCount += 1;
+    };
+    manager.page.on('request', branchClosureListener);
+    const branchClosureResponsePromise = manager.page.waitForResponse((response) => response.request().method() === 'POST'
+      && response.url().endsWith('/api/finance/closures'));
+    const branchClosureSubmit = manager.page.getByTestId(ids.closureSubmit);
+    await Promise.allSettled([
+      branchClosureSubmit.click(),
+      branchClosureSubmit.click({ timeout: 1_000 }),
+    ]);
+    const branchClosureResponse = await branchClosureResponsePromise;
+    manager.page.off('request', branchClosureListener);
+    expect(branchClosureResponse.ok(), await branchClosureResponse.text()).toBeTruthy();
+    expect(branchClosureRequestCount).toBe(1);
+    const branchClosure = await branchClosureResponse.json();
+    expect(branchClosure.kind).toBe('holiday');
+    expect(branchClosure.branch_id).toBe(group.branch_id);
+    expect(branchClosure.group_ids).toEqual([]);
+    expect(await qaDb.collection('finance_closures').countDocuments({ title: branchClosureTitle })).toBe(1);
+    await expect(superAdmin.page.getByTestId(`finance-closure-row-${branchClosure.id}`)).toContainText(
+      branchClosureTitle,
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    await expect(managerB.page.getByTestId(`finance-closure-row-${branchClosure.id}`)).toHaveCount(0);
+    await manager.page.setViewportSize({ width: 1280, height: 720 });
+
+    const globalClosureTitle = `Global unexpected closure ${Date.now()}`;
+    await fillClosure(superAdmin.page, {
+      title: globalClosureTitle,
+      reason: 'Centre-wide unexpected closure through the super-admin UI',
+      kind: 'unexpected',
+      groupId: '',
+      startsAt: `${monthOffset(month, 1)}-11T00:00`,
+      endsAt: `${monthOffset(month, 1)}-11T23:59`,
+    });
+    const globalClosureStartedAt = Date.now();
+    const [globalClosureResponse] = await Promise.all([
+      superAdmin.page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/finance/closures')),
+      superAdmin.page.getByTestId(ids.closureSubmit).click(),
+    ]);
+    expect(globalClosureResponse.ok(), await globalClosureResponse.text()).toBeTruthy();
+    const globalClosure = await globalClosureResponse.json();
+    expect(globalClosure.branch_id).toBeNull();
+    expect(globalClosure.group_ids).toEqual([]);
+    for (const page of [manager.page, managerB.page, superAdmin.page]) {
+      await expect(page.getByTestId(`finance-closure-row-${globalClosure.id}`)).toContainText(
+        globalClosureTitle,
+        { timeout: LIVE_TIMEOUT_MS },
+      );
+    }
+    const globalClosureObserverMs = Date.now() - globalClosureStartedAt;
+
+    const managerBClosures = await apiGet<any[]>(request, managerBToken, '/finance/closures?limit=500');
+    expect(managerBClosures.some((row) => row.id === globalClosure.id)).toBe(true);
+    expect(managerBClosures.some((row) => row.id === groupClosure.id || row.id === branchClosure.id)).toBe(false);
+    for (const closure of [groupClosure, branchClosure, globalClosure]) {
+      const stored = await qaDb.collection('finance_closures').findOne({ _id: new ObjectId(closure.id) });
+      expect(stored?.immutable).toBe(true);
+      expect(await qaDb.collection('audit_logs').countDocuments({
+        action: 'create', resource_type: 'finance_closure', resource_id: closure.id,
+      })).toBe(1);
+    }
+
+    const invalidRangeTitle = `Invalid closure range ${Date.now()}`;
+    await fillClosure(manager.page, {
+      title: invalidRangeTitle,
+      reason: 'End before start must be rejected without a ledger change',
+      kind: 'holiday',
+      groupId: group.id,
+      startsAt: `${monthOffset(month, 1)}-12T10:00`,
+      endsAt: `${monthOffset(month, 1)}-12T09:00`,
+    });
+    manager.dialogs.length = 0;
+    const [invalidRangeResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/finance/closures')),
+      manager.page.getByTestId(ids.closureSubmit).click(),
+    ]);
+    expect(invalidRangeResponse.status()).toBe(422);
+    expect(await qaDb.collection('finance_closures').countDocuments({ title: invalidRangeTitle })).toBe(0);
+    await manager.page.waitForTimeout(100);
+    if (!manager.dialogs.some((message) => message.includes('Closure end must be after its start'))) {
+      focusedFailures.push('Invalid closure date range produced no visible error feedback.');
+    }
 
     await apiPost(request, managerToken, `/finance/lesson-occurrences/${unresolved[1].id}/resolve`, {
       resolution: 'held',
@@ -287,6 +501,17 @@ test('every finance-page domain synchronizes live across authorized sessions', a
         { timeout: LIVE_TIMEOUT_MS },
       );
     }
+    focusedEvidence.push({
+      workflow: 'closures',
+      group_scope_actor_to_observer_ms: groupClosureObserverMs,
+      global_scope_actor_to_observer_ms: globalClosureObserverMs,
+      kinds: ['holiday', 'unexpected'],
+      scopes: ['group', 'manager_branch', 'global'],
+      phone_viewport_workflow: 'manager branch-wide holiday closure',
+      rapid_click_request_count: branchClosureRequestCount,
+      invalid_required_rejected_without_request: validationRequests === 0,
+      invalid_range_status: invalidRangeResponse.status(),
+    });
   });
 
   await test.step('tariff, share, recurring policy, and billing calendar versions update managers live', async () => {
@@ -352,11 +577,23 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await managerB.page.getByTestId(ids.receivablesTab).click();
     await expect(managerB.page.getByTestId(`finance-invoice-row-${draft.id}`)).toHaveCount(0);
 
-    const finalized = await apiPost<any>(request, managerToken, '/finance/invoices/finalize-month', {
-      service_month: month,
-      branch_id: null,
-      idempotency_key: `qa:browser:finalize:${month}`,
-    });
+    await manager.page.getByTestId(ids.overview).click();
+    manager.dialogs.length = 0;
+    let finalizeRequestCount = 0;
+    const finalizeListener = (candidate: any) => {
+      if (candidate.method() === 'POST' && candidate.url().endsWith('/api/finance/invoices/finalize-month')) finalizeRequestCount += 1;
+    };
+    manager.page.on('request', finalizeListener);
+    const [finalizeResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().endsWith('/api/finance/invoices/finalize-month')),
+      manager.page.getByTestId(ids.finalizeMonth).click(),
+    ]);
+    manager.page.off('request', finalizeListener);
+    expect(finalizeResponse.ok(), await finalizeResponse.text()).toBeTruthy();
+    expect(finalizeRequestCount).toBe(1);
+    expect(manager.dialogs.some((message) => message.includes('Finalize financial month?'))).toBe(true);
+    const finalized = await finalizeResponse.json();
     expect(finalized.finalized_invoice_count).toBe(1);
     const invoiceRows = await waitForRows<any>(
       request,
@@ -366,6 +603,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
     finalizedInvoice = invoiceRows.find((row) => row.id === draft.id);
     for (const page of [manager.page, superAdmin.page, reception.page]) {
+      await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`)).toContainText(
         finalizedInvoice.invoice_number,
         { timeout: LIVE_TIMEOUT_MS },
@@ -390,6 +628,51 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(Number(managerPosition.gross_tuition_uzs)).toBe(finalized.amount_due_uzs);
     await expectPosition(manager.page, managerPosition);
     await expectPosition(superAdmin.page, superPosition);
+  });
+
+  await test.step('closure over a financially locked lesson fails closed through the UI', async () => {
+    const title = `Locked lesson closure ${Date.now()}`;
+    const closureCountBefore = await qaDb.collection('finance_closures').countDocuments({});
+    const invoiceBefore = await qaDb.collection('finance_invoices').findOne({ _id: new ObjectId(finalizedInvoice.id) });
+    const earningBefore = await qaDb.collection('teacher_earnings').findOne({ _id: new ObjectId(teacherEarning.id) });
+    await manager.page.getByTestId(ids.closuresTab).click();
+    await fillClosure(manager.page, {
+      title,
+      reason: 'A closure must not rewrite a financially locked lesson',
+      kind: 'unexpected',
+      groupId: group.id,
+      startsAt: `${lockedOccurrenceForClosure.local_date}T00:00`,
+      endsAt: `${lockedOccurrenceForClosure.local_date}T23:59`,
+    });
+    manager.dialogs.length = 0;
+    const lockedRequestPromise = manager.page.waitForRequest((candidate) => candidate.method() === 'POST'
+      && candidate.url().endsWith('/api/finance/closures'));
+    await manager.page.getByTestId(ids.closureSubmit).click();
+    const lockedRequest = await lockedRequestPromise;
+    const response = await Promise.race([
+      lockedRequest.response(),
+      manager.page.waitForTimeout(LIVE_TIMEOUT_MS).then(() => null),
+    ]);
+    const lockedResponseStatus = response?.status() ?? null;
+    const lockedResponseBody = response ? await response.text() : '';
+    if (lockedResponseStatus !== 409 || !lockedResponseBody.includes('locked')) {
+      focusedFailures.push(`Locked-lesson closure returned ${lockedResponseStatus ?? 'no response'} instead of a clear HTTP 409 conflict.`);
+    }
+    expect(await qaDb.collection('finance_closures').countDocuments({})).toBe(closureCountBefore);
+    expect(await qaDb.collection('finance_closures').countDocuments({ title })).toBe(0);
+    const invoiceAfter = await qaDb.collection('finance_invoices').findOne({ _id: new ObjectId(finalizedInvoice.id) });
+    const earningAfter = await qaDb.collection('teacher_earnings').findOne({ _id: new ObjectId(teacherEarning.id) });
+    expect(invoiceAfter?.amount_due_uzs).toBe(invoiceBefore?.amount_due_uzs);
+    expect(invoiceAfter?.status).toBe('finalized');
+    expect(earningAfter?.earned_amount_uzs).toBe(earningBefore?.earned_amount_uzs);
+    await superAdmin.page.getByTestId(ids.closuresTab).click();
+    await expect(superAdmin.page.getByText(title, { exact: true })).toHaveCount(0);
+    focusedEvidence.push({
+      workflow: 'closure_locked_lesson_rejection',
+      status: lockedResponseStatus,
+      invoice_uzs_difference: Number(invoiceAfter?.amount_due_uzs) - Number(invoiceBefore?.amount_due_uzs),
+      payroll_uzs_difference: Number(earningAfter?.earned_amount_uzs) - Number(earningBefore?.earned_amount_uzs),
+    });
   });
 
   await test.step('reception cash receipts update debt, cash, overpayment advance, and all roles live', async () => {
@@ -478,6 +761,181 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await expectPosition(superAdmin.page, await apiGet<Position>(request, superToken, `/finance/position?service_month=${month}`));
     const earnings = await apiGet<any[]>(request, managerToken, `/finance/teacher-earnings?service_month=${month}`);
     expect(earnings[0].earned_amount_uzs).toBe(earnedBefore);
+
+    await manager.page.getByTestId(ids.receivablesTab).click();
+    const invoiceRow = manager.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`);
+    await invoiceRow.getByText('Add credit').click();
+    manager.dialogs.length = 0;
+    let validationRequests = 0;
+    const validationListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/invoices/${finalizedInvoice.id}/adjustments`)) validationRequests += 1;
+    };
+    manager.page.on('request', validationListener);
+    await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill('0');
+    await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('bad');
+    await manager.page.getByTestId(ids.invoiceCorrectionSubmit).click();
+    await manager.page.waitForTimeout(300);
+    manager.page.off('request', validationListener);
+    expect(validationRequests).toBe(0);
+    if (!manager.dialogs.some((message) => message.includes('whole-UZS amount and audit reason'))) {
+      focusedFailures.push('Invoice-credit validation produced no visible feedback.');
+    }
+
+    const dueAfterDebit = finalizedInvoice.amount_due_uzs + 20_000;
+    const adjustmentCountBeforeFailure = await qaDb.collection('finance_invoice_adjustments').countDocuments({
+      invoice_id: finalizedInvoice.id,
+    });
+    await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill(String(dueAfterDebit + 1));
+    await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('Oversized credit must fail without changing the invoice');
+    manager.dialogs.length = 0;
+    const [oversizedResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().includes(`/api/finance/invoices/${finalizedInvoice.id}/adjustments`)),
+      manager.page.getByTestId(ids.invoiceCorrectionSubmit).click(),
+    ]);
+    expect(oversizedResponse.status()).toBe(400);
+    expect(await oversizedResponse.text()).toContain('cannot exceed');
+    expect(await qaDb.collection('finance_invoice_adjustments').countDocuments({
+      invoice_id: finalizedInvoice.id,
+    })).toBe(adjustmentCountBeforeFailure);
+    await manager.page.waitForTimeout(100);
+    if (!manager.dialogs.some((message) => message.includes('cannot exceed'))) {
+      focusedFailures.push('Oversized invoice-credit rejection produced no visible error feedback.');
+    }
+    expect((await apiGet<any[]>(request, managerToken, `/finance/invoices?service_month=${month}&limit=100`))
+      .find((row) => row.id === finalizedInvoice.id)?.amount_due_uzs).toBe(dueAfterDebit);
+
+    const creditAmount = 15_000;
+    const managerPositionBeforeCredit = await apiGet<Position>(request, managerToken, `/finance/position?service_month=${month}`);
+    const teacherBeforeCredit = (await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/teacher-earnings?service_month=${month}`,
+    ))[0].earned_amount_uzs;
+    await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill(String(creditAmount));
+    await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('Valid credit synchronization and ledger audit');
+    let creditRequestCount = 0;
+    let creditRequestPayload: Record<string, unknown> | null = null;
+    const creditRequestListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/invoices/${finalizedInvoice.id}/adjustments`)) {
+        creditRequestCount += 1;
+        creditRequestPayload = requestValue.postDataJSON();
+      }
+    };
+    manager.page.on('request', creditRequestListener);
+    const creditStartedAt = Date.now();
+    const [creditResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().includes(`/api/finance/invoices/${finalizedInvoice.id}/adjustments`)),
+      manager.page.getByTestId(ids.invoiceCorrectionSubmit).click(),
+    ]);
+    manager.page.off('request', creditRequestListener);
+    expect(creditResponse.ok(), await creditResponse.text()).toBeTruthy();
+    expect(creditRequestCount).toBe(1);
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, managerToken, `/finance/invoices?service_month=${month}&limit=100`);
+      return rows.find((row) => row.id === finalizedInvoice.id)?.amount_due_uzs;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe(dueAfterDebit - creditAmount);
+    const managerPositionAfterCredit = await apiGet<Position>(request, managerToken, `/finance/position?service_month=${month}`);
+    expect(Number(managerPositionAfterCredit.net_tuition_uzs) - Number(managerPositionBeforeCredit.net_tuition_uzs)).toBe(-creditAmount);
+    expect(Number(managerPositionAfterCredit.receivables_uzs) - Number(managerPositionBeforeCredit.receivables_uzs)).toBe(-creditAmount);
+    expect(Number(managerPositionAfterCredit.accrued_operating_profit_uzs) - Number(managerPositionBeforeCredit.accrued_operating_profit_uzs)).toBe(-creditAmount);
+    await expectPosition(manager.page, managerPositionAfterCredit);
+    await expectPosition(superAdmin.page, await apiGet<Position>(request, superToken, `/finance/position?service_month=${month}`));
+    const creditObserverMs = Date.now() - creditStartedAt;
+    expect((await apiGet<any[]>(request, managerToken, `/finance/teacher-earnings?service_month=${month}`))[0].earned_amount_uzs).toBe(teacherBeforeCredit);
+    const storedCredit = await qaDb.collection('finance_invoice_adjustments').findOne({
+      invoice_id: finalizedInvoice.id,
+      kind: 'credit',
+      reason: 'Valid credit synchronization and ledger audit',
+    });
+    expect(storedCredit?.amount_uzs).toBe(creditAmount);
+    expect(storedCredit?.immutable).toBe(true);
+    expect(storedCredit?.teacher_earnings_affected).toBe(false);
+    expect(await qaDb.collection('audit_logs').countDocuments({
+      action: 'adjust',
+      resource_type: 'finance_invoice',
+      resource_id: finalizedInvoice.id,
+      'changes.kind': 'credit',
+      'changes.amount_uzs': creditAmount,
+    })).toBe(1);
+    const invoiceBeforeCreditReplay = (await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/invoices?service_month=${month}&limit=100`,
+    )).find((row) => row.id === finalizedInvoice.id);
+    const creditReplay = await apiPost<any>(
+      request,
+      managerToken,
+      `/finance/invoices/${finalizedInvoice.id}/adjustments`,
+      creditRequestPayload!,
+    );
+    expect(creditReplay.idempotent_replay).toBe(true);
+    expect(await qaDb.collection('finance_invoice_adjustments').countDocuments({
+      invoice_id: finalizedInvoice.id,
+      kind: 'credit',
+      reason: 'Valid credit synchronization and ledger audit',
+    })).toBe(1);
+    const invoiceAfterCreditReplay = (await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/invoices?service_month=${month}&limit=100`,
+    )).find((row) => row.id === finalizedInvoice.id);
+    expect(invoiceAfterCreditReplay.amount_due_uzs).toBe(invoiceBeforeCreditReplay.amount_due_uzs);
+    const creditAuditCountAfterRetry = await qaDb.collection('audit_logs').countDocuments({
+      action: 'adjust',
+      resource_type: 'finance_invoice',
+      resource_id: finalizedInvoice.id,
+      'changes.kind': 'credit',
+      'changes.amount_uzs': creditAmount,
+    });
+    if (creditAuditCountAfterRetry !== 1) {
+      focusedFailures.push(`Invoice-credit idempotent retry created ${creditAuditCountAfterRetry} audit records instead of one.`);
+    }
+
+    await reception.page.getByTestId(ids.receivablesTab).click();
+    await expect(reception.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`).getByText('Add credit')).toHaveCount(0);
+    await managerB.page.getByTestId(ids.receivablesTab).click();
+    await expect(managerB.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`)).toHaveCount(0);
+
+    await manager.page.getByTestId(ids.receivablesTab).click();
+    await manager.page.setViewportSize({ width: 390, height: 844 });
+    await manager.page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`).getByText('Add credit').click();
+    await manager.page.getByTestId(ids.invoiceCorrectionAmount).fill('5000');
+    await manager.page.getByTestId(ids.invoiceCorrectionReason).fill('Rapid repeat credit must commit exactly once');
+    let rapidRequestCount = 0;
+    const rapidListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/invoices/${finalizedInvoice.id}/adjustments`)) rapidRequestCount += 1;
+    };
+    manager.page.on('request', rapidListener);
+    const submitCredit = manager.page.getByTestId(ids.invoiceCorrectionSubmit);
+    await Promise.allSettled([
+      submitCredit.click(),
+      submitCredit.click({ timeout: 1_000 }),
+    ]);
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, managerToken, `/finance/invoices?service_month=${month}&limit=100`);
+      return rows.find((row) => row.id === finalizedInvoice.id)?.amount_due_uzs;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe(dueAfterDebit - creditAmount - 5_000);
+    manager.page.off('request', rapidListener);
+    expect(rapidRequestCount).toBe(1);
+    expect(await qaDb.collection('finance_invoice_adjustments').countDocuments({
+      invoice_id: finalizedInvoice.id,
+      kind: 'credit',
+    })).toBe(2);
+    await manager.page.setViewportSize({ width: 1280, height: 720 });
+    focusedEvidence.push({
+      workflow: 'invoice_credit',
+      valid_credit_uzs: creditAmount,
+      actor_and_observer_reconciled_ms: creditObserverMs,
+      validation_requests: validationRequests,
+      oversized_status: oversizedResponse.status(),
+      rapid_click_request_count: rapidRequestCount,
+      phone_viewport_workflow: 'rapid repeat credit correction',
+      immutable_adjustment_count_after_retry: 1,
+      audit_log_count_after_retry: creditAuditCountAfterRetry,
+      payroll_uzs_difference: 0,
+    });
   });
 
   await test.step('expense creation, recurring obligations, manual amounts, corrections, payouts, and reversals stay live', async () => {
@@ -642,6 +1100,137 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       { timeout: LIVE_TIMEOUT_MS },
     );
     await expect(reception.page.getByTestId(ids.cashOpen)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+
+    await reception.page.getByTestId(ids.cashOpeningAmount).fill('500000');
+    await reception.page.getByTestId(ids.cashOpen).click();
+    let investigationShift: any;
+    await expect.poll(async () => {
+      investigationShift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
+      return investigationShift?.status;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe('open');
+    const immutableOpening = investigationShift.opening_balance_uzs;
+    await reception.page.getByTestId(ids.cashClosingAmount).fill('490000');
+    await reception.page.getByTestId(ids.cashClose).click();
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, superToken, '/finance/cash-shifts?limit=100');
+      investigationShift = rows.find((row) => row.id === investigationShift.id);
+      return `${investigationShift?.status}:${investigationShift?.discrepancy_status}`;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe('closed:pending_review');
+    expect(investigationShift.expected_closing_balance_uzs).toBe(500_000);
+    expect(investigationShift.actual_closing_balance_uzs).toBe(490_000);
+    expect(investigationShift.discrepancy_uzs).toBe(-10_000);
+
+    await manager.page.getByTestId(ids.cashTab).click();
+    const managerInvestigationRow = manager.page.getByTestId(`finance-cash-shift-row-${investigationShift.id}`);
+    await expect(managerInvestigationRow).toContainText('pending review', { timeout: LIVE_TIMEOUT_MS });
+    await expect(managerInvestigationRow.getByText('Review discrepancy')).toHaveCount(0);
+
+    await superAdmin.page.setViewportSize({ width: 390, height: 844 });
+    await superAdmin.page.getByTestId(ids.cashTab).click();
+    const superInvestigationRow = superAdmin.page.getByTestId(`finance-cash-shift-row-${investigationShift.id}`);
+    await expect(superInvestigationRow).toContainText('pending review', { timeout: LIVE_TIMEOUT_MS });
+    await superInvestigationRow.getByText('Review discrepancy').click();
+    superAdmin.dialogs.length = 0;
+    let validationRequests = 0;
+    const validationListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/cash-shifts/${investigationShift.id}/discrepancy-review`)) validationRequests += 1;
+    };
+    superAdmin.page.on('request', validationListener);
+    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('bad');
+    await superAdmin.page.getByTestId(ids.discrepancyInvestigate).click();
+    await superAdmin.page.waitForTimeout(300);
+    superAdmin.page.off('request', validationListener);
+    expect(validationRequests).toBe(0);
+    if (!superAdmin.dialogs.some((message) => message.includes('at least five characters'))) {
+      focusedFailures.push('Cash-discrepancy validation produced no visible feedback.');
+    }
+
+    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('Investigate the ten-thousand UZS physical cash shortage');
+    let investigateRequestCount = 0;
+    let investigateRequestPayload: Record<string, unknown> | null = null;
+    const investigateListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/cash-shifts/${investigationShift.id}/discrepancy-review`)) {
+        investigateRequestCount += 1;
+        investigateRequestPayload = requestValue.postDataJSON();
+      }
+    };
+    superAdmin.page.on('request', investigateListener);
+    const investigateStartedAt = Date.now();
+    const investigateButton = superAdmin.page.getByTestId(ids.discrepancyInvestigate);
+    await Promise.allSettled([
+      investigateButton.click(),
+      investigateButton.click({ timeout: 1_000 }),
+    ]);
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, managerToken, '/finance/cash-shifts?limit=100');
+      return rows.find((row) => row.id === investigationShift.id)?.discrepancy_status;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe('investigation_required');
+    superAdmin.page.off('request', investigateListener);
+    expect(investigateRequestCount).toBe(1);
+    expect(investigateRequestPayload).toMatchObject({ accepted: false });
+    await expect(managerInvestigationRow).toContainText('investigation required', { timeout: LIVE_TIMEOUT_MS });
+    const investigateObserverMs = Date.now() - investigateStartedAt;
+    await expect(superAdmin.page.getByTestId(`finance-cash-shift-row-${investigationShift.id}`).getByText('Review discrepancy')).toHaveCount(0);
+    await expect(reception.page.getByTestId(ids.cashOpen)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+    await superAdmin.page.setViewportSize({ width: 1280, height: 720 });
+
+    const storedShift = await qaDb.collection('cash_shifts').findOne({ _id: new ObjectId(investigationShift.id) });
+    expect(storedShift?.opening_balance_uzs).toBe(immutableOpening);
+    expect(storedShift?.expected_closing_balance_uzs).toBe(500_000);
+    expect(storedShift?.actual_closing_balance_uzs).toBe(490_000);
+    expect(storedShift?.discrepancy_uzs).toBe(-10_000);
+    expect(storedShift?.discrepancy_status).toBe('investigation_required');
+    expect(await qaDb.collection('cash_discrepancy_reviews').countDocuments({
+      cash_shift_id: investigationShift.id,
+      accepted: false,
+    })).toBe(1);
+    expect(await qaDb.collection('cash_discrepancy_reviews').countDocuments({
+      cash_shift_id: investigationShift.id,
+      accepted: false,
+      immutable: true,
+    })).toBe(1);
+    const auditCountBeforeRetry = await qaDb.collection('audit_logs').countDocuments({
+      action: 'review_cash_discrepancy',
+      resource_type: 'cash_shift',
+      resource_id: investigationShift.id,
+      'changes.accepted': false,
+    });
+    expect(auditCountBeforeRetry).toBe(1);
+
+    const replay = await apiPost<any>(
+      request,
+      superToken,
+      `/finance/cash-shifts/${investigationShift.id}/discrepancy-review`,
+      investigateRequestPayload!,
+    );
+    expect(replay.idempotent_replay).toBe(true);
+    expect(await qaDb.collection('cash_discrepancy_reviews').countDocuments({
+      cash_shift_id: investigationShift.id,
+      accepted: false,
+    })).toBe(1);
+    const shiftAfterRetry = await qaDb.collection('cash_shifts').findOne({ _id: new ObjectId(investigationShift.id) });
+    expect(shiftAfterRetry?.expected_closing_balance_uzs).toBe(storedShift?.expected_closing_balance_uzs);
+    expect(shiftAfterRetry?.actual_closing_balance_uzs).toBe(storedShift?.actual_closing_balance_uzs);
+    expect(shiftAfterRetry?.discrepancy_uzs).toBe(storedShift?.discrepancy_uzs);
+    const discrepancyAuditCountAfterRetry = await qaDb.collection('audit_logs').countDocuments({
+      action: 'review_cash_discrepancy',
+      resource_type: 'cash_shift',
+      resource_id: investigationShift.id,
+      'changes.accepted': false,
+    });
+    if (discrepancyAuditCountAfterRetry !== 1) {
+      focusedFailures.push(`Cash-discrepancy idempotent retry created ${discrepancyAuditCountAfterRetry} audit records instead of one.`);
+    }
+    focusedEvidence.push({
+      workflow: 'cash_discrepancy_investigate',
+      discrepancy_uzs: -10_000,
+      actor_and_observer_reconciled_ms: investigateObserverMs,
+      validation_requests: validationRequests,
+      rapid_click_request_count: investigateRequestCount,
+      phone_viewport_workflow: 'cash discrepancy Investigate decision',
+      immutable_review_count_after_retry: 1,
+      audit_log_count_after_retry: discrepancyAuditCountAfterRetry,
+    });
   });
 
   await test.step('invoice reversal and replacement update all ledgers while earned payroll remains immutable', async () => {
@@ -686,5 +1275,11 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   // Every assertion above completes before the 10-second reconciliation poll,
   // proving the finance_changed WebSocket invalidation drove the UI refresh.
   expect(await apiGet<Position>(request, managerBToken, `/finance/position?service_month=${month}`)).toBeTruthy();
+  await testInfo.attach('focused-finance-workflow-evidence.json', {
+    body: Buffer.from(JSON.stringify({ evidence: focusedEvidence, failures: focusedFailures }, null, 2)),
+    contentType: 'application/json',
+  });
+  await mongoClient.close();
   await Promise.all(sessions.map((session) => session.context.close()));
+  expect(focusedFailures, 'Focused finance UI workflow failures').toEqual([]);
 });

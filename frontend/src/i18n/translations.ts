@@ -955,6 +955,10 @@ export function getActiveLocale(): string {
   return LANGUAGE_LOCALES[activeFormattingLanguage];
 }
 
+export function getActiveLanguage(): AppLanguage {
+  return activeFormattingLanguage;
+}
+
 export function translateText(source: string, language: AppLanguage): string {
   if (language === 'en' || !source) return source;
   const match = source.match(/^(\s*)([\s\S]*?)(\s*)$/);

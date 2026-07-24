@@ -552,7 +552,10 @@ async def add_closure(
         for group in groups:
             if payload.branch_id and group.get("branch_id") != payload.branch_id:
                 raise HTTPException(status_code=409, detail="Closure branch does not match every selected group")
-    document = await create_closure(db, payload, str(current_user["_id"]))
+    try:
+        document = await create_closure(db, payload, str(current_user["_id"]))
+    except ValueError as error:
+        _service_error(error)
     await create_audit_log(
         str(current_user["_id"]), "create", "finance_closure", str(document["_id"]),
         payload.model_dump(mode="json"), request.client.host if request.client else None,
@@ -960,10 +963,11 @@ async def add_invoice_adjustment(
     result["freeze_reconciliation"] = await reconcile_student_finance_freeze(
         db, invoice["student_id"], _academy_today(), str(current_user["_id"])
     )
-    await create_audit_log(
-        str(current_user["_id"]), "adjust", "finance_invoice", invoice_id,
-        payload.model_dump(mode="json"), request.client.host if request.client else None,
-    )
+    if not result.get("idempotent_replay"):
+        await create_audit_log(
+            str(current_user["_id"]), "adjust", "finance_invoice", invoice_id,
+            payload.model_dump(mode="json"), request.client.host if request.client else None,
+        )
     return finance_document_to_json(result)
 
 
@@ -1181,14 +1185,15 @@ async def review_cash_shift_discrepancy(
         _service_error(error)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error))
-    await create_audit_log(
-        str(current_user["_id"]),
-        "review_cash_discrepancy",
-        "cash_shift",
-        shift_id,
-        {"accepted": payload.accepted, "reason": payload.reason},
-        request.client.host if request.client else None,
-    )
+    if not result.get("idempotent_replay"):
+        await create_audit_log(
+            str(current_user["_id"]),
+            "review_cash_discrepancy",
+            "cash_shift",
+            shift_id,
+            {"accepted": payload.accepted, "reason": payload.reason},
+            request.client.host if request.client else None,
+        )
     return finance_document_to_json(result)
 
 

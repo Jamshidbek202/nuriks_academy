@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   RefreshControl,
@@ -12,6 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Student {
   id: string;
@@ -79,9 +80,7 @@ export default function PaymentsScreen() {
     }
   };
 
-  useEffect(() => {
-    void loadData();
-  }, []);
+  useLiveRefresh(loadData, ['student', 'parent'].includes(user?.role || ''), user?.role || '', 3000);
 
   const studentName = (studentId: string) => {
     const student = studentMap[studentId];

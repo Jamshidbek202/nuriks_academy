@@ -1,5 +1,5 @@
 import { getActiveLocale } from '../../src/i18n/translations';
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   ScrollView,
@@ -16,6 +16,7 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Child {
   id: string;
@@ -60,10 +61,6 @@ export default function ParentHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
-
-  useEffect(() => {
-    loadParentData();
-  }, []);
 
   const loadParentData = async () => {
     try {
@@ -111,6 +108,8 @@ export default function ParentHomeScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadParentData, user?.role === 'parent', 'parent-dashboard', 5000);
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);

@@ -2,7 +2,6 @@ import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   RefreshControl,
   ScrollView,
@@ -20,6 +19,11 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useFinanceLiveRefresh } from '../../src/hooks/use-finance-live-refresh';
 import { FINANCE } from '../../constants/testIds';
+import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { DateTimePicker } from '../../src/components/DateTimePicker';
+
+const Alert = { alert: showAlert };
 
 type FinanceTab = 'overview' | 'receivables' | 'expenses' | 'payroll' | 'cash' | 'pricing' | 'closures';
 type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
@@ -885,21 +889,15 @@ export default function FinanceScreen() {
   };
 
   const finalizeSelectedMonth = () => {
-    Alert.alert(
+    showConfirm(
       'Finalize financial month?',
       `This locks all ready invoices for ${month}, creates teacher earnings, and queues mandatory financial notices. Later changes require auditable corrections.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Finalize',
-          style: 'destructive',
-          onPress: () => void runAction('finalize', () => api.post('/finance/invoices/finalize-month', {
-            service_month: month,
-            branch_id: null,
-            idempotency_key: idempotencyKey(`finalize-${month}`),
-          }), 'The month was finalized atomically.'),
-        },
-      ],
+      () => void runAction('finalize', () => api.post('/finance/invoices/finalize-month', {
+        service_month: month,
+        branch_id: null,
+        idempotency_key: idempotencyKey(`finalize-${month}`),
+      }), 'The month was finalized atomically.'),
+      'Finalize',
     );
   };
 
@@ -1072,7 +1070,7 @@ export default function FinanceScreen() {
       <Section title="Record non-monthly expense" subtitle="Creates an obligation first; payment is recorded separately from the cashbox.">
         <Input testID={FINANCE.otherExpenseCategory} label="Category" value={otherExpense.category} onChangeText={(category) => setOtherExpense({ ...otherExpense, category })} placeholder="Other" />
         <Input testID={FINANCE.otherExpenseRecipient} label="Recipient *" value={otherExpense.recipient} onChangeText={(recipient) => setOtherExpense({ ...otherExpense, recipient })} placeholder="Who is owed" />
-        <Input testID={FINANCE.otherExpenseDate} label="Expense date *" value={otherExpense.expense_date} onChangeText={(expense_date) => setOtherExpense({ ...otherExpense, expense_date })} placeholder="YYYY-MM-DD" />
+        <CalendarDatePicker testID={FINANCE.otherExpenseDate} label="Expense date *" value={otherExpense.expense_date} onChange={(expense_date) => setOtherExpense({ ...otherExpense, expense_date })} />
         <Input testID={FINANCE.otherExpenseAmount} label="Amount (whole UZS) *" keyboardType="number-pad" value={otherExpense.amount} onChangeText={(amount) => setOtherExpense({ ...otherExpense, amount })} />
         <Input testID={FINANCE.otherExpenseExplanation} label="Explanation *" value={otherExpense.explanation} onChangeText={(explanation) => setOtherExpense({ ...otherExpense, explanation })} multiline />
         <Button testID={FINANCE.otherExpenseSubmit} title="Record expense obligation" onPress={createOtherExpense} loading={busy === 'other-expense'} />
@@ -1137,7 +1135,7 @@ export default function FinanceScreen() {
       {!isReception && cashShift && (
         <Section title="Other cash movement" subtitle="Use expense/payroll payment buttons for obligations. This area is only for other income or a non-expense removal such as a bank deposit.">
           <Input testID={FINANCE.otherIncomeSource} label="Other income source" value={otherIncomeForm.source} onChangeText={(source) => setOtherIncomeForm({ ...otherIncomeForm, source })} placeholder="Source" />
-          <Input testID={FINANCE.otherIncomeDate} label="Income date" value={otherIncomeForm.income_date} onChangeText={(income_date) => setOtherIncomeForm({ ...otherIncomeForm, income_date })} placeholder="YYYY-MM-DD" />
+          <CalendarDatePicker testID={FINANCE.otherIncomeDate} label="Income date" value={otherIncomeForm.income_date} onChange={(income_date) => setOtherIncomeForm({ ...otherIncomeForm, income_date })} />
           <Input testID={FINANCE.otherIncomeAmount} label="Income amount (whole UZS)" keyboardType="number-pad" value={otherIncomeForm.amount} onChangeText={(amount) => setOtherIncomeForm({ ...otherIncomeForm, amount })} />
           <Input testID={FINANCE.otherIncomeNotes} label="Income notes" value={otherIncomeForm.notes} onChangeText={(notes) => setOtherIncomeForm({ ...otherIncomeForm, notes })} />
           <Button testID={FINANCE.otherIncomeSubmit} title="Record other cash income" variant="outline" onPress={recordOtherIncomeValue} loading={busy === 'other-income'} />
@@ -1234,7 +1232,7 @@ export default function FinanceScreen() {
           <Text style={styles.inputLabel}>Program</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.program_code} onValueChange={(program_code) => setTariffForm({ ...tariffForm, program_code })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="General" value="general" /><LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" /><LocalizedPickerItem label="IELTS" value="ielts" /></Picker></View>
           <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.group_format} onValueChange={(group_format) => setTariffForm({ ...tariffForm, group_format })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
           <Input testID={FINANCE.tariffAmount} label="New monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
-          <Input testID={FINANCE.tariffEffectiveFrom} label="Effective from" value={tariffForm.effective_from} onChangeText={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
+          <CalendarDatePicker testID={FINANCE.tariffEffectiveFrom} label="Effective from" value={tariffForm.effective_from} onChange={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
           <Input testID={FINANCE.tariffReason} label="Reason" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
           <Button testID={FINANCE.tariffSubmit} title="Create tariff version" onPress={saveTariff} loading={busy === 'tariff'} />
         </Section>
@@ -1243,7 +1241,7 @@ export default function FinanceScreen() {
         <Section title="Create teacher-share version" subtitle="This changes future lesson earnings only; finalized payroll remains immutable.">
           <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={teacherShareForm.group_format} onValueChange={(group_format: GroupFormat) => { const current = teacherShares.find((policy) => policy.policy_key === `teacher_share:${group_format}`); setTeacherShareForm({ ...teacherShareForm, group_format, percentage: String((current?.value.basis_points || 0) / 100) }); }} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
           <Input testID={FINANCE.teacherSharePercentage} label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
-          <Input testID={FINANCE.teacherShareEffectiveFrom} label="Effective from" value={teacherShareForm.effective_from} onChangeText={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
+          <CalendarDatePicker testID={FINANCE.teacherShareEffectiveFrom} label="Effective from" value={teacherShareForm.effective_from} onChange={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
           <Input testID={FINANCE.teacherShareReason} label="Reason" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
           <Button testID={FINANCE.teacherShareSubmit} title="Create teacher-share version" variant="outline" onPress={saveTeacherShare} loading={busy === 'teacher-share'} />
         </Section>
@@ -1253,7 +1251,7 @@ export default function FinanceScreen() {
           <Input testID={FINANCE.recurringKey} label="Expense key" value={recurringForm.expense_key} onChangeText={(expense_key) => setRecurringForm({ ...recurringForm, expense_key })} placeholder="rent" autoCapitalize="none" />
           <Input testID={FINANCE.recurringName} label="Display name" value={recurringForm.name} onChangeText={(name) => setRecurringForm({ ...recurringForm, name })} />
           <Input testID={FINANCE.recurringAmount} label="Monthly amount (whole UZS)" keyboardType="number-pad" value={recurringForm.amount} onChangeText={(amount) => setRecurringForm({ ...recurringForm, amount })} />
-          <Input testID={FINANCE.recurringEffectiveFrom} label="Effective from" value={recurringForm.effective_from} onChangeText={(effective_from) => setRecurringForm({ ...recurringForm, effective_from })} />
+          <CalendarDatePicker testID={FINANCE.recurringEffectiveFrom} label="Effective from" value={recurringForm.effective_from} onChange={(effective_from) => setRecurringForm({ ...recurringForm, effective_from })} />
           <Input label="Classification" value={recurringForm.classification} onChangeText={(classification) => setRecurringForm({ ...recurringForm, classification })} />
           <Input testID={FINANCE.recurringReason} label="Reason" value={recurringForm.reason} onChangeText={(reason) => setRecurringForm({ ...recurringForm, reason })} />
           <Button testID={FINANCE.recurringSubmit} title="Create expense version" variant="outline" onPress={saveRecurringExpense} loading={busy === 'recurring-policy'} />
@@ -1261,7 +1259,7 @@ export default function FinanceScreen() {
       )}
       <Section title="Billing calendar" subtitle={`Mode: ${billingPolicy?.value.operation_mode || 'not configured'} · automatic freeze: ${billingPolicy?.value.automatic_freeze_enabled ? 'on' : 'off'}`}>
         <View style={styles.threeColumns}><Input testID={FINANCE.billingDue} label="Student due day" keyboardType="number-pad" value={billingForm.due} onChangeText={(due) => setBillingForm({ ...billingForm, due })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingFreeze} label="Freeze day" keyboardType="number-pad" value={billingForm.freeze} onChangeText={(freeze) => setBillingForm({ ...billingForm, freeze })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingSalary} label="Salary due day" keyboardType="number-pad" value={billingForm.salary} onChangeText={(salary) => setBillingForm({ ...billingForm, salary })} style={styles.compactInput} editable={isSuperAdmin} /></View>
-        {isSuperAdmin && <><Input testID={FINANCE.billingEffectiveFrom} label="Effective from" value={billingForm.effective_from} onChangeText={(effective_from) => setBillingForm({ ...billingForm, effective_from })} /><Input testID={FINANCE.billingReason} label="Reason" value={billingForm.reason} onChangeText={(reason) => setBillingForm({ ...billingForm, reason })} /><Button testID={FINANCE.billingSubmit} title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
+        {isSuperAdmin && <><CalendarDatePicker testID={FINANCE.billingEffectiveFrom} label="Effective from" value={billingForm.effective_from} onChange={(effective_from) => setBillingForm({ ...billingForm, effective_from })} /><Input testID={FINANCE.billingReason} label="Reason" value={billingForm.reason} onChangeText={(reason) => setBillingForm({ ...billingForm, reason })} /><Button testID={FINANCE.billingSubmit} title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
       </Section>
     </>
   );
@@ -1307,8 +1305,8 @@ export default function FinanceScreen() {
       </Section>
       {replacementTarget && (
         <Section title={`Replacement for ${replacementTarget.local_date}`} subtitle="This lesson does not add another denominator slot. It becomes billable only after it is held.">
-          <Input label="Starts (Tashkent local)" value={replacementForm.starts_at} onChangeText={(starts_at) => setReplacementForm({ ...replacementForm, starts_at })} placeholder="YYYY-MM-DDTHH:mm" />
-          <Input label="Ends (Tashkent local)" value={replacementForm.ends_at} onChangeText={(ends_at) => setReplacementForm({ ...replacementForm, ends_at })} placeholder="YYYY-MM-DDTHH:mm" />
+          <DateTimePicker label="Starts (Tashkent local)" value={replacementForm.starts_at} onChange={(starts_at) => setReplacementForm({ ...replacementForm, starts_at })} />
+          <DateTimePicker label="Ends (Tashkent local)" value={replacementForm.ends_at} onChange={(ends_at) => setReplacementForm({ ...replacementForm, ends_at })} />
           <Input label="Reason" value={replacementForm.reason} onChangeText={(reason) => setReplacementForm({ ...replacementForm, reason })} />
           <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setReplacementTarget(null)} /><Button title="Schedule replacement" style={styles.flexButton} loading={busy === 'replacement'} onPress={scheduleReplacement} /></View>
         </Section>
@@ -1318,8 +1316,8 @@ export default function FinanceScreen() {
         <Input testID={FINANCE.closureReason} label="Reason" value={closureForm.reason} onChangeText={(reason) => setClosureForm({ ...closureForm, reason })} />
         <Text style={styles.inputLabel}>Kind</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.kind} onValueChange={(kind) => setClosureForm({ ...closureForm, kind })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Official holiday" value="holiday" /><LocalizedPickerItem label="Unexpected closure" value="unexpected" /></Picker></View>
         <Text style={styles.inputLabel}>Scope</Text><View style={styles.pickerBox}><Picker selectedValue={closureForm.group_id} onValueChange={(group_id) => setClosureForm({ ...closureForm, group_id })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="All centre / branch groups" value="" />{groups.map((group) => <LocalizedPickerItem key={group.id} label={group.name} value={group.id} />)}</Picker></View>
-        <Input testID={FINANCE.closureStarts} label="Starts (Tashkent local)" value={closureForm.starts_at} onChangeText={(starts_at) => setClosureForm({ ...closureForm, starts_at })} placeholder="YYYY-MM-DDTHH:mm" />
-        <Input testID={FINANCE.closureEnds} label="Ends (Tashkent local)" value={closureForm.ends_at} onChangeText={(ends_at) => setClosureForm({ ...closureForm, ends_at })} placeholder="YYYY-MM-DDTHH:mm" />
+        <DateTimePicker testID={FINANCE.closureStarts} label="Starts (Tashkent local)" value={closureForm.starts_at} onChange={(starts_at) => setClosureForm({ ...closureForm, starts_at })} />
+        <DateTimePicker testID={FINANCE.closureEnds} label="Ends (Tashkent local)" value={closureForm.ends_at} onChange={(ends_at) => setClosureForm({ ...closureForm, ends_at })} />
         <Button testID={FINANCE.closureSubmit} title="Add closure" onPress={createClosure} loading={busy === 'closure'} />
       </Section>
       <Section title="Closure register" subtitle="Historical closures cannot overwrite lessons locked by finalized invoices.">
@@ -1332,7 +1330,7 @@ export default function FinanceScreen() {
     <View testID={FINANCE.screen} style={styles.container}>
       <View style={styles.header}>
         <View><Text style={styles.title}>{isReception ? 'Reception finance' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Cash receipts, balances, and calls' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
-        {!isReception && <Input testID={FINANCE.monthInput} value={month} onChangeText={setMonth} placeholder="YYYY-MM" style={styles.monthInput} />}
+        {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={setMonth} placeholder="Select month" mode="month" style={styles.monthInput} />}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
         {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text></TouchableOpacity>)}
@@ -1386,10 +1384,10 @@ function OutgoingPanel({ outgoing, amount, setAmount, busy, onPay, onCancel }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: SIZES.xl, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
+  header: { paddingTop: SIZES.xl, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: '800' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, maxWidth: 270 },
-  monthInput: { width: 105, paddingVertical: SIZES.sm, textAlign: 'center' },
+  monthInput: { width: 180, marginBottom: 0 },
   tabScroll: { flexGrow: 0, backgroundColor: COLORS.marbleDark, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   tabs: { paddingHorizontal: SIZES.md, paddingBottom: SIZES.md, gap: SIZES.sm },
   tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, height: 40, borderRadius: SIZES.radiusFull, backgroundColor: COLORS.backgroundCard },

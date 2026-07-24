@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   ScrollView,
@@ -15,6 +15,7 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import * as Clipboard from 'expo-clipboard';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -76,10 +77,6 @@ export default function SupportStaffManagementScreen() {
     email: '',
   });
 
-  useEffect(() => {
-    loadStaff();
-  }, [showInactive]);
-
   const loadStaff = async () => {
     try {
       const response = await api.get('/support-staff', {
@@ -94,6 +91,8 @@ export default function SupportStaffManagementScreen() {
       setRefreshing(false);
     }
   };
+
+  useLiveRefresh(loadStaff, user?.role === 'super_admin', String(showInactive));
 
   const handleCreateStaff = async () => {
     if (!formData.first_name || !formData.last_name || !formData.phone) {
