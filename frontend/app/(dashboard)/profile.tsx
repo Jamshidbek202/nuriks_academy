@@ -17,7 +17,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { api } from '../../src/services/api';
+import { api, apiErrorMessage } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useLanguage } from '../../src/contexts/LanguageContext';
 import { AppLanguage, LANGUAGE_LABELS } from '../../src/i18n/translations';
@@ -27,6 +27,10 @@ import {
   sendTestNotification,
   NotificationPreferences as NotificationPrefsType,
 } from '../../src/services/notifications';
+import TelegramInviteModal, {
+  TelegramInviteItem,
+  telegramInviteFromResponse,
+} from '../../src/components/TelegramInviteModal';
 
 type PreferenceKey = keyof NotificationPrefsType;
 
@@ -112,6 +116,9 @@ export default function ProfileScreen() {
   const [testSending, setTestSending] = useState(false);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPrefsType>(DEFAULT_NOTIFICATION_PREFERENCES);
   const [hasNotificationChanges, setHasNotificationChanges] = useState(false);
+  const [telegramStatus, setTelegramStatus] = useState<{ connected: boolean; telegram_username?: string | null }>({ connected: false });
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramInvites, setTelegramInvites] = useState<TelegramInviteItem[]>([]);
 
   const visibleNotificationOptions = Object.entries(NOTIFICATION_OPTIONS).filter(([, option]) =>
     option.roles.includes(user?.role || '')
@@ -151,6 +158,49 @@ export default function ProfileScreen() {
 
     loadReceptionPhone();
   }, [showHelpModal]);
+
+  useEffect(() => {
+    if (!user) return;
+    api.get('/auth/telegram/status')
+      .then((response) => setTelegramStatus(response.data))
+      .catch((error) => console.error('Error loading Telegram status:', error));
+  }, [user]);
+
+  const createTelegramLink = async () => {
+    setTelegramLoading(true);
+    try {
+      const response = await api.post('/auth/telegram/link');
+      const invite = telegramInviteFromResponse(response.data, user?.full_name || t('My account'));
+      if (invite) setTelegramInvites([invite]);
+    } catch (error: any) {
+      Alert.alert('Telegram connection failed', apiErrorMessage(error));
+    } finally {
+      setTelegramLoading(false);
+    }
+  };
+
+  const disconnectTelegram = () => {
+    const perform = async () => {
+      setTelegramLoading(true);
+      try {
+        await api.delete('/auth/telegram/link');
+        setTelegramStatus({ connected: false });
+      } catch (error: any) {
+        Alert.alert('Could not disconnect Telegram', apiErrorMessage(error));
+      } finally {
+        setTelegramLoading(false);
+      }
+    };
+    const message = t('Password reset codes will stop arriving until Telegram is connected again.');
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${t('Disconnect Telegram?')}\n\n${message}`)) void perform();
+    } else {
+      Alert.alert('Disconnect Telegram?', message, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Disconnect', style: 'destructive', onPress: perform },
+      ]);
+    }
+  };
 
   const handleLogoutPress = () => {
     // For web, use custom modal. For native, also use custom modal for consistency
@@ -309,6 +359,42 @@ export default function ProfileScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </TouchableOpacity>
+            <TouchableOpacity
+              testID="profile-telegram-button"
+              accessibilityRole="button"
+              accessibilityLabel="Telegram security codes"
+              style={styles.menuItem}
+              onPress={createTelegramLink}
+              disabled={telegramLoading}
+            >
+              <Ionicons name="paper-plane" size={24} color={COLORS.info} />
+              <View style={styles.menuTextContent}>
+                <Text style={[styles.menuText, styles.menuTextNested]}>Telegram security codes</Text>
+                <Text style={styles.menuSubtitle}>
+                  {telegramStatus.connected
+                    ? (telegramStatus.telegram_username
+                      ? `${t('Connected as')} @${telegramStatus.telegram_username}`
+                      : t('Connected'))
+                    : t('Not connected')}
+                </Text>
+              </View>
+              {telegramLoading
+                ? <ActivityIndicator color={COLORS.gold} />
+                : <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />}
+            </TouchableOpacity>
+            {telegramStatus.connected && (
+              <TouchableOpacity
+                testID="profile-telegram-disconnect"
+                accessibilityRole="button"
+                accessibilityLabel="Disconnect Telegram"
+                style={styles.menuItem}
+                onPress={disconnectTelegram}
+                disabled={telegramLoading}
+              >
+                <Ionicons name="unlink-outline" size={24} color={COLORS.error} />
+                <Text style={[styles.menuText, { color: COLORS.error }]}>Disconnect Telegram</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               testID="profile-notifications-button"
               accessibilityRole="button"
@@ -616,6 +702,21 @@ export default function ProfileScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <TelegramInviteModal
+        visible={telegramInvites.length > 0}
+        invites={telegramInvites}
+        allowOpenInTelegram
+        onClose={async () => {
+          setTelegramInvites([]);
+          try {
+            const response = await api.get('/auth/telegram/status');
+            setTelegramStatus(response.data);
+          } catch (error) {
+            console.error('Error refreshing Telegram status:', error);
+          }
+        }}
+      />
     </View>
   );
 }

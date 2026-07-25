@@ -313,7 +313,7 @@ async def enqueue_mandatory_financial_notification(
         "mandatory": True,
         "allow_opt_out": False,
         "recipient_policy": "student_and_parent",
-        "channels": {"sms": "pending", "push": "pending", "in_app": "pending"},
+        "channels": {"telegram": "pending", "push": "pending", "in_app": "pending"},
         "status": "pending",
         "idempotency_key": idempotency_key,
         "attempt_count": 0,

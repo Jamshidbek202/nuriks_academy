@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import sys
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 
@@ -171,7 +172,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
     support_user = await db.users.find_one({"login": QA_USERS["support_a"]})
     service_month = date.today().strftime("%Y-%m")
     month_start = date.fromisoformat(f"{service_month}-01")
-    fixture_day = date.today().strftime("%A").lower()
+    fixture_day = datetime.now(ZoneInfo("Asia/Tashkent")).strftime("%A").lower()
     now = datetime.utcnow()
 
     course = await db.courses.find_one({"qa_key": "finance-live-course"})

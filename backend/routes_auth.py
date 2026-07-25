@@ -23,6 +23,8 @@ from phone_auth import (
     normalize_phone,
     validate_password,
 )
+from telegram_auth import create_telegram_link, disconnect_telegram
+from telegram_service import bot_username
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -80,8 +82,13 @@ def _public_user(user: dict) -> dict:
         "failed_login_attempts",
         "locked_until",
         "token_version",
+        "telegram_user_id",
+        "telegram_chat_id",
+        "telegram_first_name",
+        "telegram_last_name",
     ):
         result.pop(key, None)
+    result["telegram_connected"] = user.get("telegram_link_status") == "linked"
     return result
 
 
@@ -132,12 +139,16 @@ async def phone_password_login(credentials: PhonePasswordLogin, request: Request
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
 
     account_status = user.get("account_status", "active")
-    if account_status == "pending_invite" or not user.get("phone_verified", True):
+    if user.get("identity_verified_via") == "telegram":
+        identity_verified = bool(user.get("telegram_verified"))
+    else:
+        identity_verified = bool(user.get("phone_verified", True))
+    if account_status == "pending_invite" or not identity_verified:
         raise HTTPException(
             status_code=403,
             detail={
                 "code": "ACCOUNT_ACTIVATION_REQUIRED",
-                "message": "Activate this account from its SMS invitation before signing in.",
+                "message": "Activate this account using the code from the Nurik's Academy Telegram bot before signing in.",
             },
         )
     if not user.get("is_active", True) or account_status == "deactivated":
@@ -175,7 +186,7 @@ async def _request_code(
     request: Request,
 ) -> dict:
     generic = {
-        "message": "If the phone number is eligible, a verification code has been sent.",
+        "message": "If the account is eligible and Telegram is connected, a verification code has been sent.",
         "retry_after_seconds": 60,
     }
     try:
@@ -248,7 +259,8 @@ async def accept_invitation(payload: CodeAndPassword, request: Request):
                     {"_id": user["_id"], "account_status": "pending_invite"},
                     {"$set": {
                         "password_hash": get_password_hash(payload.password),
-                        "phone_verified": True,
+                        "telegram_verified": True,
+                        "identity_verified_via": "telegram",
                         "is_active": True,
                         "account_status": "active",
                         "invitation_accepted_at": activated_at,
@@ -267,7 +279,7 @@ async def accept_invitation(payload: CodeAndPassword, request: Request):
         "accept_invitation",
         "user",
         str(user["_id"]),
-        {"phone_verified": True},
+        {"identity_verified_via": "telegram"},
         _client_ip(request),
     )
     return {"message": "Account activated. You can now sign in."}
@@ -375,3 +387,64 @@ async def change_password(
         _client_ip(request),
     )
     return {"message": "Password changed. Please sign in again."}
+
+
+@router.get("/telegram/status")
+async def telegram_connection_status(current_user: dict = Depends(get_current_user_dep)):
+    return {
+        "connected": current_user.get("telegram_link_status") == "linked",
+        "bot_username": bot_username(),
+        "telegram_username": current_user.get("telegram_username"),
+        "linked_at": current_user.get("telegram_linked_at"),
+    }
+
+
+@router.post("/telegram/link")
+async def create_my_telegram_link(
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    if not current_user.get("is_active", True) or current_user.get("account_status") != "active":
+        raise HTTPException(status_code=409, detail="Only an active account can connect Telegram")
+    link = await create_telegram_link(
+        db,
+        user=current_user,
+        purpose="connect",
+        actor_id=str(current_user["_id"]),
+        request_ip=_client_ip(request),
+    )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "create_telegram_connection_link",
+        "user",
+        str(current_user["_id"]),
+        {"expires_at": link.expires_at.isoformat()},
+        _client_ip(request),
+    )
+    return {
+        "telegram_invite_url": link.url,
+        "telegram_invite_qr": link.qr_data_url,
+        "telegram_invite_expires_at": link.expires_at,
+        "bot_username": bot_username(),
+    }
+
+
+@router.delete("/telegram/link")
+async def disconnect_my_telegram(
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    await disconnect_telegram(db, current_user)
+    await create_audit_log(
+        str(current_user["_id"]),
+        "telegram_disconnected",
+        "user",
+        str(current_user["_id"]),
+        {},
+        _client_ip(request),
+    )
+    return {"message": "Telegram disconnected", "connected": False}

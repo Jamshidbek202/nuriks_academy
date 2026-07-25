@@ -51,7 +51,7 @@ def require_month_window(value: str, *, past_months: int = 24, future_months: in
         raise HTTPException(status_code=400, detail="Month must use YYYY-MM format")
     year, month = map(int, value.split("-"))
     selected_index = year * 12 + month
-    today = datetime.utcnow()
+    today = datetime.now(ZoneInfo("Asia/Tashkent"))
     current_index = today.year * 12 + today.month
     if selected_index < current_index - past_months or selected_index > current_index + future_months:
         raise HTTPException(

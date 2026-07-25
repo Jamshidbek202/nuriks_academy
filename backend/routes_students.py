@@ -254,6 +254,7 @@ async def create_student(
             )
 
         invite_status = {}
+        telegram_invites = {}
         for invited_user in invitation_users:
             try:
                 delivery = await issue_invitation(
@@ -261,6 +262,12 @@ async def create_student(
                     request_ip=request.client.host if request.client else None,
                 )
                 invite_status[invited_user["role"]] = delivery.delivery_status
+                if delivery.telegram_invite_url:
+                    telegram_invites[invited_user["role"]] = {
+                        "telegram_invite_url": delivery.telegram_invite_url,
+                        "telegram_invite_qr": delivery.telegram_invite_qr,
+                        "telegram_invite_expires_at": delivery.telegram_invite_expires_at,
+                    }
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
         
@@ -275,6 +282,8 @@ async def create_student(
         )
 
         student["id"] = str(result.inserted_id)
+        student["invite_delivery_status"] = invite_status
+        student["telegram_invites"] = telegram_invites
         return serialize_doc(student)
         
     except HTTPException:

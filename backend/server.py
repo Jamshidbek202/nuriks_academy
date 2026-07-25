@@ -62,6 +62,7 @@ from routes_notifications import router as notifications_router
 from routes_finance import router as finance_router
 from routes_auth import router as auth_router
 from routes_staff_accounts import router as staff_accounts_router
+from routes_telegram import router as telegram_router
 
 # Include all routers
 api_router.include_router(students_router)
@@ -83,6 +84,7 @@ api_router.include_router(notifications_router)
 api_router.include_router(finance_router)
 api_router.include_router(auth_router)
 api_router.include_router(staff_accounts_router)
+api_router.include_router(telegram_router)
 
 logger.info("All route modules loaded and registered")
 
@@ -103,12 +105,25 @@ async def startup_event():
     from finance_controls import ensure_finance_control_indexes
     from finance_live import ensure_finance_live_indexes
     from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users
-    from sms_service import validate_sms_configuration
+    from telegram_auth import ensure_telegram_indexes
+    from telegram_service import (
+        TelegramDeliveryError,
+        configure_telegram_webhook,
+        validate_telegram_configuration,
+    )
 
-    validate_sms_configuration()
+    validate_telegram_configuration()
     phone_migration = await migrate_phone_auth_users(db)
     logger.info("Phone-auth user migration completed: %s", phone_migration)
     await ensure_phone_auth_indexes(db)
+    await ensure_telegram_indexes(db)
+    try:
+        await configure_telegram_webhook()
+    except TelegramDeliveryError:
+        # A temporary Telegram outage must not make the academy application
+        # unavailable. Delivery remains visibly unavailable until the next
+        # successful deploy/restart registers the webhook.
+        logger.exception("Telegram webhook configuration failed")
 
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
@@ -169,8 +184,11 @@ async def get_me(current_user: dict = Depends(get_current_user_dependency)):
     for secret_field in (
         "password_hash", "two_factor_secret", "two_factor_secret_temp",
         "failed_login_attempts", "locked_until", "token_version",
+        "telegram_user_id", "telegram_chat_id", "telegram_first_name",
+        "telegram_last_name",
     ):
         user_data.pop(secret_field, None)
+    user_data["telegram_connected"] = current_user.get("telegram_link_status") == "linked"
     return user_data
 
 @api_router.put("/auth/preferences/language")

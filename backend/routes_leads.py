@@ -495,12 +495,20 @@ async def convert_lead_to_student(
             )
 
         invite_status = {}
+        telegram_invites = {}
         for invited_user in invitation_users:
             try:
-                invite_status[invited_user["role"]] = (await issue_invitation(
+                invitation = await issue_invitation(
                     db, invited_user, actor_id=str(current_user["_id"]),
                     request_ip=request.client.host if request.client else None,
-                )).delivery_status
+                )
+                invite_status[invited_user["role"]] = invitation.delivery_status
+                if invitation.telegram_invite_url:
+                    telegram_invites[invited_user["role"]] = {
+                        "telegram_invite_url": invitation.telegram_invite_url,
+                        "telegram_invite_qr": invitation.telegram_invite_qr,
+                        "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
+                    }
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
         
@@ -530,6 +538,7 @@ async def convert_lead_to_student(
             "student_id": student_id,
             "student_db_id": str(student_result.inserted_id),
             "invite_delivery_status": invite_status,
+            "telegram_invites": telegram_invites,
             "student_account_status": student_user.get("account_status"),
             "parent_account_status": "pending_invite" if parent_id else None,
         }

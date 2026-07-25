@@ -17,8 +17,8 @@ from phone_auth import (
     OtpRateLimitError,
     PhoneValidationError,
     invited_user_document,
+    issue_access_code,
     issue_invitation,
-    issue_otp,
     normalize_phone,
 )
 
@@ -69,6 +69,7 @@ def _public_account(user: dict) -> dict:
         "phone_verified": bool(user.get("phone_verified", False)),
         "is_active": bool(user.get("is_active", False)),
         "invite_delivery_status": user.get("invite_delivery_status"),
+        "telegram_connected": user.get("telegram_link_status") == "linked",
         "invite_sent_at": user.get("invite_sent_at"),
         "last_login": user.get("last_login"),
         "created_at": user.get("created_at"),
@@ -135,6 +136,7 @@ async def create_staff_account(
 
     delivery_status = "failed"
     delivery_error = None
+    invitation = None
     try:
         invitation = await issue_invitation(
             db,
@@ -161,8 +163,14 @@ async def create_staff_account(
     created = await db.users.find_one({"_id": document["_id"]})
     response = _public_account(created)
     response["invite_delivery_status"] = delivery_status
+    if invitation and invitation.telegram_invite_url:
+        response.update({
+            "telegram_invite_url": invitation.telegram_invite_url,
+            "telegram_invite_qr": invitation.telegram_invite_qr,
+            "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
+        })
     if delivery_error:
-        response["invite_delivery_message"] = "Account created, but the SMS was not sent. Check SMS configuration and resend."
+        response["invite_delivery_message"] = "Account created, but Telegram access could not be prepared. Check Telegram configuration and try again."
     return response
 
 
@@ -208,11 +216,8 @@ async def send_staff_access_code(
         raise HTTPException(status_code=409, detail="Reactivate the account before sending a code")
     purpose = "invite" if user.get("account_status") == "pending_invite" else "password_reset"
     try:
-        issued = await issue_otp(
-            db,
-            user=user,
-            purpose=purpose,
-            requested_by=str(current_user["_id"]),
+        issued = await issue_access_code(
+            db, user, purpose=purpose, actor_id=str(current_user["_id"]),
             request_ip=_client_ip(request),
         )
     except OtpRateLimitError as error:
@@ -228,10 +233,17 @@ async def send_staff_access_code(
         {"purpose": purpose}, _client_ip(request),
     )
     return {
-        "message": "Invitation sent" if purpose == "invite" else "Password reset code sent",
+        "message": (
+            "Telegram invitation link created"
+            if issued.delivery_status == "link_ready"
+            else ("Invitation code sent through Telegram" if purpose == "invite" else "Password reset code sent through Telegram")
+        ),
         "purpose": purpose,
         "delivery_status": issued.delivery_status,
         "retry_after_seconds": issued.retry_after_seconds,
+        "telegram_invite_url": issued.telegram_invite_url,
+        "telegram_invite_qr": issued.telegram_invite_qr,
+        "telegram_invite_expires_at": issued.telegram_invite_expires_at,
     }
 
 
@@ -273,7 +285,10 @@ async def reactivate_staff_account(
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
     now = datetime.utcnow()
-    already_activated = bool(user.get("phone_verified") and user.get("password_hash"))
+    already_activated = bool(
+        user.get("password_hash")
+        and (user.get("telegram_verified") or user.get("phone_verified"))
+    )
     account_status = "active" if already_activated else "pending_invite"
     await db.users.update_one(
         {"_id": user["_id"]},
@@ -284,6 +299,7 @@ async def reactivate_staff_account(
         }},
     )
     delivery_status = None
+    invitation = None
     if not already_activated:
         refreshed = await db.users.find_one({"_id": user["_id"]})
         try:
@@ -294,15 +310,23 @@ async def reactivate_staff_account(
                 request_ip=_client_ip(request),
             )
             delivery_status = issued.delivery_status
+            invitation = issued
         except (OtpDeliveryError, OtpRateLimitError):
             delivery_status = "failed"
     await create_audit_log(
         str(current_user["_id"]), "reactivate", "staff_account", account_id,
         {"role": user["role"], "account_status": account_status}, _client_ip(request),
     )
-    return {
+    response = {
         "message": "Account reactivated" if already_activated else "Account awaiting invitation activation",
         "is_active": already_activated,
         "account_status": account_status,
         "invite_delivery_status": delivery_status,
     }
+    if invitation and invitation.telegram_invite_url:
+        response.update({
+            "telegram_invite_url": invitation.telegram_invite_url,
+            "telegram_invite_qr": invitation.telegram_invite_qr,
+            "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
+        })
+    return response

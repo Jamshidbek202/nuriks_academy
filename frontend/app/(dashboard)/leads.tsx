@@ -16,6 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import TelegramInviteModal, { TelegramInviteItem } from '../../src/components/TelegramInviteModal';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -58,6 +59,8 @@ export default function LeadsScreen() {
   // Success modal state
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [conversionResult, setConversionResult] = useState<any>(null);
+  const [telegramInvites, setTelegramInvites] = useState<TelegramInviteItem[]>([]);
+  const [telegramInviteOpen, setTelegramInviteOpen] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -141,6 +144,15 @@ export default function LeadsScreen() {
       const response = await api.post(`/leads/${leadToConvert.id}/convert`);
       setConfirmModalVisible(false);
       setConversionResult(response.data);
+      const preparedInvites = Object.entries(response.data?.telegram_invites || {}).flatMap(
+        ([role, value]: [string, any]) => value?.telegram_invite_url ? [{
+          label: role === 'parent' ? `${leadToConvert.parent_name || 'Parent'}` : `${leadToConvert.first_name} ${leadToConvert.last_name}`,
+          url: value.telegram_invite_url,
+          qrDataUrl: value.telegram_invite_qr,
+          expiresAt: value.telegram_invite_expires_at,
+        }] : [],
+      );
+      setTelegramInvites(preparedInvites);
       setSuccessModalVisible(true);
       loadLeads();
     } catch (error: any) {
@@ -569,16 +581,33 @@ export default function LeadsScreen() {
                   <Text style={styles.credentialValue}>{conversionResult.student_id}</Text>
                 </View>
                 <Text style={styles.credentialValue}>
-                  {conversionResult.invite_delivery_status?.parent === 'sent' || conversionResult.invite_delivery_status?.parent === 'mock'
-                    ? 'The parent invitation code was sent by SMS.'
-                    : conversionResult.invite_delivery_status?.student === 'sent' || conversionResult.invite_delivery_status?.student === 'mock'
-                      ? 'The student invitation code was sent by SMS.'
-                      : 'The student record was created. Add a unique phone number before enabling student login.'}
+                  {conversionResult.invite_delivery_status?.parent === 'link_ready'
+                    ? 'A private Telegram invitation link is ready for the parent.'
+                    : conversionResult.invite_delivery_status?.student === 'link_ready'
+                      ? 'A private Telegram invitation link is ready for the student.'
+                      : conversionResult.invite_delivery_status?.parent === 'sent' || conversionResult.invite_delivery_status?.parent === 'mock'
+                        ? 'The parent invitation code was sent through Telegram.'
+                        : conversionResult.invite_delivery_status?.student === 'sent' || conversionResult.invite_delivery_status?.student === 'mock'
+                          ? 'The student invitation code was sent through Telegram.'
+                          : 'The student record was created. Add a unique phone number before enabling student login.'}
                 </Text>
                 <Text style={[styles.credentialValue, { marginTop: SIZES.sm }]}>
                   The account owner creates their own password. Staff cannot see or set it.
                 </Text>
               </View>
+            )}
+
+            {telegramInvites.length > 0 && (
+              <TouchableOpacity
+                testID="lead-telegram-invitation-button"
+                style={[styles.successButton, { backgroundColor: COLORS.gold, marginBottom: SIZES.sm }]}
+                onPress={() => {
+                  setSuccessModalVisible(false);
+                  setTelegramInviteOpen(true);
+                }}
+              >
+                <Text style={[styles.successButtonText, { color: COLORS.marbleDark }]}>Open Telegram invitation</Text>
+              </TouchableOpacity>
             )}
             
             <TouchableOpacity
@@ -595,6 +624,17 @@ export default function LeadsScreen() {
           </View>
         </View>
       </Modal>
+
+      <TelegramInviteModal
+        visible={telegramInviteOpen}
+        invites={telegramInvites}
+        onClose={() => {
+          setTelegramInviteOpen(false);
+          setTelegramInvites([]);
+          setConversionResult(null);
+          setLeadToConvert(null);
+        }}
+      />
     </View>
   );
 }

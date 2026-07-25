@@ -55,7 +55,7 @@ export default function ActivateAccountScreen() {
     setResending(true);
     try {
       await api.post('/auth/invitations/resend', { phone: phone.trim() });
-      Alert.alert('Code requested', 'If this account is awaiting activation, a new code was sent.');
+      Alert.alert('Code requested', 'If this account is awaiting activation and Telegram is connected, a new code was sent.');
     } catch (error: any) {
       setErrorMessage(apiErrorMessage(error, 'Could not request another code'));
     } finally {
@@ -69,7 +69,7 @@ export default function ActivateAccountScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
             <Text style={styles.title}>Activate your account</Text>
-            <Text style={styles.subtitle}>Enter the code from your invitation SMS, then create your private password.</Text>
+            <Text style={styles.subtitle}>{"Enter the six-digit code from the Nurik's Academy Telegram bot, then create your private password."}</Text>
             {!!errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
 
             <Text style={styles.label}>Phone number</Text>

@@ -34,7 +34,7 @@ export default function ForgotPasswordScreen() {
     try {
       await api.post('/auth/password-reset/request', { phone: phone.trim() });
       setCodeRequested(true);
-      Alert.alert('Code requested', 'If an active account uses this number, a reset code was sent.');
+      Alert.alert('Code requested', 'If an active account uses this number and Telegram is connected, a reset code was sent.');
     } catch (error: any) {
       setErrorMessage(apiErrorMessage(error, 'Could not request a reset code'));
     } finally {
@@ -70,7 +70,7 @@ export default function ForgotPasswordScreen() {
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
             <Text style={styles.title}>Reset password</Text>
-            <Text style={styles.subtitle}>We will send a six-digit code to the phone number on the account.</Text>
+            <Text style={styles.subtitle}>We will send a six-digit code to the Telegram account connected to this phone-number login.</Text>
             {!!errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
 
             <Text style={styles.label}>Phone number</Text>

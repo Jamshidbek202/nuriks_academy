@@ -14,7 +14,12 @@ from typing import Optional
 
 from pymongo import ReturnDocument
 
-from sms_service import SmsConfigurationError, SmsDeliveryError, delivery_mode, send_sms
+from telegram_service import (
+    TelegramConfigurationError,
+    TelegramDeliveryError,
+    delivery_mode,
+    send_telegram_message,
+)
 
 
 PHONE_PATTERN = re.compile(r"^\+998\d{9}$")
@@ -52,6 +57,16 @@ class OtpIssueResult:
     delivery_status: str
     expires_in_seconds: int
     retry_after_seconds: int
+
+
+@dataclass(frozen=True)
+class AccessIssueResult:
+    delivery_status: str
+    retry_after_seconds: int
+    expires_in_seconds: int
+    telegram_invite_url: Optional[str] = None
+    telegram_invite_qr: Optional[str] = None
+    telegram_invite_expires_at: Optional[datetime] = None
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -135,7 +150,7 @@ def _otp_hash(challenge_id: str, purpose: str, phone: str, code: str) -> str:
 def _otp_message(purpose: str, code: str, language: str) -> str:
     language = language if language in {"en", "ru", "uz"} else "en"
     minutes = max(1, otp_ttl_seconds() // 60)
-    configured_name = f"ESKIZ_{purpose.upper()}_TEMPLATE_{language.upper()}"
+    configured_name = f"TELEGRAM_{purpose.upper()}_TEMPLATE_{language.upper()}"
     configured_template = os.environ.get(configured_name, "").strip()
     if configured_template:
         if "{code}" not in configured_template:
@@ -214,6 +229,7 @@ async def issue_otp(
         "max_attempts": otp_max_attempts(),
         "delivery_status": "pending",
         "provider_message_id": None,
+        "delivery_channel": "telegram",
         "requested_by": requested_by,
         "request_ip": request_ip,
         "created_at": now,
@@ -225,16 +241,19 @@ async def issue_otp(
         document["test_code"] = code
     await db.auth_challenges.insert_one(document)
     try:
-        delivery = await send_sms(
-            phone,
+        chat_id = user.get("telegram_chat_id")
+        if not chat_id or user.get("telegram_link_status") != "linked":
+            raise TelegramConfigurationError("Telegram is not connected to this account")
+        delivery = await send_telegram_message(
+            int(chat_id),
             _otp_message(purpose, code, user.get("language_preference", "en")),
         )
-    except (SmsConfigurationError, SmsDeliveryError, RuntimeError) as exc:
+    except (TelegramConfigurationError, TelegramDeliveryError, RuntimeError) as exc:
         await db.auth_challenges.update_one(
             {"challenge_id": challenge_id},
             {"$set": {"delivery_status": "failed", "delivery_failed_at": datetime.utcnow()}},
         )
-        raise OtpDeliveryError("Verification SMS could not be delivered") from exc
+        raise OtpDeliveryError("The verification code could not be delivered through Telegram") from exc
     await db.auth_challenges.update_one(
         {"challenge_id": challenge_id},
         {"$set": {
@@ -320,6 +339,8 @@ def invited_user_document(
         "phone": normalized,
         "phone_normalized": normalized,
         "phone_verified": False,
+        "telegram_verified": False,
+        "telegram_link_status": "not_connected",
         "full_name": full_name.strip(),
         "role": role,
         "is_active": False,
@@ -367,13 +388,53 @@ def phone_required_user_document(
     }
 
 
-async def issue_invitation(db, user: dict, *, actor_id: str, request_ip: Optional[str]) -> OtpIssueResult:
-    result = await issue_otp(
+async def issue_access_code(
+    db,
+    user: dict,
+    *,
+    purpose: str,
+    actor_id: str,
+    request_ip: Optional[str],
+) -> AccessIssueResult:
+    if purpose not in OTP_PURPOSES:
+        raise ValueError("Unsupported access-code purpose")
+    if user.get("telegram_chat_id") and user.get("telegram_link_status") == "linked":
+        issued = await issue_otp(
+            db,
+            user=user,
+            purpose=purpose,
+            requested_by=actor_id,
+            request_ip=request_ip,
+        )
+        return AccessIssueResult(
+            issued.delivery_status,
+            issued.retry_after_seconds,
+            issued.expires_in_seconds,
+        )
+    from telegram_auth import create_telegram_link
+
+    link = await create_telegram_link(
         db,
         user=user,
-        purpose="invite",
-        requested_by=actor_id,
+        purpose=purpose,
+        actor_id=actor_id,
         request_ip=request_ip,
+    )
+    return AccessIssueResult(
+        "link_ready",
+        0,
+        max(0, int((link.expires_at - datetime.utcnow()).total_seconds())),
+        link.url,
+        link.qr_data_url,
+        link.expires_at,
+    )
+
+
+async def issue_invitation(
+    db, user: dict, *, actor_id: str, request_ip: Optional[str]
+) -> AccessIssueResult:
+    result = await issue_access_code(
+        db, user, purpose="invite", actor_id=actor_id, request_ip=request_ip,
     )
     await db.users.update_one(
         {"_id": user["_id"]},
@@ -439,13 +500,20 @@ async def migrate_phone_auth_users(db) -> dict:
                     "phone_verified": bool(user.get("phone_verified", False)),
                 })
             elif user.get("password_hash"):
-                updates.update({"account_status": "active", "phone_verified": True})
+                updates["account_status"] = "active"
+                if user.get("identity_verified_via") == "telegram":
+                    updates.update({
+                        "phone_verified": bool(user.get("phone_verified", False)),
+                        "telegram_verified": bool(user.get("telegram_verified", True)),
+                    })
+                else:
+                    updates["phone_verified"] = True
             else:
                 updates.update({"account_status": "pending_invite", "phone_verified": False})
         else:
             if legacy_login_allowed() and user.get("qa_fixture") and user.get("password_hash"):
                 # Disposable QA aliases intentionally exercise the rest of the
-                # application without sending SMS. Production never enters
+                # application without external delivery. Production never enters
                 # this compatibility branch.
                 updates.update({"account_status": "active", "phone_verified": True})
             else:

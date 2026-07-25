@@ -18,6 +18,10 @@ import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import TelegramInviteModal, {
+  TelegramInviteItem,
+  telegramInviteFromResponse,
+} from '../../src/components/TelegramInviteModal';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -59,6 +63,7 @@ interface Teacher {
   account_status?: 'pending_invite' | 'active' | 'deactivated';
   phone_verified?: boolean;
   invite_delivery_status?: string;
+  telegram_connected?: boolean;
 }
 
 interface Course {
@@ -85,6 +90,7 @@ export default function TeachersScreen() {
   const [groups, setGroups] = useState<Group[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [telegramInvites, setTelegramInvites] = useState<TelegramInviteItem[]>([]);
 
   const [formData, setFormData] = useState({
     first_name: '',
@@ -141,14 +147,17 @@ export default function TeachersScreen() {
     setActionLoading(true);
     try {
       const response = await api.post('/teachers', formData);
+      const teacherName = `${formData.first_name} ${formData.last_name}`.trim();
       setModalVisible(false);
       resetForm();
       await loadTeachers();
-      showAlert(
+      const invite = telegramInviteFromResponse(response.data, teacherName);
+      if (invite) setTelegramInvites([invite]);
+      else showAlert(
         'Teacher account created',
         ['sent', 'mock'].includes(response.data?.invite_delivery_status)
-          ? 'An invitation code was sent by SMS. The teacher will create their own password.'
-          : 'The account is pending activation, but the SMS was not sent. Check SMS settings and send the invitation again.',
+          ? 'An invitation code was sent through Telegram. The teacher will create their own password.'
+          : 'The account is pending activation. Create a Telegram invitation link from the teacher details.',
       );
     } catch (error: any) {
       showAlert('Error', apiErrorMessage(error, 'Failed to create teacher'));
@@ -203,10 +212,12 @@ export default function TeachersScreen() {
       async () => {
         setActionLoading(true);
         try {
-          await api.patch(`/teachers/${teacher.id}/reactivate`);
+          const response = await api.patch(`/teachers/${teacher.id}/reactivate`);
           showAlert('Success', 'Teacher reactivated');
           setDetailModalVisible(false);
           loadTeachers();
+          const invite = telegramInviteFromResponse(response.data, `${teacher.first_name} ${teacher.last_name}`);
+          if (invite) setTelegramInvites([invite]);
         } catch (error: any) {
           showAlert('Error', error.response?.data?.detail || 'Failed to reactivate');
         } finally {
@@ -225,7 +236,9 @@ export default function TeachersScreen() {
         try {
           const response = await api.post(`/teachers/${teacher.id}/reset-password`);
           setDetailModalVisible(false);
-          showAlert('SMS sent', response.data?.message || 'The access code was sent.');
+          const invite = telegramInviteFromResponse(response.data, `${teacher.first_name} ${teacher.last_name}`);
+          if (invite) setTelegramInvites([invite]);
+          else showAlert('Telegram code sent', response.data?.message || 'The access code was sent through Telegram.');
         } catch (error: any) {
           showAlert('Error', apiErrorMessage(error, 'Failed to send access code'));
         } finally {
@@ -630,6 +643,12 @@ export default function TeachersScreen() {
           </View>
         </View>
       </Modal>
+
+      <TelegramInviteModal
+        visible={telegramInvites.length > 0}
+        invites={telegramInvites}
+        onClose={() => setTelegramInvites([])}
+      />
     </View>
   );
 }

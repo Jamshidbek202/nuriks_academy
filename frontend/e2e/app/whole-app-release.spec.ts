@@ -5,6 +5,7 @@ import { MongoClient } from 'mongodb';
 
 const API_URL = 'http://127.0.0.1:8002/api';
 const PASSWORD = 'FinanceQA@2026';
+const TELEGRAM_WEBHOOK_SECRET = 'nuriks-finance-qa-webhook-secret';
 
 async function latestMockCode(phone: string, purpose: 'invite' | 'password_reset') {
   const mongoUrl = process.env.MONGO_URL;
@@ -24,7 +25,44 @@ async function latestMockCode(phone: string, purpose: 'invite' | 'password_reset
   }
 }
 
+async function connectMockTelegram(request: APIRequestContext, phone: string) {
+  const mongoUrl = process.env.MONGO_URL;
+  const databaseName = process.env.DB_NAME;
+  if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
+  const client = new MongoClient(mongoUrl);
+  let testToken: string | undefined;
+  try {
+    await client.connect();
+    const database = client.db(databaseName);
+    const user = await database.collection('users').findOne({ phone_normalized: phone });
+    if (!user) throw new Error(`Missing Telegram invitation user for ${phone}`);
+    const link = await database.collection('telegram_links').findOne(
+      { user_id: String(user._id), used_at: null, revoked_at: null },
+      { sort: { created_at: -1 } },
+    );
+    testToken = link?.test_token;
+  } finally {
+    await client.close();
+  }
+  if (!testToken) throw new Error(`Missing mock Telegram link for ${phone}`);
+  const telegramId = Number(phone.replace(/\D/g, '').slice(-12));
+  const response = await request.post(`${API_URL}/telegram/webhook`, {
+    headers: { 'X-Telegram-Bot-Api-Secret-Token': TELEGRAM_WEBHOOK_SECRET },
+    data: {
+      update_id: telegramId,
+      message: {
+        message_id: telegramId,
+        text: `/start connect_${testToken}`,
+        from: { id: telegramId, first_name: 'QA', username: `qa_${telegramId}` },
+        chat: { id: telegramId, type: 'private' },
+      },
+    },
+  });
+  expect(response.ok(), `connect mock Telegram for ${phone}: ${await response.text()}`).toBeTruthy();
+}
+
 async function activateInvitedAccount(request: APIRequestContext, phone: string, password: string) {
+  await connectMockTelegram(request, phone);
   const code = await latestMockCode(phone, 'invite');
   await expectApiOk(await request.post(`${API_URL}/auth/invitations/accept`, {
     data: { phone, code, password },
@@ -201,15 +239,23 @@ async function expectApiOk(response: Awaited<ReturnType<typeof apiCall>>, label:
 }
 
 const localDate = (offsetDays = 0) => {
-  const value = new Date();
-  value.setHours(12, 0, 0, 0);
-  value.setDate(value.getDate() + offsetDays);
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tashkent', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date());
+  const number = (type: Intl.DateTimeFormatPartTypes) =>
+    Number(parts.find((part) => part.type === type)?.value);
+  const value = new Date(Date.UTC(number('year'), number('month') - 1, number('day')));
+  value.setUTCDate(value.getUTCDate() + offsetDays);
+  return value.toISOString().slice(0, 10);
 };
 
 const academyDate = () => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Tashkent', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(new Date());
+
+const academyWeekday = () => new Intl.DateTimeFormat('en-US', {
+  timeZone: 'Asia/Tashkent', weekday: 'long',
+}).format(new Date()).toLowerCase();
 
 for (const viewport of ['desktop', 'phone'] as const) {
   test(`all role navigation renders and remains usable on ${viewport}`, async ({ browser }, testInfo) => {
@@ -290,6 +336,8 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     const createdTeacher = await teacherCreateResponse;
     expect(createdTeacher.ok(), `create teacher: ${await createdTeacher.text()}`).toBeTruthy();
     const createdTeacherBody = await createdTeacher.json();
+    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('telegram-invite-close').click();
     await expect(session.page.getByTestId(`teacher-card-${createdTeacherBody.id}`)).toBeVisible({ timeout: 8_000 });
     const teachers = await expectApiOk(await apiCall(request, superToken, 'get', '/teachers'), 'load UI-created teacher');
     const teacher = teachers.find((row: any) => row.last_name === `Teacher${suffix}`);
@@ -333,6 +381,8 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     const createdManager = await managerCreateResponse;
     expect(createdManager.ok(), `create manager: ${await createdManager.text()}`).toBeTruthy();
     const createdManagerBody = await createdManager.json();
+    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('telegram-invite-close').click();
     await expect(session.page.getByTestId(`staff-account-card-${createdManagerBody.id}`)).toBeVisible({ timeout: 8_000 });
     const staffAccounts = await expectApiOk(await apiCall(request, superToken, 'get', '/staff-accounts'), 'load UI-created manager');
     const managerAccount = staffAccounts.find((row: any) => row.full_name === `UI Manager${suffix}`);
@@ -352,6 +402,8 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     const createdSupport = await supportCreateResponse;
     expect(createdSupport.ok(), `create support staff: ${await createdSupport.text()}`).toBeTruthy();
     const createdSupportBody = await createdSupport.json();
+    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('telegram-invite-close').click();
     await expect(session.page.getByTestId(`support-staff-card-${createdSupportBody.id}`)).toBeVisible({ timeout: 8_000 });
     const supportRows = await expectApiOk(
       await apiCall(request, superToken, 'get', '/support-staff?include_inactive=true'),
@@ -401,6 +453,9 @@ test('invited manager creates and recovers a password through the phone-auth UI'
     'create invited manager for phone UI',
   );
   expect(created.account_status).toBe('pending_invite');
+  expect(created.invite_delivery_status).toBe('link_ready');
+  expect(created.telegram_invite_url).toContain('https://t.me/nuriksacademy_bot?start=connect_');
+  await connectMockTelegram(request, phone);
   const inviteCode = await latestMockCode(phone, 'invite');
 
   const activationContext = await browser.newContext();
@@ -652,7 +707,7 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
     name: `Branch B Group ${suffix}`,
     course_id: courses[0].id,
     teacher_id: teacher.id,
-    schedule: [{ day: new Date().toLocaleDateString('en-US', { weekday: 'long' }).toLowerCase(), start_time: '15:00', end_time: '16:00', room: 'B-QA' }],
+    schedule: [{ day: academyWeekday(), start_time: '15:00', end_time: '16:00', room: 'B-QA' }],
     start_date: `${localDate()}T00:00:00`,
     end_date: null,
     branch_id: branchBId,

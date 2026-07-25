@@ -1,6 +1,6 @@
 """Asia/Tashkent scheduler for draft generation and shadow finance controls.
 
-The scheduler never finalizes invoices, posts money, sends provider SMS, or
+The scheduler never finalizes invoices, posts money, sends provider messages, or
 enables a freeze outside the active billing policy. Human approval remains
 required for finalization and the default operation mode is shadow.
 """

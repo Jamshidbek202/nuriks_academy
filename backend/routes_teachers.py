@@ -10,7 +10,7 @@ from models import Teacher, TeacherBase
 from auth import get_current_user
 from phone_auth import (
     OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
-    invited_user_document, issue_invitation, issue_otp, normalize_phone,
+    invited_user_document, issue_access_code, issue_invitation, normalize_phone,
 )
 from pymongo.errors import DuplicateKeyError
 
@@ -92,6 +92,7 @@ async def create_teacher(
             raise
 
         invite_delivery_status = "failed"
+        invitation = None
         try:
             invitation = await issue_invitation(
                 db,
@@ -122,6 +123,9 @@ async def create_teacher(
             "phone_verified": False,
             "is_active": False,
             "invite_delivery_status": invite_delivery_status,
+            "telegram_invite_url": invitation.telegram_invite_url if invitation else None,
+            "telegram_invite_qr": invitation.telegram_invite_qr if invitation else None,
+            "telegram_invite_expires_at": invitation.telegram_invite_expires_at if invitation else None,
         })
         return response
     except (PhoneValidationError, DuplicateKeyError) as e:
@@ -166,6 +170,7 @@ async def get_teachers(
                     "account_status": user.get("account_status", "active"),
                     "phone_verified": bool(user.get("phone_verified", False)),
                     "invite_delivery_status": user.get("invite_delivery_status"),
+                    "telegram_connected": user.get("telegram_link_status") == "linked",
                     "last_login": user.get("last_login"),
                 })
             result.append(item)
@@ -383,7 +388,10 @@ async def reactivate_teacher(
         user = await db.users.find_one({"_id": ObjectId(teacher["user_id"])})
         if not user:
             raise HTTPException(status_code=404, detail="User account not found")
-        activated = bool(user.get("phone_verified") and user.get("password_hash"))
+        activated = bool(
+            user.get("password_hash")
+            and (user.get("telegram_verified") or user.get("phone_verified"))
+        )
         await db.users.update_one(
             {"_id": user["_id"]},
             {"$set": {
@@ -393,13 +401,15 @@ async def reactivate_teacher(
             }},
         )
         delivery = None
+        invitation = None
         if not activated:
             refreshed = await db.users.find_one({"_id": user["_id"]})
             try:
-                delivery = (await issue_invitation(
+                invitation = await issue_invitation(
                     db, refreshed, actor_id=str(current_user["_id"]),
                     request_ip=request.client.host if request.client else None,
-                )).delivery_status
+                )
+                delivery = invitation.delivery_status
             except (OtpDeliveryError, OtpRateLimitError):
                 delivery = "failed"
         
@@ -412,12 +422,19 @@ async def reactivate_teacher(
             request.client.host if request.client else None
         )
         
-        return {
+        response = {
             "message": "Teacher reactivated successfully" if activated else "Invitation sent for teacher activation",
             "is_active": activated,
             "account_status": "active" if activated else "pending_invite",
             "invite_delivery_status": delivery,
         }
+        if invitation and invitation.telegram_invite_url:
+            response.update({
+                "telegram_invite_url": invitation.telegram_invite_url,
+                "telegram_invite_qr": invitation.telegram_invite_qr,
+                "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
+            })
+        return response
     except HTTPException:
         raise
     except Exception as e:
@@ -448,8 +465,8 @@ async def reset_teacher_password(
             raise HTTPException(status_code=409, detail="Reactivate the teacher before sending a code")
         purpose = "invite" if user.get("account_status") == "pending_invite" else "password_reset"
         try:
-            issued = await issue_otp(
-                db, user=user, purpose=purpose, requested_by=str(current_user["_id"]),
+            issued = await issue_access_code(
+                db, user, purpose=purpose, actor_id=str(current_user["_id"]),
                 request_ip=request.client.host if request.client else None,
             )
         except OtpRateLimitError as error:
@@ -467,10 +484,17 @@ async def reset_teacher_password(
         )
         
         return {
-            "message": "Invitation sent" if purpose == "invite" else "Password reset code sent",
+            "message": (
+                "Telegram invitation link created"
+                if issued.delivery_status == "link_ready"
+                else ("Invitation code sent through Telegram" if purpose == "invite" else "Password reset code sent through Telegram")
+            ),
             "purpose": purpose,
             "delivery_status": issued.delivery_status,
             "retry_after_seconds": issued.retry_after_seconds,
+            "telegram_invite_url": issued.telegram_invite_url,
+            "telegram_invite_qr": issued.telegram_invite_qr,
+            "telegram_invite_expires_at": issued.telegram_invite_expires_at,
         }
     except HTTPException:
         raise
@@ -503,6 +527,7 @@ async def get_teacher_status(
             "account_status": user.get("account_status", "active"),
             "phone_verified": user.get("phone_verified", False),
             "invite_delivery_status": user.get("invite_delivery_status"),
+            "telegram_connected": user.get("telegram_link_status") == "linked",
             "last_login": user.get("last_login")
         }
     except HTTPException:

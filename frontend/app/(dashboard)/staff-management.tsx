@@ -17,6 +17,10 @@ import { api, apiErrorMessage } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import TelegramInviteModal, {
+  TelegramInviteItem,
+  telegramInviteFromResponse,
+} from '../../src/components/TelegramInviteModal';
 
 type StaffTab = 'leadership' | 'support';
 type AccountRole = 'manager' | 'reception' | 'support';
@@ -34,6 +38,7 @@ interface StaffRecord {
   account_status?: 'pending_invite' | 'active' | 'deactivated' | 'phone_required';
   phone_verified?: boolean;
   invite_delivery_status?: string;
+  telegram_connected?: boolean;
   last_login?: string;
 }
 
@@ -74,6 +79,7 @@ export default function StaffManagementScreen() {
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<StaffRecord | null>(null);
+  const [telegramInvites, setTelegramInvites] = useState<TelegramInviteItem[]>([]);
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -138,11 +144,13 @@ export default function StaffManagementScreen() {
       setCreateOpen(false);
       await loadStaff();
       const delivery = response.data?.invite_delivery_status;
-      showAlert(
+      const invite = telegramInviteFromResponse(response.data, `${form.first_name.trim()} ${form.last_name.trim()}`);
+      if (invite) setTelegramInvites([invite]);
+      else showAlert(
         'Account created',
         delivery === 'sent' || delivery === 'mock'
-          ? 'The invitation code was sent by SMS. The user must create their own password.'
-          : 'The account is pending activation, but the SMS was not sent. Check SMS settings, then use Send invitation code.',
+          ? 'The invitation code was sent through Telegram. The user must create their own password.'
+          : 'The account is pending activation. Create a Telegram invitation link from the account details.',
       );
     } catch (error: any) {
       showAlert('Could not create account', apiErrorMessage(error));
@@ -161,11 +169,13 @@ export default function StaffManagementScreen() {
         ? `${accountPath(staff)}/send-access-code`
         : `${accountPath(staff)}/reset-password`;
       const response = await api.post(endpoint);
-      showAlert('SMS sent', response.data?.message || 'The access code was sent.');
+      const invite = telegramInviteFromResponse(response.data, displayName(staff));
+      if (invite) setTelegramInvites([invite]);
+      else showAlert('Telegram code sent', response.data?.message || 'The access code was sent through Telegram.');
       setSelected(null);
       await loadStaff();
     } catch (error: any) {
-      showAlert('Could not send SMS', apiErrorMessage(error));
+      showAlert('Could not prepare Telegram access', apiErrorMessage(error));
     } finally {
       setActionLoading(false);
     }
@@ -182,9 +192,11 @@ export default function StaffManagementScreen() {
       async () => {
         setActionLoading(true);
         try {
-          await api.patch(`${accountPath(staff)}/${action}`);
+          const response = await api.patch(`${accountPath(staff)}/${action}`);
           setSelected(null);
           await loadStaff();
+          const invite = telegramInviteFromResponse(response.data, displayName(staff));
+          if (invite) setTelegramInvites([invite]);
         } catch (error: any) {
           showAlert('Account update failed', apiErrorMessage(error));
         } finally {
@@ -216,7 +228,7 @@ export default function StaffManagementScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Staff Management</Text>
-          <Text style={styles.subtitle}>Phone invitations and account access</Text>
+          <Text style={styles.subtitle}>Telegram invitations and account access</Text>
         </View>
         <TouchableOpacity
           testID={tab === 'support' ? 'support-staff-add-button' : 'staff-account-add-button'}
@@ -336,7 +348,7 @@ export default function StaffManagementScreen() {
                   </View>
                 </>
               )}
-              <Text style={styles.inviteNote}>The user will receive a six-digit SMS code and create their own password. No temporary password is stored or shown.</Text>
+              <Text style={styles.inviteNote}>The app will create a private Telegram link. Send it directly to the user; after they press Start, the bot sends their six-digit code. No temporary password is stored or shown.</Text>
               <TouchableOpacity
                 testID={tab === 'support' ? 'support-staff-save-button' : 'staff-account-save-button'}
                 style={[styles.primary, actionLoading && styles.disabled]}
@@ -363,6 +375,7 @@ export default function StaffManagementScreen() {
                 <Text style={styles.detail}>{selected.phone}</Text>
                 {!!selected.email && <Text style={styles.detail}>{selected.email}</Text>}
                 <Text style={styles.detail}>Status: {statusLabel(selected)}</Text>
+                <Text style={styles.detail}>Telegram: {selected.telegram_connected ? 'Connected' : 'Not connected'}</Text>
                 {!!selected.last_login && <Text style={styles.detail}>Last sign in: {new Date(selected.last_login).toLocaleString()}</Text>}
 
                 {selected.account_status !== 'deactivated' && (
@@ -392,6 +405,12 @@ export default function StaffManagementScreen() {
           </View>
         </View>
       </Modal>
+
+      <TelegramInviteModal
+        visible={telegramInvites.length > 0}
+        invites={telegramInvites}
+        onClose={() => setTelegramInvites([])}
+      />
     </View>
   );
 }

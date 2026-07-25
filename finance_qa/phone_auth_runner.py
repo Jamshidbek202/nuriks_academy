@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import sys
@@ -17,7 +18,9 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 os.environ.setdefault("APP_ENV", "finance_qa")
-os.environ.setdefault("SMS_DELIVERY_MODE", "mock")
+os.environ.setdefault("TELEGRAM_DELIVERY_MODE", "mock")
+os.environ.setdefault("TELEGRAM_BOT_USERNAME", "nuriksacademy_bot")
+os.environ.setdefault("TELEGRAM_WEBHOOK_SECRET", "nuriks-finance-qa-webhook-secret")
 os.environ.setdefault("DISABLE_SCHEDULER", "1")
 os.environ.setdefault("SECRET_KEY", "phone-auth-qa-secret-key-only")
 os.environ.setdefault("OTP_RESEND_COOLDOWN_SECONDS", "15")
@@ -25,6 +28,7 @@ os.environ.setdefault("OTP_RESEND_COOLDOWN_SECONDS", "15")
 from auth import create_access_token, get_password_hash  # noqa: E402
 from database import assert_disposable_database_name  # noqa: E402
 from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users  # noqa: E402
+from telegram_auth import ensure_telegram_indexes  # noqa: E402
 from server import app, db  # noqa: E402
 
 
@@ -55,10 +59,36 @@ async def latest_code(phone: str, purpose: str) -> str:
     return challenge["test_code"]
 
 
+async def connect_mock_telegram(client: httpx.AsyncClient, phone: str, telegram_id: int) -> str:
+    user = await db.users.find_one({"phone_normalized": phone})
+    check(bool(user), f"Missing user for Telegram connection: {phone}")
+    link = await db.telegram_links.find_one(
+        {"user_id": str(user["_id"]), "used_at": None, "revoked_at": None},
+        sort=[("created_at", -1)],
+    )
+    check(bool(link and link.get("test_token")), f"Missing mock Telegram link for {phone}")
+    response = await client.post(
+        "/api/telegram/webhook",
+        headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
+        json={
+            "update_id": telegram_id,
+            "message": {
+                "message_id": telegram_id,
+                "text": f"/start connect_{link['test_token']}",
+                "from": {"id": telegram_id, "first_name": "QA", "username": f"qa_{telegram_id}"},
+                "chat": {"id": telegram_id, "type": "private"},
+            },
+        },
+    )
+    check(response.status_code == 200, f"Telegram webhook failed for {phone}: {response.text}")
+    return link["test_token"]
+
+
 async def run() -> None:
     assert_disposable_database_name(db.name)
     await db.client.drop_database(db.name)
     await ensure_phone_auth_indexes(db)
+    await ensure_telegram_indexes(db)
     admin = {
         "login": ADMIN_PHONE,
         "phone": ADMIN_PHONE,
@@ -82,6 +112,13 @@ async def run() -> None:
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://phone-auth-qa") as client:
+        invalid_webhook = await client.post(
+            "/api/telegram/webhook",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
+            json={"update_id": 1},
+        )
+        check(invalid_webhook.status_code == 403, "Telegram webhook must reject an invalid secret")
+
         manager_phone = "+998901111111"
         created = await json_ok(
             await client.post(
@@ -99,7 +136,8 @@ async def run() -> None:
         )
         check(created["account_status"] == "pending_invite", "Manager must start pending")
         check(created["is_active"] is False, "Pending manager must not be active")
-        check(created["invite_delivery_status"] == "mock", "QA must use mock SMS")
+        check(created["invite_delivery_status"] == "link_ready", "QA must create a Telegram link")
+        check(bool(created.get("telegram_invite_url")), "Telegram invitation URL must be returned")
 
         # Render can restart between account creation and activation. The
         # idempotent startup migration must preserve the pending invitation.
@@ -123,6 +161,32 @@ async def run() -> None:
         )
         check(pending_login.status_code in {401, 403}, "Pending account must not log in")
 
+        manager_link_token = await connect_mock_telegram(client, manager_phone, 90011111111)
+        invite_count_before_replay = await db.auth_challenges.count_documents({
+            "phone_normalized": manager_phone, "purpose": "invite",
+        })
+        replayed_link = await client.post(
+            "/api/telegram/webhook",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
+            json={
+                "update_id": 90011111112,
+                "message": {
+                    "message_id": 90011111112,
+                    "text": f"/start connect_{manager_link_token}",
+                    "from": {"id": 90011111112, "first_name": "Forwarded"},
+                    "chat": {"id": 90011111112, "type": "private"},
+                },
+            },
+        )
+        check(replayed_link.status_code == 200, "Telegram must acknowledge a replay safely")
+        linked_manager = await db.users.find_one({"phone_normalized": manager_phone})
+        check(linked_manager.get("telegram_user_id") == 90011111111, "A used link must not transfer accounts")
+        check(
+            await db.auth_challenges.count_documents({
+                "phone_normalized": manager_phone, "purpose": "invite",
+            }) == invite_count_before_replay,
+            "A replayed Telegram link must not issue another code",
+        )
         invite_code = await latest_code(manager_phone, "invite")
         await json_ok(
             await client.post(
@@ -132,6 +196,9 @@ async def run() -> None:
             200,
             "accept manager invitation",
         )
+        activated_manager = await db.users.find_one({"phone_normalized": manager_phone})
+        check(activated_manager.get("identity_verified_via") == "telegram", "Activation channel must be Telegram")
+        check(activated_manager.get("phone_verified") is False, "Telegram must not falsely mark the phone as SMS-verified")
         replay = await client.post(
             "/api/auth/invitations/accept",
             json={"phone": manager_phone, "code": invite_code, "password": NEW_PASSWORD},
@@ -172,6 +239,7 @@ async def run() -> None:
             "manager creates teacher",
         )
         check(teacher["account_status"] == "pending_invite", "Teacher must start pending")
+        await connect_mock_telegram(client, teacher_phone, 90022222222)
         teacher_code = await latest_code(teacher_phone, "invite")
         await json_ok(
             await client.post(
@@ -193,6 +261,31 @@ async def run() -> None:
             "create reception",
         )
         check(reception["role"] == "reception", "Reception role must be retained")
+        reception_user = await db.users.find_one({"phone_normalized": reception_phone})
+        reception_link = await db.telegram_links.find_one({
+            "user_id": str(reception_user["_id"]), "used_at": None, "revoked_at": None,
+        })
+        check(bool(reception_link and reception_link.get("test_token")), "Reception link must exist")
+        await db.telegram_links.update_one(
+            {"_id": reception_link["_id"]},
+            {"$set": {"expires_at": datetime.utcnow() - timedelta(seconds=1)}},
+        )
+        expired_attempt = await client.post(
+            "/api/telegram/webhook",
+            headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
+            json={
+                "update_id": 90033333333,
+                "message": {
+                    "message_id": 90033333333,
+                    "text": f"/start connect_{reception_link['test_token']}",
+                    "from": {"id": 90033333333, "first_name": "Expired"},
+                    "chat": {"id": 90033333333, "type": "private"},
+                },
+            },
+        )
+        check(expired_attempt.status_code == 200, "Expired Telegram links must be safely acknowledged")
+        reception_user = await db.users.find_one({"_id": reception_user["_id"]})
+        check(not reception_user.get("telegram_user_id"), "Expired links must not connect an account")
 
         # Wait out no cooldown by using the original invite only; password
         # reset runs on the already activated manager and has a separate purpose.
@@ -227,6 +320,29 @@ async def run() -> None:
             "login after reset",
         )
 
+        disconnected = await json_ok(
+            await client.delete(
+                "/api/auth/telegram/link",
+                headers={"Authorization": f"Bearer {new_login['access_token']}"},
+            ),
+            200,
+            "disconnect Telegram",
+        )
+        check(disconnected["connected"] is False, "Telegram must report disconnected")
+        manager_after_disconnect = await db.users.find_one({"phone_normalized": manager_phone})
+        check(not manager_after_disconnect.get("telegram_chat_id"), "Telegram chat ID must be removed")
+        check(
+            manager_after_disconnect.get("telegram_verified") is True,
+            "Disconnecting code delivery must not erase completed account activation",
+        )
+        await json_ok(
+            await client.post(
+                "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
+            ),
+            200,
+            "phone-and-password login after Telegram disconnect",
+        )
+
         deactivate = await json_ok(
             await client.patch(
                 f"/api/staff-accounts/{created['id']}/deactivate", headers=admin_headers,
@@ -247,7 +363,7 @@ async def run() -> None:
         )
         check(forbidden_seed.status_code == 410, "Temporary reception password endpoint must stay retired")
 
-    print("PHONE_AUTH_QA_PASS manager/reception/teacher invitations, permissions, reset, replay, revocation")
+    print("PHONE_AUTH_QA_PASS Telegram pairing, expiry, replay, roles, activation, reset, and revocation")
 
 
 if __name__ == "__main__":
