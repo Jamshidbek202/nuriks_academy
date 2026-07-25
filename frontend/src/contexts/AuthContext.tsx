@@ -1,7 +1,12 @@
 import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
-import { api, apiErrorMessage } from '../services/api';
+import {
+  api,
+  apiErrorMessage,
+  resetSessionInvalidNotice,
+  setSessionInvalidHandler,
+} from '../services/api';
 import {
   registerForPushNotifications,
   registerPushToken,
@@ -32,6 +37,8 @@ interface AuthContextType {
   login: (phone: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  sessionNotice: string | null;
+  clearSessionNotice: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,11 +49,28 @@ const normalizeUser = (user: User): User => ({
 });
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { setLanguage, isLanguageReady } = useLanguage();
+  const { setLanguage, isLanguageReady, t } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [pushToken, setPushToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [sessionNotice, setSessionNotice] = useState<string | null>(null);
+
+  const clearLocalSession = useCallback(async (notice?: string) => {
+    delete api.defaults.headers.common.Authorization;
+    setToken(null);
+    setUser(null);
+    setPushToken(null);
+    if (notice) setSessionNotice(notice);
+    await AsyncStorage.multiRemove(['user', 'token', 'pushToken']);
+  }, []);
+
+  useEffect(() => {
+    setSessionInvalidHandler((message) => {
+      void clearLocalSession(t(message));
+    });
+    return () => setSessionInvalidHandler(null);
+  }, [clearLocalSession, t]);
 
   // Register push token when user is authenticated
   useEffect(() => {
@@ -143,6 +167,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const accessToken = response.data.access_token;
       const loggedInUser = normalizeUser(response.data.user);
 
+      resetSessionInvalidNotice();
+      setSessionNotice(null);
       setToken(accessToken);
       setUser(loggedInUser);
       if (loggedInUser.language_preference) {
@@ -162,14 +188,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         await unregisterPushToken(pushToken);
       }
       
-      await AsyncStorage.removeItem('user');
-      await AsyncStorage.removeItem('token');
-      await AsyncStorage.removeItem('pushToken');
-      
-      setToken(null);
-      setUser(null);
-      setPushToken(null);
-      delete api.defaults.headers.common.Authorization;
+      resetSessionInvalidNotice();
+      setSessionNotice(null);
+      await clearLocalSession();
     } catch (error) {
       console.error('Error logging out:', error);
     }
@@ -190,7 +211,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, pushToken, login, logout, refreshUser }}>
+    <AuthContext.Provider value={{
+      user,
+      token,
+      isLoading,
+      pushToken,
+      login,
+      logout,
+      refreshUser,
+      sessionNotice,
+      clearSessionNotice: () => setSessionNotice(null),
+    }}>
       {children}
     </AuthContext.Provider>
   );

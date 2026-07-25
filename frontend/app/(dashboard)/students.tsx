@@ -277,6 +277,7 @@ export default function StudentsScreen() {
         {filteredStudents.map((student: any) => (
           <TouchableOpacity
             key={student.id}
+            testID={`student-card-${student.id}`}
             style={styles.studentCard}
             onPress={() => openEditModal(student)}
           >

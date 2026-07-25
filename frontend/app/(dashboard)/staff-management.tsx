@@ -39,6 +39,7 @@ interface StaffRecord {
   phone_verified?: boolean;
   invite_delivery_status?: string;
   telegram_connected?: boolean;
+  can_delete_permanently?: boolean;
   last_login?: string;
 }
 
@@ -188,7 +189,7 @@ export default function StaffManagementScreen() {
       deactivated ? 'Reactivate account' : 'Deactivate account',
       deactivated
         ? `Reactivate ${displayName(staff)}? If activation was never completed, a new invitation will be sent.`
-        : `${displayName(staff)} will immediately lose access on every signed-in device.`,
+        : `${displayName(staff)} will immediately lose access on every signed-in device. Their Telegram account will also be released so it can be linked to another app account.`,
       async () => {
         setActionLoading(true);
         try {
@@ -199,6 +200,46 @@ export default function StaffManagementScreen() {
           if (invite) setTelegramInvites([invite]);
         } catch (error: any) {
           showAlert('Account update failed', apiErrorMessage(error));
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    );
+  };
+
+  const releaseTelegram = (staff: StaffRecord) => {
+    showConfirm(
+      'Release Telegram account',
+      `Disconnect Telegram from ${displayName(staff)}? Existing sessions will end, but the staff account and all history will remain.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.delete(`/staff-accounts/${staff.id}/telegram`);
+          setSelected(null);
+          await loadStaff();
+          showAlert('Telegram released', 'This Telegram account can now be connected to another Nurik\'s Academy account.');
+        } catch (error: any) {
+          showAlert('Could not release Telegram', apiErrorMessage(error));
+        } finally {
+          setActionLoading(false);
+        }
+      },
+    );
+  };
+
+  const deleteDisposableAccount = (staff: StaffRecord) => {
+    showConfirm(
+      'Permanently delete unactivated account',
+      `Delete ${displayName(staff)}? This is allowed only before they activate the account. Their phone number and Telegram account will become available for reuse.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.delete(`/staff-accounts/${staff.id}`);
+          setSelected(null);
+          await loadStaff();
+          showAlert('Account deleted', 'The unactivated account was deleted and its login details can be reused.');
+        } catch (error: any) {
+          showAlert('Account was not deleted', apiErrorMessage(error));
         } finally {
           setActionLoading(false);
         }
@@ -400,6 +441,28 @@ export default function StaffManagementScreen() {
                   <Ionicons name={selected.account_status === 'deactivated' ? 'checkmark-circle' : 'close-circle'} size={20} color={selected.account_status === 'deactivated' ? COLORS.success : COLORS.error} />
                   <Text style={styles.actionText}>{selected.account_status === 'deactivated' ? 'Reactivate' : 'Deactivate'}</Text>
                 </TouchableOpacity>
+                {tab === 'leadership' && selected.telegram_connected && (
+                  <TouchableOpacity
+                    testID="staff-release-telegram-button"
+                    style={styles.action}
+                    onPress={() => releaseTelegram(selected)}
+                    disabled={actionLoading}
+                  >
+                    <Ionicons name="unlink" size={20} color={COLORS.warning} />
+                    <Text style={styles.actionText}>Release Telegram</Text>
+                  </TouchableOpacity>
+                )}
+                {tab === 'leadership' && selected.can_delete_permanently && (
+                  <TouchableOpacity
+                    testID="staff-delete-unactivated-button"
+                    style={[styles.action, styles.destructiveAction]}
+                    onPress={() => deleteDisposableAccount(selected)}
+                    disabled={actionLoading}
+                  >
+                    <Ionicons name="trash" size={20} color={COLORS.error} />
+                    <Text style={[styles.actionText, styles.destructiveText]}>Delete unactivated account</Text>
+                  </TouchableOpacity>
+                )}
               </>
             )}
           </View>
@@ -463,4 +526,6 @@ const styles = StyleSheet.create({
   detail: { color: COLORS.textSecondary, fontSize: SIZES.fontMd, marginBottom: SIZES.sm },
   action: { minHeight: 48, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, marginTop: SIZES.sm },
   actionText: { color: COLORS.textPrimary, fontWeight: '600' },
+  destructiveAction: { borderColor: COLORS.error + '80', backgroundColor: COLORS.error + '0D' },
+  destructiveText: { color: COLORS.error },
 });

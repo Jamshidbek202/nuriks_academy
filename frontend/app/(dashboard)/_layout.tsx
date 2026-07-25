@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS } from '../../src/constants/theme';
@@ -17,6 +17,10 @@ export default function DashboardLayout() {
         <ActivityIndicator size="large" color={COLORS.gold} />
       </View>
     );
+  }
+
+  if (!user) {
+    return <Redirect href="/login" />;
   }
 
   const tabScreenOptions = {
@@ -302,7 +306,7 @@ export default function DashboardLayout() {
     );
   }
 
-  // Default fallback (no user or unknown role)
+  // Default fallback for an authenticated account with an unknown role.
   return (
     <Tabs screenOptions={tabScreenOptions}>
       <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('home') }} />

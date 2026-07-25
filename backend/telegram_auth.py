@@ -282,11 +282,13 @@ async def process_telegram_start(db, update: dict) -> Optional[TelegramLinkConsu
     return consumed
 
 
-async def disconnect_telegram(db, user: dict) -> None:
+async def disconnect_telegram(db, user: dict, *, session=None) -> None:
     now = datetime.utcnow()
+    operation_options = {"session": session} if session is not None else {}
     await db.telegram_links.update_many(
         {"user_id": str(user["_id"]), "used_at": None, "revoked_at": None},
         {"$set": {"revoked_at": now, "revocation_reason": "account_disconnected"}},
+        **operation_options,
     )
     await db.users.update_one(
         {"_id": user["_id"]},
@@ -299,6 +301,7 @@ async def disconnect_telegram(db, user: dict) -> None:
             "telegram_linked_at": "",
             "telegram_link_expires_at": "",
         }},
+        **operation_options,
     )
 
 

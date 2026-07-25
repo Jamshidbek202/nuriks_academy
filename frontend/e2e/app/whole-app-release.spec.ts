@@ -389,6 +389,15 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     expect(managerAccount?.role).toBe('manager');
     expect(managerAccount.id).toBe(createdManagerBody.id);
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Invitation pending', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
+    const managerDeleteResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/staff-accounts/${managerAccount.id}`
+      && response.request().method() === 'DELETE'
+    ));
+    await session.page.getByTestId('staff-delete-unactivated-button').click();
+    const deletedManager = await managerDeleteResponse;
+    expect(deletedManager.ok(), `delete unactivated manager: ${await deletedManager.text()}`).toBeTruthy();
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`)).toHaveCount(0);
 
     await session.page.getByTestId('staff-support-tab').click();
     await session.page.getByTestId('support-staff-add-button').click();
@@ -513,6 +522,15 @@ test('invited manager creates and recovers a password through the phone-auth UI'
     await recoveryPage.getByTestId('login-password-input').fill(resetPassword);
     await recoveryPage.getByTestId('login-submit-button').click();
     await expect(recoveryPage.getByRole('tab', { name: 'Home' }).first()).toBeVisible({ timeout: 15_000 });
+
+    await expectApiOk(
+      await apiCall(request, superToken, 'patch', `/staff-accounts/${created.id}/deactivate`),
+      'deactivate signed-in manager',
+    );
+    const leadsTab = recoveryPage.getByRole('tab', { name: 'Leads' }).first();
+    if (await leadsTab.isVisible()) await leadsTab.click();
+    await expect(recoveryPage).toHaveURL(/\/login/, { timeout: 10_000 });
+    await expect(recoveryPage.getByTestId('session-ended-notice')).toContainText('access has ended');
     expect(recoveryObserved.pageErrors).toEqual([]);
     expect(recoveryObserved.serverErrors).toEqual([]);
   } finally {
@@ -882,10 +900,14 @@ test('lead detail, status, conversion, and student list synchronize across activ
     await expect(reception.page.getByText('Lead Converted Successfully!', { exact: true })).toBeVisible({ timeout: 8_000 });
     await reception.page.getByTestId('lead-conversion-done').click();
     await manager.page.getByRole('tab', { name: 'Students' }).first().click();
-    await expect(manager.page.getByText(`Live${unique} Prospect`, { exact: true })).toBeVisible({ timeout: 8_000 });
     const convertedLead = await expectApiOk(await apiCall(request, receptionToken, 'get', `/leads/${lead.id}`), 'load converted lead');
     expect(convertedLead.status).toBe('enrolled');
     expect(convertedLead.converted_to_student_id).toBeTruthy();
+    await expect(
+      manager.page
+        .getByTestId(`student-card-${convertedLead.converted_to_student_id}`)
+        .getByText(`Live${unique} Prospect`, { exact: true }),
+    ).toBeVisible({ timeout: 8_000 });
     await assertHealthy(reception, 'reception lead creation');
     await assertHealthy(manager, 'manager live converted student observer');
   } finally {

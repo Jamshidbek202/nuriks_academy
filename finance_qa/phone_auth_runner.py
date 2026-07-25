@@ -119,6 +119,65 @@ async def run() -> None:
         )
         check(invalid_webhook.status_code == 403, "Telegram webhook must reject an invalid secret")
 
+        # A never-activated test account may be removed completely. Its
+        # Telegram identity and phone number must immediately become reusable.
+        disposable_phone = "+998909999991"
+        disposable = await json_ok(
+            await client.post(
+                "/api/staff-accounts",
+                headers=admin_headers,
+                json={"full_name": "Disposable Manager", "phone": disposable_phone, "role": "manager"},
+            ),
+            201,
+            "create disposable manager",
+        )
+        await connect_mock_telegram(client, disposable_phone, 90099999991)
+        await json_ok(
+            await client.delete(f"/api/staff-accounts/{disposable['id']}", headers=admin_headers),
+            200,
+            "delete disposable manager",
+        )
+        check(
+            await db.users.find_one({"phone_normalized": disposable_phone}) is None,
+            "Deleted manager phone must be released",
+        )
+
+        telegram_reuse_phone = "+998909999992"
+        telegram_reuse = await json_ok(
+            await client.post(
+                "/api/staff-accounts",
+                headers=admin_headers,
+                json={"full_name": "Telegram Reuse", "phone": telegram_reuse_phone, "role": "reception"},
+            ),
+            201,
+            "create Telegram reuse account",
+        )
+        await connect_mock_telegram(client, telegram_reuse_phone, 90099999991)
+        await json_ok(
+            await client.delete(f"/api/staff-accounts/{telegram_reuse['id']}", headers=admin_headers),
+            200,
+            "delete Telegram reuse account",
+        )
+
+        phone_reuse = await json_ok(
+            await client.post(
+                "/api/staff-accounts",
+                headers=admin_headers,
+                json={"full_name": "Phone Reuse", "phone": disposable_phone, "role": "manager"},
+            ),
+            201,
+            "reuse deleted manager phone",
+        )
+        await json_ok(
+            await client.delete(f"/api/staff-accounts/{phone_reuse['id']}", headers=admin_headers),
+            200,
+            "delete phone reuse account",
+        )
+        delete_audit = await db.audit_logs.find_one({
+            "action": "delete_unactivated", "resource_id": disposable["id"],
+        })
+        check(bool(delete_audit), "Permanent deletion must retain an audit record")
+
         manager_phone = "+998901111111"
         created = await json_ok(
             await client.post(
@@ -199,6 +258,10 @@ async def run() -> None:
         activated_manager = await db.users.find_one({"phone_normalized": manager_phone})
         check(activated_manager.get("identity_verified_via") == "telegram", "Activation channel must be Telegram")
         check(activated_manager.get("phone_verified") is False, "Telegram must not falsely mark the phone as SMS-verified")
+        activated_delete = await client.delete(
+            f"/api/staff-accounts/{created['id']}", headers=admin_headers,
+        )
+        check(activated_delete.status_code == 409, "Activated staff history must prevent permanent deletion")
         replay = await client.post(
             "/api/auth/invitations/accept",
             json={"phone": manager_phone, "code": invite_code, "password": NEW_PASSWORD},
@@ -343,6 +406,25 @@ async def run() -> None:
             "phone-and-password login after Telegram disconnect",
         )
 
+        reconnect_login = await json_ok(
+            await client.post(
+                "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
+            ),
+            200,
+            "login before Telegram reconnect",
+        )
+        await json_ok(
+            await client.post(
+                "/api/auth/telegram/link",
+                headers={"Authorization": f"Bearer {reconnect_login['access_token']}"},
+            ),
+            200,
+            "create reconnect link",
+        )
+        await connect_mock_telegram(client, manager_phone, 90011111111)
+        manager_before_deactivate = await db.users.find_one({"phone_normalized": manager_phone})
+        check(manager_before_deactivate.get("telegram_chat_id") == 90011111111, "Manager must reconnect")
+
         deactivate = await json_ok(
             await client.patch(
                 f"/api/staff-accounts/{created['id']}/deactivate", headers=admin_headers,
@@ -351,6 +433,9 @@ async def run() -> None:
             "deactivate manager",
         )
         check(deactivate["account_status"] == "deactivated", "Account must be deactivated")
+        check(deactivate["telegram_connected"] is False, "Deactivation must report Telegram released")
+        manager_after_deactivate = await db.users.find_one({"phone_normalized": manager_phone})
+        check(not manager_after_deactivate.get("telegram_user_id"), "Deactivation must free Telegram identity")
         deactivated_session = await client.get(
             "/api/auth/me", headers={"Authorization": f"Bearer {new_login['access_token']}"},
         )

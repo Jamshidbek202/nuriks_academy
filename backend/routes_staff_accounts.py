@@ -21,6 +21,7 @@ from phone_auth import (
     issue_invitation,
     normalize_phone,
 )
+from telegram_auth import disconnect_telegram
 
 
 router = APIRouter(prefix="/staff-accounts", tags=["Staff Accounts"])
@@ -58,6 +59,11 @@ def _client_ip(request: Request) -> Optional[str]:
 
 
 def _public_account(user: dict) -> dict:
+    can_delete_permanently = not (
+        user.get("password_hash")
+        or user.get("invitation_accepted_at")
+        or user.get("last_login")
+    )
     return {
         "id": str(user["_id"]),
         "full_name": user.get("full_name", ""),
@@ -70,6 +76,7 @@ def _public_account(user: dict) -> dict:
         "is_active": bool(user.get("is_active", False)),
         "invite_delivery_status": user.get("invite_delivery_status"),
         "telegram_connected": user.get("telegram_link_status") == "linked",
+        "can_delete_permanently": can_delete_permanently,
         "invite_sent_at": user.get("invite_sent_at"),
         "last_login": user.get("last_login"),
         "created_at": user.get("created_at"),
@@ -258,20 +265,137 @@ async def deactivate_staff_account(
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
     now = datetime.utcnow()
-    await db.users.update_one(
-        {"_id": user["_id"]},
-        {"$set": {"is_active": False, "account_status": "deactivated", "updated_at": now},
-         "$inc": {"token_version": 1}},
-    )
-    await db.auth_challenges.update_many(
-        {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
-        {"$set": {"invalidated_at": now, "invalidation_reason": "account_deactivated"}},
-    )
+    # A deactivated account must not reserve a Telegram identity. This also
+    # revokes any unused pairing links before access is removed.
+    async with await db.client.start_session() as session:
+        async with session.start_transaction():
+            await disconnect_telegram(db, user, session=session)
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$set": {"is_active": False, "account_status": "deactivated", "updated_at": now},
+                 "$inc": {"token_version": 1}},
+                session=session,
+            )
+            await db.auth_challenges.update_many(
+                {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
+                {"$set": {"invalidated_at": now, "invalidation_reason": "account_deactivated"}},
+                session=session,
+            )
     await create_audit_log(
         str(current_user["_id"]), "deactivate", "staff_account", account_id,
-        {"role": user["role"]}, _client_ip(request),
+        {"role": user["role"], "telegram_released": True}, _client_ip(request),
     )
-    return {"message": "Account deactivated", "is_active": False, "account_status": "deactivated"}
+    return {
+        "message": "Account deactivated and Telegram released",
+        "is_active": False,
+        "account_status": "deactivated",
+        "telegram_connected": False,
+    }
+
+
+@router.delete("/{account_id}/telegram")
+async def release_staff_telegram(
+    account_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Release a staff Telegram identity without erasing the staff account."""
+    from server import create_audit_log, db
+
+    require_super_admin(current_user)
+    user = await _managed_user(db, account_id)
+    now = datetime.utcnow()
+    async with await db.client.start_session() as session:
+        async with session.start_transaction():
+            await disconnect_telegram(db, user, session=session)
+            await db.auth_challenges.update_many(
+                {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
+                {"$set": {"invalidated_at": now, "invalidation_reason": "telegram_released_by_admin"}},
+                session=session,
+            )
+            # Force existing sessions to revalidate after a security-channel change.
+            await db.users.update_one(
+                {"_id": user["_id"]},
+                {"$inc": {"token_version": 1}, "$set": {"updated_at": now}},
+                session=session,
+            )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "release_telegram",
+        "staff_account",
+        account_id,
+        {"role": user["role"]},
+        _client_ip(request),
+    )
+    return {"message": "Telegram released from this account", "telegram_connected": False}
+
+
+@router.delete("/{account_id}")
+async def delete_unactivated_staff_account(
+    account_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Delete only a disposable account that has never completed activation.
+
+    Activated staff are intentionally preserved because their identifier may
+    already own audit and financial history. Those accounts must be deactivated.
+    """
+    from server import create_audit_log, db
+
+    require_super_admin(current_user)
+    user = await _managed_user(db, account_id)
+    if user.get("password_hash") or user.get("invitation_accepted_at") or user.get("last_login"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "This account has already been activated and cannot be permanently deleted. "
+                "Deactivate it instead so its audit and financial history remains intact."
+            ),
+        )
+
+    deleted_snapshot = {
+        "role": user["role"],
+        "phone": user.get("phone_normalized") or user.get("phone"),
+        "full_name": user.get("full_name", ""),
+        "account_status": user.get("account_status"),
+        "telegram_released": True,
+    }
+    now = datetime.utcnow()
+    # Delete with the unactivated preconditions in the same atomic predicate.
+    # If activation wins a race, this fails without disconnecting that user.
+    async with await db.client.start_session() as session:
+        async with session.start_transaction():
+            result = await db.users.delete_one({
+                "_id": user["_id"],
+                "password_hash": None,
+                "invitation_accepted_at": {"$exists": False},
+                "last_login": {"$exists": False},
+            }, session=session)
+            if result.deleted_count != 1:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="The account changed while it was being deleted. Reload and try again.",
+                )
+            await db.telegram_links.update_many(
+                {"user_id": account_id, "used_at": None, "revoked_at": None},
+                {"$set": {"revoked_at": now, "revocation_reason": "account_deleted"}},
+                session=session,
+            )
+            await db.auth_challenges.update_many(
+                {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
+                {"$set": {"invalidated_at": now, "invalidation_reason": "account_deleted"}},
+                session=session,
+            )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "delete_unactivated",
+        "staff_account",
+        account_id,
+        deleted_snapshot,
+        _client_ip(request),
+    )
+    return {"message": "Unactivated staff account permanently deleted", "deleted": True}
 
 
 @router.patch("/{account_id}/reactivate")

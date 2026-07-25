@@ -22,7 +22,7 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login: authLogin } = useAuth();
+  const { login: authLogin, sessionNotice, clearSessionNotice } = useAuth();
   const router = useRouter();
 
   const handleLogin = async () => {
@@ -30,6 +30,7 @@ export default function LoginScreen() {
 
     setPhone(trimmedPhone);
     setErrorMessage('');
+    clearSessionNotice();
 
     if (!trimmedPhone || !password) {
       const message = 'Please enter phone number and password';
@@ -83,6 +84,11 @@ export default function LoginScreen() {
             {!!errorMessage && (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{errorMessage}</Text>
+              </View>
+            )}
+            {!errorMessage && !!sessionNotice && (
+              <View testID="session-ended-notice" style={styles.errorBox}>
+                <Text style={styles.errorText}>{sessionNotice}</Text>
               </View>
             )}
 
