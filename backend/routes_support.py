@@ -108,7 +108,10 @@ async def create_booking(
             raise HTTPException(status_code=400, detail="Minimum booking duration is 15 minutes")
         
         # Check if support staff exists
-        support_staff = await db.support_staff.find_one({"_id": ObjectId(booking_data.support_staff_id)})
+        support_staff = await db.support_staff.find_one({
+            "_id": ObjectId(booking_data.support_staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not support_staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         
@@ -192,7 +195,7 @@ async def get_bookings(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        query = {}
+        query = {"is_deleted": {"$ne": True}}
         
         # Role-based filtering
         if current_user["role"] == "student":
@@ -555,7 +558,10 @@ async def get_support_staff_by_id(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        support = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        support = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not support:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_same_branch(current_user, support, "Support staff belongs to another branch")

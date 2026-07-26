@@ -1,7 +1,7 @@
 import { APIRequestContext, Browser, BrowserContext, expect, Page, test } from '@playwright/test';
 import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
-import { MongoClient } from 'mongodb';
+import { MongoClient, ObjectId } from 'mongodb';
 
 const API_URL = 'http://127.0.0.1:8002/api';
 const PASSWORD = 'FinanceQA@2026';
@@ -20,6 +20,19 @@ async function latestMockCode(phone: string, purpose: 'invite' | 'password_reset
     );
     if (!challenge?.test_code) throw new Error(`Missing mock ${purpose} code for ${phone}`);
     return String(challenge.test_code);
+  } finally {
+    await client.close();
+  }
+}
+
+async function rawMongoRecord(collection: string, id: string) {
+  const mongoUrl = process.env.MONGO_URL;
+  const databaseName = process.env.DB_NAME;
+  if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
+  const client = new MongoClient(mongoUrl);
+  try {
+    await client.connect();
+    return await client.db(databaseName).collection(collection).findOne({ _id: new ObjectId(id) });
   } finally {
     await client.close();
   }
@@ -290,6 +303,7 @@ test('every super-admin dashboard tool opens a working view', async ({ browser }
     ['Staff Accounts', /\/staff-management/],
     ['Groups', /\/groups/],
     ['Leads / CRM', /\/leads/],
+    ['Courses', /\/courses/],
     ['Settings', /\/settings/],
     ['Feature Flags', /\/feature-flags/],
     ['Analytics', /\/analytics/],
@@ -317,8 +331,142 @@ test('every super-admin dashboard tool opens a working view', async ({ browser }
   }
 });
 
-test('teacher and support-staff management buttons complete their full UI lifecycle', async ({ browser, request }) => {
-  test.setTimeout(150_000);
+test('course catalog CRUD, permissions, safeguards, and live UI synchronization work end to end', async ({ browser, request }) => {
+  test.setTimeout(120_000);
+  const superToken = await apiLogin(request, 'super_admin');
+  const managerToken = await apiLogin(request, 'manager');
+  const actor = await loginUi(browser, 'super_admin');
+  const observer = await loginUi(browser, 'super_admin');
+  const manager = await loginUi(browser, 'manager');
+  const suffix = Date.now().toString().slice(-7);
+  const name = `QA Pre-IELTS ${suffix}`;
+  const updatedName = `QA Pre-IELTS Updated ${suffix}`;
+  try {
+    for (const session of [actor, observer]) {
+      await session.page.getByTestId('admin-tool-courses').click();
+      await expect(session.page).toHaveURL(/\/courses/);
+      await expect(session.page.getByText('Manage the academic catalog used by leads, students, and groups', { exact: true })).toBeVisible();
+    }
+    await manager.page.getByTestId('admin-tool-groups').click();
+    await manager.page.getByTestId('groups-add-button').click();
+    await expect(manager.page.getByTestId('group-course-picker')).toBeVisible();
+
+    await actor.page.getByTestId('courses-add-button').click();
+    await actor.page.getByTestId('course-name-input').fill(name);
+    await actor.page.getByTestId('course-program-picker').selectOption('pre_ielts');
+    await actor.page.getByTestId('course-description-input').fill('QA course catalog lifecycle');
+    await actor.page.getByTestId('course-levels-input').fill('Foundation, Intermediate, Foundation');
+    const createResponsePromise = actor.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/courses` && response.request().method() === 'POST'
+    ));
+    await actor.page.getByTestId('course-save-button').click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.ok(), `create course: ${await createResponse.text()}`).toBeTruthy();
+    const created = await createResponse.json();
+    expect(created.program_code).toBe('pre_ielts');
+    expect(created.levels).toEqual(['Foundation', 'Intermediate']);
+    await expect(actor.page.getByTestId(`course-card-${created.id}`)).toBeVisible({ timeout: 8_000 });
+    await expect(observer.page.getByTestId(`course-card-${created.id}`)).toBeVisible({ timeout: 8_000 });
+    await expect(manager.page.getByTestId('group-course-picker').locator(`option[value="${created.id}"]`)).toHaveText(name, { timeout: 8_000 });
+
+    const forbiddenCreate = await apiCall(request, managerToken, 'post', '/courses', {
+      name: `Forbidden ${suffix}`,
+      program_code: 'general',
+      description: null,
+      levels: [],
+    });
+    expect(forbiddenCreate.status()).toBe(403);
+    const forbiddenInactiveList = await apiCall(request, managerToken, 'get', '/courses?include_inactive=true');
+    expect(forbiddenInactiveList.status()).toBe(403);
+    const teachers = await expectApiOk(await apiCall(request, superToken, 'get', '/teachers'), 'load teacher for course mismatch guard');
+    const liveTeacher = teachers.find((teacher: any) => teacher.first_name === 'Live');
+    expect(liveTeacher).toBeTruthy();
+    const mismatchedGroup = await apiCall(request, superToken, 'post', '/groups', {
+      name: `Mismatched Course Group ${suffix}`,
+      course_id: created.id,
+      teacher_id: liveTeacher.id,
+      schedule: [{ day: 'Monday', start_time: '09:00', end_time: '10:30', room: 'QA' }],
+      status: 'active',
+      program_code: 'general',
+      group_format: 'normal',
+      finance_effective_from: localDate(),
+      finance_change_reason: 'Must be rejected before billing setup',
+    });
+    expect(mismatchedGroup.status()).toBe(409);
+
+    await actor.page.getByTestId(`course-edit-${created.id}`).click();
+    await actor.page.getByTestId('course-name-input').fill(updatedName);
+    await actor.page.getByTestId('course-description-input').fill('Updated live in every admin session');
+    await actor.page.getByTestId('course-levels-input').fill('Foundation, Advanced');
+    const updateResponsePromise = actor.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/courses/${created.id}` && response.request().method() === 'PUT'
+    ));
+    await actor.page.getByTestId('course-save-button').click();
+    const updateResponse = await updateResponsePromise;
+    expect(updateResponse.ok(), `update course: ${await updateResponse.text()}`).toBeTruthy();
+    await expect(observer.page.getByTestId(`course-card-${created.id}`).getByText(updatedName, { exact: true })).toBeVisible({ timeout: 8_000 });
+    await expect(observer.page.getByTestId(`course-card-${created.id}`).getByText('Levels: Foundation, Advanced', { exact: true })).toBeVisible();
+    await expect(manager.page.getByTestId('group-course-picker').locator(`option[value="${created.id}"]`)).toHaveText(updatedName, { timeout: 8_000 });
+
+    await actor.page.getByRole('tab', { name: 'Home' }).first().click();
+    await actor.page.getByText('Leads / CRM', { exact: true }).last().click();
+    await actor.page.getByTestId('leads-add-button').click();
+    await expect(actor.page.getByTestId('lead-course-picker').locator(`option[value="${updatedName}"]`)).toHaveCount(1, { timeout: 8_000 });
+    await actor.page.getByTestId('lead-create-close').click();
+
+    await actor.page.getByRole('tab', { name: 'Home' }).first().click();
+    await actor.page.getByTestId('admin-tool-courses').click();
+    const archiveResponsePromise = actor.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/courses/${created.id}/archive` && response.request().method() === 'PATCH'
+    ));
+    await actor.page.getByTestId(`course-archive-${created.id}`).click();
+    const archiveResponse = await archiveResponsePromise;
+    expect(archiveResponse.ok(), `archive course: ${await archiveResponse.text()}`).toBeTruthy();
+    await expect(observer.page.getByTestId(`course-card-${created.id}`).getByText('Archived', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await expect(manager.page.getByTestId('group-course-picker').locator(`option[value="${created.id}"]`)).toHaveCount(0, { timeout: 8_000 });
+    const activeCourses = await expectApiOk(await apiCall(request, superToken, 'get', '/courses'), 'load active courses after archive');
+    expect(activeCourses.some((course: any) => course.id === created.id)).toBeFalsy();
+
+    const reactivateResponsePromise = actor.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/courses/${created.id}/reactivate` && response.request().method() === 'PATCH'
+    ));
+    await actor.page.getByTestId(`course-reactivate-${created.id}`).click();
+    const reactivateResponse = await reactivateResponsePromise;
+    expect(reactivateResponse.ok(), `reactivate course: ${await reactivateResponse.text()}`).toBeTruthy();
+    await expect(observer.page.getByTestId(`course-card-${created.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await expect(manager.page.getByTestId('group-course-picker').locator(`option[value="${created.id}"]`)).toHaveText(updatedName, { timeout: 8_000 });
+
+    const existingCourses = await expectApiOk(await apiCall(request, superToken, 'get', '/courses'), 'load protected course');
+    const protectedCourse = existingCourses.find((course: any) => course.name === 'QA General English');
+    expect(protectedCourse).toBeTruthy();
+    const programChange = await apiCall(request, superToken, 'put', `/courses/${protectedCourse.id}`, {
+      name: protectedCourse.name,
+      program_code: 'ielts',
+      description: protectedCourse.description || null,
+      levels: protectedCourse.levels || [],
+    });
+    expect(programChange.status()).toBe(409);
+    const protectedArchive = await apiCall(request, superToken, 'patch', `/courses/${protectedCourse.id}/archive`);
+    expect(protectedArchive.status()).toBe(409);
+
+    const auditLogs = await expectApiOk(
+      await apiCall(request, superToken, 'get', '/admin/audit-logs?entity_type=course&limit=100'),
+      'load course audit trail',
+    );
+    const actions = auditLogs
+      .filter((row: any) => row.resource_id === created.id)
+      .map((row: any) => row.action);
+    expect(actions).toEqual(expect.arrayContaining(['create', 'update', 'archive', 'reactivate']));
+    await assertHealthy(actor, 'course catalog actor');
+    await assertHealthy(observer, 'course catalog observer');
+    await assertHealthy(manager, 'course catalog manager observer');
+  } finally {
+    await Promise.allSettled([actor.context.close(), observer.context.close(), manager.context.close()]);
+  }
+});
+
+test('every worker supports reversible deactivation and guarded permanent deletion with reusable identity', async ({ browser, request }) => {
+  test.setTimeout(180_000);
   const superToken = await apiLogin(request, 'super_admin');
   const session = await loginUi(browser, 'super_admin');
   const suffix = Date.now().toString().slice(-7);
@@ -367,6 +515,40 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     await session.page.getByTestId(`teacher-card-${teacher.id}`).click();
     await session.page.getByTestId('teacher-reactivate-button').click();
     await expect(session.page.getByTestId(`teacher-card-${teacher.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId(`teacher-card-${teacher.id}`).click();
+    const teacherDeleteResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/teachers/${teacher.id}`
+      && response.request().method() === 'DELETE'
+    ));
+    await session.page.getByTestId('teacher-delete-button').click();
+    const deletedTeacher = await teacherDeleteResponse;
+    expect(deletedTeacher.ok(), `delete activated teacher: ${await deletedTeacher.text()}`).toBeTruthy();
+    expect((await deletedTeacher.json()).deletion_mode).toBe('history_tombstone');
+    await expect(session.page.getByTestId(`teacher-card-${teacher.id}`)).toHaveCount(0);
+    const teacherTombstone = await rawMongoRecord('teachers', teacher.id);
+    const teacherUserTombstone = await rawMongoRecord('users', teacher.user_id);
+    expect(teacherTombstone?.is_deleted).toBe(true);
+    expect(teacherUserTombstone?.is_deleted).toBe(true);
+    expect(teacherUserTombstone).not.toHaveProperty('phone_normalized');
+    const retiredTeacherLogin = await request.post(`${API_URL}/auth/login`, {
+      data: { login: `+99895${suffix}`, password: 'UiTeacher@2026!' },
+    });
+    expect(retiredTeacherLogin.status()).toBe(401);
+    const reusedTeacher = await expectApiOk(
+      await apiCall(request, superToken, 'post', '/teachers', {
+        first_name: 'Reused',
+        last_name: `Teacher${suffix}`,
+        phone: `+99895${suffix}`,
+        email: `reused-teacher-${suffix}@qa.invalid`,
+        specialization: ['QA'],
+        courses: [],
+      }),
+      'reuse deleted teacher phone',
+    );
+    expect((await expectApiOk(
+      await apiCall(request, superToken, 'delete', `/teachers/${reusedTeacher.id}`),
+      'remove reused unactivated teacher',
+    )).deletion_mode).toBe('hard_delete');
 
     await session.page.getByRole('tab', { name: 'Home' }).first().click();
     await session.page.getByText('Staff Accounts', { exact: true }).last().click();
@@ -389,15 +571,34 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     expect(managerAccount?.role).toBe('manager');
     expect(managerAccount.id).toBe(createdManagerBody.id);
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Invitation pending', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await activateInvitedAccount(request, `+99897${suffix}`, 'UiManager@2026!');
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
     await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
     const managerDeleteResponse = session.page.waitForResponse((response) => (
       response.url() === `${API_URL}/staff-accounts/${managerAccount.id}`
       && response.request().method() === 'DELETE'
     ));
-    await session.page.getByTestId('staff-delete-unactivated-button').click();
+    await session.page.getByTestId('staff-delete-button').click();
     const deletedManager = await managerDeleteResponse;
-    expect(deletedManager.ok(), `delete unactivated manager: ${await deletedManager.text()}`).toBeTruthy();
+    expect(deletedManager.ok(), `delete activated manager: ${await deletedManager.text()}`).toBeTruthy();
+    expect((await deletedManager.json()).deletion_mode).toBe('history_tombstone');
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`)).toHaveCount(0);
+    const managerTombstone = await rawMongoRecord('users', managerAccount.id);
+    expect(managerTombstone?.is_deleted).toBe(true);
+    expect(managerTombstone).not.toHaveProperty('phone_normalized');
+    const reusedManager = await expectApiOk(
+      await apiCall(request, superToken, 'post', '/staff-accounts', {
+        full_name: `Reused Manager${suffix}`,
+        phone: `+99897${suffix}`,
+        role: 'manager',
+        language_preference: 'en',
+      }),
+      'reuse deleted manager phone',
+    );
+    expect((await expectApiOk(
+      await apiCall(request, superToken, 'delete', `/staff-accounts/${reusedManager.id}`),
+      'remove reused unactivated manager',
+    )).deletion_mode).toBe('hard_delete');
 
     await session.page.getByTestId('staff-support-tab').click();
     await session.page.getByTestId('support-staff-add-button').click();
@@ -439,6 +640,35 @@ test('teacher and support-staff management buttons complete their full UI lifecy
     await session.page.getByTestId(`support-staff-card-${support.id}`).click();
     await session.page.getByTestId('support-staff-reactivate-button').click();
     await expect(session.page.getByTestId(`support-staff-card-${support.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId(`support-staff-card-${support.id}`).click();
+    const supportDeleteResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/support-staff/${support.id}`
+      && response.request().method() === 'DELETE'
+    ));
+    await session.page.getByTestId('support-staff-delete-button').click();
+    const deletedSupport = await supportDeleteResponse;
+    expect(deletedSupport.ok(), `delete activated support worker: ${await deletedSupport.text()}`).toBeTruthy();
+    expect((await deletedSupport.json()).deletion_mode).toBe('history_tombstone');
+    await expect(session.page.getByTestId(`support-staff-card-${support.id}`)).toHaveCount(0);
+    const supportTombstone = await rawMongoRecord('support_staff', support.id);
+    const supportUserTombstone = await rawMongoRecord('users', support.user_id);
+    expect(supportTombstone?.is_deleted).toBe(true);
+    expect(supportUserTombstone?.is_deleted).toBe(true);
+    expect(supportUserTombstone).not.toHaveProperty('phone_normalized');
+    const reusedSupport = await expectApiOk(
+      await apiCall(request, superToken, 'post', '/support-staff', {
+        first_name: 'Reused',
+        last_name: `Support${suffix}`,
+        phone: `+99896${suffix}`,
+        email: `reused-support-${suffix}@qa.invalid`,
+        available_hours: {},
+      }),
+      'reuse deleted support phone',
+    );
+    expect((await expectApiOk(
+      await apiCall(request, superToken, 'delete', `/support-staff/${reusedSupport.id}`),
+      'remove reused unactivated support worker',
+    )).deletion_mode).toBe('hard_delete');
     await assertHealthy(session, 'management UI lifecycles');
   } finally {
     await session.context.close();
@@ -566,7 +796,8 @@ test('group UI creates exact billing schedule, manages membership, edits, and pr
     await session.page.getByPlaceholder('e.g., IELTS Morning A').fill(name);
     await session.page.getByTestId('group-course-picker').selectOption(course.id);
     await session.page.getByTestId('group-teacher-picker').selectOption(teacher.id);
-    await session.page.getByTestId('group-program-picker').selectOption('general');
+    await expect(session.page.getByTestId('group-program-picker')).toHaveValue('general');
+    await expect(session.page.getByTestId('group-program-picker')).toBeDisabled();
     await session.page.getByTestId('group-format-picker').selectOption('normal');
     await expect(session.page.getByText(/450[,.\s]000 UZS/)).toBeVisible();
     await expect(session.page.getByText('40%', { exact: true })).toBeVisible();
@@ -772,6 +1003,17 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
     topic: `Branch isolation ${suffix}`,
   }), 'create branch B support booking');
 
+  expect((await apiCall(request, managerBToken, 'delete', `/teachers/${teacher.id}`)).status()).toBe(403);
+  expect((await apiCall(request, managerBToken, 'delete', `/support-staff/${support.id}`)).status()).toBe(403);
+  const assignedTeacherDeletion = await apiCall(request, superToken, 'delete', `/teachers/${teacher.id}`);
+  const assignedTeacherDeletionBody = await assignedTeacherDeletion.text();
+  expect(assignedTeacherDeletion.status(), assignedTeacherDeletionBody).toBe(409);
+  expect(assignedTeacherDeletionBody).toContain('Reassign or close');
+  const bookedSupportDeletion = await apiCall(request, superToken, 'delete', `/support-staff/${support.id}`);
+  const bookedSupportDeletionBody = await bookedSupportDeletion.text();
+  expect(bookedSupportDeletion.status(), bookedSupportDeletionBody).toBe(409);
+  expect(bookedSupportDeletionBody).toContain('Reassign or cancel');
+
   for (const [label, response] of [
     ['student list override', await apiCall(request, managerAToken, 'get', `/students?branch_id=${branchBId}`)],
     ['teacher list override', await apiCall(request, managerAToken, 'get', `/teachers?branch_id=${branchBId}`)],
@@ -786,6 +1028,8 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
     ['support update', await apiCall(request, managerAToken, 'put', `/support-staff/${support.id}`, supportPayload)],
     ['teacher deactivate', await apiCall(request, managerAToken, 'patch', `/teachers/${teacher.id}/deactivate`)],
     ['support deactivate', await apiCall(request, managerAToken, 'patch', `/support-staff/${support.id}/deactivate`)],
+    ['teacher permanent delete', await apiCall(request, managerAToken, 'delete', `/teachers/${teacher.id}`)],
+    ['support permanent delete', await apiCall(request, managerAToken, 'delete', `/support-staff/${support.id}`)],
     ['student archive', await apiCall(request, managerAToken, 'delete', `/students/${student.id}`)],
     ['support booking confirm', await apiCall(request, managerAToken, 'put', `/support-bookings/${branchBBooking.id}/confirm`)],
     ['homework group read', await apiCall(request, managerAToken, 'get', `/homework/group/${branchBGroup.id}`)],

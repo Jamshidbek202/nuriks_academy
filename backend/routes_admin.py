@@ -322,7 +322,10 @@ async def get_analytics(current_user: dict = Depends(get_current_user_dep)):
         end_test_avg = round(sum(end_scores) / len(end_scores), 1) if end_scores else 0
 
         # Teacher performance (based on student progress)
-        teachers = await db.teachers.find(branch_query).to_list(5_000)
+        teachers = await db.teachers.find({
+            **branch_query,
+            "is_deleted": {"$ne": True},
+        }).to_list(5_000)
         teacher_count = len(teachers)
         teacher_performance = []
         if current_user["role"] == "super_admin":
@@ -660,7 +663,12 @@ async def get_audit_logs(
     try:
         query = {}
         if entity_type:
-            query["entity_type"] = entity_type
+            # Audit writers use resource_type. Keep legacy entity_type rows
+            # visible while making the public filter match the stored schema.
+            query["$or"] = [
+                {"resource_type": entity_type},
+                {"entity_type": entity_type},
+            ]
         if action:
             query["action"] = action
         

@@ -327,7 +327,7 @@ export default function LeadsScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Add New Lead</Text>
-              <TouchableOpacity onPress={() => { setModalVisible(false); resetForm(); }}>
+              <TouchableOpacity testID="lead-create-close" accessibilityLabel="Close lead form" onPress={() => { setModalVisible(false); resetForm(); }}>
                 <Ionicons name="close" size={24} color={COLORS.textPrimary} />
               </TouchableOpacity>
             </View>
@@ -394,6 +394,7 @@ export default function LeadsScreen() {
                 <Text style={styles.label}>Interested Course</Text>
                 <View style={styles.pickerContainer}>
                   <Picker
+                    testID="lead-course-picker"
                     selectedValue={formData.interested_course}
                     onValueChange={(value) => setFormData({ ...formData, interested_course: value })}
                     style={styles.picker}

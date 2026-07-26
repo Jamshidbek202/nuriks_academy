@@ -460,9 +460,17 @@ async def convert_lead_to_student(
         # Get interested course ID
         course_ids = []
         if lead.get("interested_course"):
-            course = await db.courses.find_one({"name": lead["interested_course"]})
+            course = await db.courses.find_one({
+                "name": lead["interested_course"],
+                "is_active": {"$ne": False},
+            })
             if course:
                 course_ids = [str(course["_id"])]
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The lead's selected course is no longer active. Update the lead before conversion.",
+                )
         
         # Create student profile
         student = {

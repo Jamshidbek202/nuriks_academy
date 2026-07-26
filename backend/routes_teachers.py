@@ -13,6 +13,7 @@ from phone_auth import (
     invited_user_document, issue_access_code, issue_invitation, normalize_phone,
 )
 from pymongo.errors import DuplicateKeyError
+from worker_lifecycle import permanently_remove_worker
 
 router = APIRouter(prefix="/teachers", tags=["Teachers"])
 security = HTTPBearer()
@@ -146,7 +147,7 @@ async def get_teachers(
     from server import db, serialize_doc
     
     try:
-        query = {}
+        query = {"is_deleted": {"$ne": True}}
         if current_user["role"] == "super_admin":
             if branch_id:
                 query["branch_id"] = branch_id
@@ -191,7 +192,10 @@ async def get_my_teacher_profile(
         raise HTTPException(status_code=403, detail="Teacher access required")
 
     try:
-        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        teacher = await db.teachers.find_one({
+            "user_id": str(current_user["_id"]),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher profile not found")
         return serialize_doc(teacher)
@@ -209,7 +213,10 @@ async def get_teacher(
     from server import db, serialize_doc
     
     try:
-        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        teacher = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
         role = current_user.get("role")
@@ -254,7 +261,10 @@ async def update_teacher(
             "updated_at": datetime.utcnow()
         }
 
-        existing = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        existing = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not existing:
             raise HTTPException(status_code=404, detail="Teacher not found")
         require_teacher_manager(current_user, existing)
@@ -340,7 +350,10 @@ async def deactivate_teacher(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        teacher = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
         require_teacher_manager(current_user, teacher)
@@ -380,7 +393,10 @@ async def reactivate_teacher(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        teacher = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
         require_teacher_manager(current_user, teacher)
@@ -440,6 +456,83 @@ async def reactivate_teacher(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.delete("/{teacher_id}")
+async def delete_teacher(
+    teacher_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Permanently remove a teacher's access while preserving history."""
+    from server import db
+
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only Super Admin can permanently delete teachers",
+        )
+    if not ObjectId.is_valid(teacher_id):
+        raise HTTPException(status_code=400, detail="Invalid teacher ID")
+
+    teacher = await db.teachers.find_one({
+        "_id": ObjectId(teacher_id),
+        "is_deleted": {"$ne": True},
+    })
+    if not teacher:
+        raise HTTPException(status_code=404, detail="Teacher not found")
+
+    active_group = await db.groups.find_one(
+        {
+            "teacher_id": teacher_id,
+            "status": {"$nin": ["completed", "archived", "cancelled", "inactive"]},
+        },
+        {"name": 1},
+    )
+    if active_group:
+        group_name = active_group.get("name") or "an active group"
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Reassign or close {group_name} before permanently deleting this teacher. "
+                "You can deactivate the teacher without changing the group assignment."
+            ),
+        )
+
+    user_id = teacher.get("user_id")
+    if not user_id or not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=409, detail="Teacher has no valid linked user account")
+    user = await db.users.find_one({"_id": ObjectId(user_id), "is_deleted": {"$ne": True}})
+    if not user:
+        raise HTTPException(status_code=404, detail="Teacher user account not found")
+
+    preserve_profile = bool(
+        await db.groups.find_one({"teacher_id": teacher_id}, {"_id": 1})
+        or await db.teacher_earnings.find_one({"teacher_id": teacher_id}, {"_id": 1})
+        or await db.teacher_payouts.find_one({"teacher_id": teacher_id}, {"_id": 1})
+    )
+    snapshot = {
+        "name": f"{teacher.get('first_name', '')} {teacher.get('last_name', '')}".strip(),
+        "role": "teacher",
+        "phone": user.get("phone_normalized") or user.get("phone"),
+        "user_id": user_id,
+        "preserved_for_history": preserve_profile,
+    }
+    result = await permanently_remove_worker(
+        db,
+        user,
+        actor_id=str(current_user["_id"]),
+        audit_action="delete",
+        audit_resource_type="teacher",
+        audit_resource_id=teacher_id,
+        audit_changes=snapshot,
+        audit_ip=request.client.host if request.client else None,
+        profile_collection="teachers",
+        profile_id=teacher["_id"],
+        preserve_profile=preserve_profile,
+    )
+    return {"message": "Teacher permanently deleted", **result}
+
+
 @router.post("/{teacher_id}/reset-password")
 async def reset_teacher_password(
     teacher_id: str,
@@ -452,7 +545,10 @@ async def reset_teacher_password(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        teacher = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
         require_teacher_manager(current_user, teacher)
@@ -510,7 +606,10 @@ async def get_teacher_status(
     from server import db, serialize_doc
     
     try:
-        teacher = await db.teachers.find_one({"_id": ObjectId(teacher_id)})
+        teacher = await db.teachers.find_one({
+            "_id": ObjectId(teacher_id),
+            "is_deleted": {"$ne": True},
+        })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
         require_teacher_manager(current_user, teacher)

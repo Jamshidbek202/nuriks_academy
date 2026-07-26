@@ -473,6 +473,8 @@ async def migrate_phone_auth_users(db) -> dict:
     migrated = 0
     phone_required = 0
     async for user in db.users.find({}):
+        if user.get("is_deleted"):
+            continue
         updates = {"token_version": int(user.get("token_version", 0))}
         phone = user.get("phone_normalized") or user.get("phone")
         if phone:

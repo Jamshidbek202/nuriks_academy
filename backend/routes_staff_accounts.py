@@ -22,6 +22,7 @@ from phone_auth import (
     normalize_phone,
 )
 from telegram_auth import disconnect_telegram
+from worker_lifecycle import account_was_activated, permanently_remove_worker
 
 
 router = APIRouter(prefix="/staff-accounts", tags=["Staff Accounts"])
@@ -44,7 +45,7 @@ class StaffAccountUpdate(BaseModel):
 
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    from server import db
+    from server import create_audit_log, db
 
     return await get_current_user(credentials, db)
 
@@ -59,11 +60,6 @@ def _client_ip(request: Request) -> Optional[str]:
 
 
 def _public_account(user: dict) -> dict:
-    can_delete_permanently = not (
-        user.get("password_hash")
-        or user.get("invitation_accepted_at")
-        or user.get("last_login")
-    )
     return {
         "id": str(user["_id"]),
         "full_name": user.get("full_name", ""),
@@ -76,7 +72,7 @@ def _public_account(user: dict) -> dict:
         "is_active": bool(user.get("is_active", False)),
         "invite_delivery_status": user.get("invite_delivery_status"),
         "telegram_connected": user.get("telegram_link_status") == "linked",
-        "can_delete_permanently": can_delete_permanently,
+        "can_delete_permanently": True,
         "invite_sent_at": user.get("invite_sent_at"),
         "last_login": user.get("last_login"),
         "created_at": user.get("created_at"),
@@ -89,7 +85,11 @@ async def _managed_user(db, account_id: str) -> dict:
         object_id = ObjectId(account_id)
     except Exception as error:
         raise HTTPException(status_code=400, detail="Invalid account ID") from error
-    user = await db.users.find_one({"_id": object_id, "role": {"$in": list(MANAGED_ROLES)}})
+    user = await db.users.find_one({
+        "_id": object_id,
+        "role": {"$in": list(MANAGED_ROLES)},
+        "is_deleted": {"$ne": True},
+    })
     if not user:
         raise HTTPException(status_code=404, detail="Staff account not found")
     return user
@@ -103,7 +103,10 @@ async def list_staff_accounts(
     from server import db
 
     require_super_admin(current_user)
-    query: dict = {"role": {"$in": list(MANAGED_ROLES)}}
+    query: dict = {
+        "role": {"$in": list(MANAGED_ROLES)},
+        "is_deleted": {"$ne": True},
+    }
     if not include_inactive:
         query.update({"is_active": True, "account_status": "active"})
     users = await db.users.find(query).sort([("role", 1), ("full_name", 1)]).to_list(500)
@@ -188,7 +191,7 @@ async def update_staff_account(
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    from server import create_audit_log, db
+    from server import db
 
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
@@ -331,29 +334,21 @@ async def release_staff_telegram(
 
 
 @router.delete("/{account_id}")
-async def delete_unactivated_staff_account(
+async def delete_staff_account(
     account_id: str,
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    """Delete only a disposable account that has never completed activation.
+    """Permanently remove a manager or reception account.
 
-    Activated staff are intentionally preserved because their identifier may
-    already own audit and financial history. Those accounts must be deactivated.
+    Activated staff become hidden non-login tombstones so historical audit and
+    operational records retain a resolvable actor. Their phone and Telegram
+    identity are still released immediately.
     """
-    from server import create_audit_log, db
+    from server import db
 
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
-    if user.get("password_hash") or user.get("invitation_accepted_at") or user.get("last_login"):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "This account has already been activated and cannot be permanently deleted. "
-                "Deactivate it instead so its audit and financial history remains intact."
-            ),
-        )
-
     deleted_snapshot = {
         "role": user["role"],
         "phone": user.get("phone_normalized") or user.get("phone"),
@@ -361,41 +356,21 @@ async def delete_unactivated_staff_account(
         "account_status": user.get("account_status"),
         "telegram_released": True,
     }
-    now = datetime.utcnow()
-    # Delete with the unactivated preconditions in the same atomic predicate.
-    # If activation wins a race, this fails without disconnecting that user.
-    async with await db.client.start_session() as session:
-        async with session.start_transaction():
-            result = await db.users.delete_one({
-                "_id": user["_id"],
-                "password_hash": None,
-                "invitation_accepted_at": {"$exists": False},
-                "last_login": {"$exists": False},
-            }, session=session)
-            if result.deleted_count != 1:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="The account changed while it was being deleted. Reload and try again.",
-                )
-            await db.telegram_links.update_many(
-                {"user_id": account_id, "used_at": None, "revoked_at": None},
-                {"$set": {"revoked_at": now, "revocation_reason": "account_deleted"}},
-                session=session,
-            )
-            await db.auth_challenges.update_many(
-                {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
-                {"$set": {"invalidated_at": now, "invalidation_reason": "account_deleted"}},
-                session=session,
-            )
-    await create_audit_log(
-        str(current_user["_id"]),
-        "delete_unactivated",
-        "staff_account",
-        account_id,
-        deleted_snapshot,
-        _client_ip(request),
+    was_activated = account_was_activated(user)
+    result = await permanently_remove_worker(
+        db,
+        user,
+        actor_id=str(current_user["_id"]),
+        audit_action="delete" if was_activated else "delete_unactivated",
+        audit_resource_type="staff_account",
+        audit_resource_id=account_id,
+        audit_changes=deleted_snapshot,
+        audit_ip=_client_ip(request),
     )
-    return {"message": "Unactivated staff account permanently deleted", "deleted": True}
+    return {
+        "message": "Staff account permanently removed and login identity released",
+        **result,
+    }
 
 
 @router.patch("/{account_id}/reactivate")

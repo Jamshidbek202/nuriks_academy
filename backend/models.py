@@ -180,10 +180,8 @@ class Teacher(TeacherBase):
 
 class CourseBase(BaseModel):
     name: str
+    program_code: str
     description: Optional[str] = None
-    duration_months: int
-    price_per_month: float
-    age_range: Optional[Dict[str, int]] = None
     levels: List[str] = []
 
 class Course(CourseBase):

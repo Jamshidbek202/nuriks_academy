@@ -197,6 +197,7 @@ export default function DashboardHome() {
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Admin Tools</Text>
               <View style={styles.adminGrid}>
+                <AdminCard icon="library" label="Courses" onPress={() => router.push('/(dashboard)/courses' as any)} />
                 <AdminCard icon="settings" label="Settings" onPress={() => router.push('/(dashboard)/settings')} />
                 <AdminCard icon="toggle" label="Feature Flags" onPress={() => router.push('/(dashboard)/feature-flags')} />
                 <AdminCard icon="analytics" label="Analytics" onPress={() => router.push('/(dashboard)/analytics')} />
@@ -263,7 +264,13 @@ const StatusRow = ({ label, value, color }: any) => (
 );
 
 const AdminCard = ({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) => (
-  <TouchableOpacity style={styles.adminCard} onPress={onPress}>
+  <TouchableOpacity
+    testID={`admin-tool-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')}`}
+    accessibilityRole="button"
+    accessibilityLabel={label}
+    style={styles.adminCard}
+    onPress={onPress}
+  >
     <View style={styles.adminIconContainer}>
       <Ionicons name={icon as any} size={24} color={COLORS.gold} />
     </View>

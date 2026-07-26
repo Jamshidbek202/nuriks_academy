@@ -68,6 +68,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -106,6 +107,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -142,6 +144,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+        <Tabs.Screen name="courses" options={{ href: null }} />
         <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -179,6 +182,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -216,6 +220,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="journal" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -253,6 +258,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="journal" options={{ href: null }} />
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -290,6 +296,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="certificates" options={{ href: null }} />
         <Tabs.Screen name="progress" options={{ href: null }} />
         <Tabs.Screen name="settings" options={{ href: null }} />
+	        <Tabs.Screen name="courses" options={{ href: null }} />
 	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
         <Tabs.Screen name="notifications" options={{ href: null }} />
         <Tabs.Screen name="feature-flags" options={{ href: null }} />
@@ -326,6 +333,7 @@ export default function DashboardLayout() {
       <Tabs.Screen name="certificates" options={{ href: null }} />
       <Tabs.Screen name="progress" options={{ href: null }} />
       <Tabs.Screen name="settings" options={{ href: null }} />
+	      <Tabs.Screen name="courses" options={{ href: null }} />
 	      <Tabs.Screen name="notification-settings" options={{ href: null }} />
       <Tabs.Screen name="notifications" options={{ href: null }} />
       <Tabs.Screen name="feature-flags" options={{ href: null }} />

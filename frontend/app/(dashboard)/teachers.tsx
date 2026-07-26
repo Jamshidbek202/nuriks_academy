@@ -60,7 +60,7 @@ interface Teacher {
   group_ids: string[];
   branch_id?: string;
   is_active?: boolean;
-  account_status?: 'pending_invite' | 'active' | 'deactivated';
+  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'deleted';
   phone_verified?: boolean;
   invite_delivery_status?: string;
   telegram_connected?: boolean;
@@ -136,6 +136,7 @@ export default function TeachersScreen() {
     () => Promise.all([loadTeachers(), loadCourses(), loadGroups()]).then(() => undefined),
     ['super_admin', 'manager'].includes(user?.role || ''),
     user?.role || '',
+    1000,
   );
 
   const handleCreateTeacher = async () => {
@@ -224,6 +225,27 @@ export default function TeachersScreen() {
           setActionLoading(false);
         }
       }
+    );
+  };
+
+  const handleDeleteTeacher = (teacher: Teacher) => {
+    showConfirm(
+      'Permanently Delete Teacher',
+      `Delete ${teacher.first_name} ${teacher.last_name} permanently?\n\nThis cannot be undone. Their login, phone number, and Telegram connection will be released, while historical payroll, lesson, and audit records remain. Active groups must be reassigned or closed first.`,
+      async () => {
+        setActionLoading(true);
+        try {
+          await api.delete(`/teachers/${teacher.id}`);
+          setDetailModalVisible(false);
+          setSelectedTeacher(null);
+          await loadTeachers();
+          showAlert('Teacher Deleted', 'The teacher was removed and their phone number can now be reused.');
+        } catch (error: any) {
+          showAlert('Teacher Was Not Deleted', apiErrorMessage(error, 'Failed to delete teacher'));
+        } finally {
+          setActionLoading(false);
+        }
+      },
     );
   };
 
@@ -543,6 +565,17 @@ export default function TeachersScreen() {
                     >
                       <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
                       <Text style={[styles.actionButtonText, { color: COLORS.success }]}>Reactivate</Text>
+                    </TouchableOpacity>
+                  )}
+                  {user?.role === 'super_admin' && (
+                    <TouchableOpacity
+                      testID="teacher-delete-button"
+                      style={styles.actionButton}
+                      onPress={() => handleDeleteTeacher(selectedTeacher)}
+                      disabled={actionLoading}
+                    >
+                      <Ionicons name="trash" size={24} color={COLORS.error} />
+                      <Text style={[styles.actionButtonText, { color: COLORS.error }]}>Delete Permanently</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -948,6 +981,7 @@ const styles = StyleSheet.create({
   // Action buttons row
   actionButtonsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-around',
     marginTop: SIZES.xl,
     paddingTop: SIZES.lg,
@@ -957,6 +991,7 @@ const styles = StyleSheet.create({
   actionButton: {
     alignItems: 'center',
     padding: SIZES.md,
+    minWidth: 112,
   },
   actionButtonText: {
     fontSize: SIZES.fontSm,

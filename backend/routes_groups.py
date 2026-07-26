@@ -17,6 +17,7 @@ from finance_service import (
     record_group_membership_end,
     record_group_membership_start,
 )
+from routes_courses import program_for_course
 
 router = APIRouter(prefix="/groups", tags=["Groups"])
 security = HTTPBearer()
@@ -61,6 +62,24 @@ def validate_group_data(group_data: GroupBase) -> None:
             detail="Program and group format must be selected together for finance setup",
         )
 
+
+async def require_active_course(db, group_data: GroupBase) -> dict:
+    if not ObjectId.is_valid(group_data.course_id):
+        raise HTTPException(status_code=400, detail="Invalid course ID")
+    course = await db.courses.find_one({
+        "_id": ObjectId(group_data.course_id),
+        "is_active": {"$ne": False},
+    })
+    if not course:
+        raise HTTPException(status_code=404, detail="Active course not found")
+    course_program = program_for_course(course)
+    if course_program and group_data.program_code and course_program != group_data.program_code.value:
+        raise HTTPException(
+            status_code=409,
+            detail="The group billing program must match the selected course",
+        )
+    return course
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     return await get_current_user(credentials, db)
@@ -84,6 +103,7 @@ async def create_group(
                 status_code=400,
                 detail="Program and group format are required for financial billing",
             )
+        await require_active_course(db, group_data)
         teacher_id = group_data.teacher_id
         target_branch_id = group_data.branch_id or current_user.get("branch_id")
         if (
@@ -312,6 +332,7 @@ async def update_group(
 
     try:
         validate_group_data(group_data)
+        await require_active_course(db, group_data)
         existing = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")

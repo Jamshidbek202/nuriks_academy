@@ -63,6 +63,7 @@ from routes_finance import router as finance_router
 from routes_auth import router as auth_router
 from routes_staff_accounts import router as staff_accounts_router
 from routes_telegram import router as telegram_router
+from routes_courses import router as courses_router
 
 # Include all routers
 api_router.include_router(students_router)
@@ -85,6 +86,7 @@ api_router.include_router(finance_router)
 api_router.include_router(auth_router)
 api_router.include_router(staff_accounts_router)
 api_router.include_router(telegram_router)
+api_router.include_router(courses_router)
 
 logger.info("All route modules loaded and registered")
 
@@ -106,6 +108,7 @@ async def startup_event():
     from finance_live import ensure_finance_live_indexes
     from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users
     from telegram_auth import ensure_telegram_indexes
+    from routes_courses import ensure_course_indexes
     from telegram_service import (
         TelegramDeliveryError,
         configure_telegram_webhook,
@@ -117,6 +120,7 @@ async def startup_event():
     logger.info("Phone-auth user migration completed: %s", phone_migration)
     await ensure_phone_auth_indexes(db)
     await ensure_telegram_indexes(db)
+    await ensure_course_indexes(db)
     try:
         await configure_telegram_webhook()
     except TelegramDeliveryError:
@@ -317,19 +321,6 @@ async def disable_2fa(
         logger.error(f"2FA disable error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# ==================== COURSES ====================
-
-@api_router.get("/courses")
-async def get_courses(
-    current_user: dict = Depends(get_current_user_dependency)
-):
-    """Get all courses"""
-    try:
-        courses = await db.courses.find({"is_active": True}).to_list(100)
-        return [serialize_doc(c) for c in courses]
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 # ==================== SYSTEM SETTINGS ====================
 
 @api_router.get("/settings")
@@ -466,10 +457,16 @@ async def get_dashboard_stats(
         archived_students = await db.students.count_documents({**branch_query, "status": "archived"})
         
         # Teacher count
-        total_teachers = await db.teachers.count_documents(branch_query)
+        total_teachers = await db.teachers.count_documents({
+            **branch_query,
+            "is_deleted": {"$ne": True},
+        })
         
         # Support count
-        total_support = await db.support_staff.count_documents(branch_query)
+        total_support = await db.support_staff.count_documents({
+            **branch_query,
+            "is_deleted": {"$ne": True},
+        })
         
         # Today's lessons
         today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)

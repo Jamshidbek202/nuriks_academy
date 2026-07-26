@@ -14,6 +14,7 @@ from phone_auth import (
     invited_user_document, issue_access_code, issue_invitation, normalize_phone,
 )
 from pymongo.errors import DuplicateKeyError
+from worker_lifecycle import permanently_remove_worker
 
 router = APIRouter(prefix="/support-staff", tags=["Support Staff"])
 security = HTTPBearer()
@@ -157,7 +158,7 @@ async def get_all_support_staff(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        query = {}
+        query = {"is_deleted": {"$ne": True}}
         if current_user["role"] == "super_admin":
             if branch_id:
                 query["branch_id"] = branch_id
@@ -202,7 +203,10 @@ async def get_support_staff(
     from server import db, serialize_doc
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)
@@ -238,7 +242,10 @@ async def update_support_staff(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)
@@ -334,7 +341,10 @@ async def deactivate_support_staff(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)
@@ -374,7 +384,10 @@ async def reactivate_support_staff(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)
@@ -434,6 +447,83 @@ async def reactivate_support_staff(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.delete("/{staff_id}")
+async def delete_support_staff(
+    staff_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Permanently remove support staff access while preserving history."""
+    from server import db
+
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only Super Admin can permanently delete support staff",
+        )
+    if not ObjectId.is_valid(staff_id):
+        raise HTTPException(status_code=400, detail="Invalid support staff ID")
+
+    staff = await db.support_staff.find_one({
+        "_id": ObjectId(staff_id),
+        "is_deleted": {"$ne": True},
+    })
+    if not staff:
+        raise HTTPException(status_code=404, detail="Support staff not found")
+
+    open_booking = await db.support_bookings.find_one(
+        {
+            "support_staff_id": staff_id,
+            "status": {"$in": ["scheduled", "confirmed"]},
+        },
+        {"booking_date": 1, "start_time": 1},
+    )
+    if open_booking:
+        booking_time = " ".join(
+            value for value in [open_booking.get("booking_date"), open_booking.get("start_time")] if value
+        )
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Reassign or cancel the open booking{f' on {booking_time}' if booking_time else ''} "
+                "before permanently deleting this support worker. You can deactivate the account instead."
+            ),
+        )
+
+    user_id = staff.get("user_id")
+    if not user_id or not ObjectId.is_valid(user_id):
+        raise HTTPException(status_code=409, detail="Support staff has no valid linked user account")
+    user = await db.users.find_one({"_id": ObjectId(user_id), "is_deleted": {"$ne": True}})
+    if not user:
+        raise HTTPException(status_code=404, detail="Support staff user account not found")
+
+    preserve_profile = bool(
+        await db.support_bookings.find_one({"support_staff_id": staff_id}, {"_id": 1})
+    )
+    snapshot = {
+        "name": f"{staff.get('first_name', '')} {staff.get('last_name', '')}".strip(),
+        "role": "support",
+        "phone": user.get("phone_normalized") or user.get("phone"),
+        "user_id": user_id,
+        "preserved_for_history": preserve_profile,
+    }
+    result = await permanently_remove_worker(
+        db,
+        user,
+        actor_id=str(current_user["_id"]),
+        audit_action="delete",
+        audit_resource_type="support_staff",
+        audit_resource_id=staff_id,
+        audit_changes=snapshot,
+        audit_ip=request.client.host if request.client else None,
+        profile_collection="support_staff",
+        profile_id=staff["_id"],
+        preserve_profile=preserve_profile,
+    )
+    return {"message": "Support staff permanently deleted", **result}
+
+
 @router.post("/{staff_id}/reset-password")
 async def reset_support_password(
     staff_id: str,
@@ -447,7 +537,10 @@ async def reset_support_password(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)
@@ -505,7 +598,10 @@ async def get_support_status(
     from server import db
     
     try:
-        staff = await db.support_staff.find_one({"_id": ObjectId(staff_id)})
+        staff = await db.support_staff.find_one({
+            "_id": ObjectId(staff_id),
+            "is_deleted": {"$ne": True},
+        })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
         require_support_manager(current_user, staff)

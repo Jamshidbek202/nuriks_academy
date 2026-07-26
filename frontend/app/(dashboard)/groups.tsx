@@ -71,6 +71,7 @@ interface Course {
   id: string;
   name: string;
   levels: string[];
+  program_code?: ProgramCode | null;
 }
 
 interface Student {
@@ -165,11 +166,12 @@ export default function GroupsScreen() {
     }
   };
 
-  // Keep every role's group membership view current while the tab is open.
+  // Keep membership and course choices current while the tab is open.
   useLiveRefresh(
     () => {
       loadGroups();
       loadStudents();
+      loadCourses();
     },
     true,
     'group-memberships',
@@ -1016,7 +1018,15 @@ export default function GroupsScreen() {
                 <Picker
                   testID="group-course-picker"
                   selectedValue={formData.course_id}
-                  onValueChange={(value) => setFormData({ ...formData, course_id: value, level: '' })}
+                  onValueChange={(value) => {
+                    const course = courses.find((item) => item.id === value);
+                    setFormData({
+                      ...formData,
+                      course_id: value,
+                      level: '',
+                      program_code: course?.program_code || formData.program_code,
+                    });
+                  }}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}
@@ -1086,11 +1096,15 @@ export default function GroupsScreen() {
               </Text>
 
               <Text style={styles.formLabel}>Program *</Text>
+              {!!selectedCourse?.program_code && (
+                <Text style={styles.formHint}>Set automatically from the selected course.</Text>
+              )}
               <View style={styles.pickerContainer}>
                 <Picker
                   testID="group-program-picker"
                   selectedValue={formData.program_code}
                   onValueChange={(value: ProgramCode) => setFormData({ ...formData, program_code: value })}
+                  enabled={!selectedCourse?.program_code}
                   style={styles.picker}
                   itemStyle={styles.pickerItem}
                   dropdownIconColor={COLORS.gold}

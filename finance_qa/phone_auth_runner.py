@@ -258,10 +258,6 @@ async def run() -> None:
         activated_manager = await db.users.find_one({"phone_normalized": manager_phone})
         check(activated_manager.get("identity_verified_via") == "telegram", "Activation channel must be Telegram")
         check(activated_manager.get("phone_verified") is False, "Telegram must not falsely mark the phone as SMS-verified")
-        activated_delete = await client.delete(
-            f"/api/staff-accounts/{created['id']}", headers=admin_headers,
-        )
-        check(activated_delete.status_code == 409, "Activated staff history must prevent permanent deletion")
         replay = await client.post(
             "/api/auth/invitations/accept",
             json={"phone": manager_phone, "code": invite_code, "password": NEW_PASSWORD},
@@ -440,6 +436,59 @@ async def run() -> None:
             "/api/auth/me", headers={"Authorization": f"Bearer {new_login['access_token']}"},
         )
         check(deactivated_session.status_code in {401, 403}, "Deactivation must revoke access")
+
+        permanent_delete = await json_ok(
+            await client.delete(
+                f"/api/staff-accounts/{created['id']}", headers=admin_headers,
+            ),
+            200,
+            "permanently delete activated manager",
+        )
+        check(
+            permanent_delete["deletion_mode"] == "history_tombstone",
+            "Activated staff must retain a non-login history tombstone",
+        )
+        manager_tombstone = await db.users.find_one({"_id": activated_manager["_id"]})
+        check(manager_tombstone.get("is_deleted") is True, "Deleted manager must be hidden")
+        check(manager_tombstone.get("is_active") is False, "Deleted manager must stay inactive")
+        check(not manager_tombstone.get("phone_normalized"), "Permanent deletion must free the phone")
+        check(not manager_tombstone.get("password_hash"), "Permanent deletion must remove password access")
+        check(
+            manager_tombstone.get("login") == f"__deleted__:{created['id']}",
+            "Deleted login must be replaced with a unique non-login tombstone key",
+        )
+        await migrate_phone_auth_users(db)
+        manager_tombstone = await db.users.find_one({"_id": activated_manager["_id"]})
+        check(manager_tombstone.get("is_deleted") is True, "Startup migration must preserve tombstones")
+        removed_login = await client.post(
+            "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
+        )
+        check(removed_login.status_code == 401, "Permanently deleted staff must not log in")
+        reused_manager = await json_ok(
+            await client.post(
+                "/api/staff-accounts",
+                headers=admin_headers,
+                json={"full_name": "Reused Manager Phone", "phone": manager_phone, "role": "manager"},
+            ),
+            201,
+            "reuse permanently deleted manager phone",
+        )
+        reused_delete = await json_ok(
+            await client.delete(
+                f"/api/staff-accounts/{reused_manager['id']}", headers=admin_headers,
+            ),
+            200,
+            "delete replacement unactivated manager",
+        )
+        check(reused_delete["deletion_mode"] == "hard_delete", "Unused replacement must hard-delete")
+        delete_audit = await db.audit_logs.find_one({
+            "action": "delete", "resource_id": created["id"],
+        })
+        check(bool(delete_audit), "Activated manager deletion must be audited")
+        check(
+            delete_audit.get("changes", {}).get("deletion_mode") == "history_tombstone",
+            "Deletion audit must record the preservation mode",
+        )
 
         forbidden_seed = await client.post(
             "/api/finance/configuration/seed-reception",

@@ -35,7 +35,7 @@ interface StaffRecord {
   email?: string;
   role?: AccountRole;
   is_active?: boolean;
-  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'phone_required';
+  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'phone_required' | 'deleted';
   phone_verified?: boolean;
   invite_delivery_status?: string;
   telegram_connected?: boolean;
@@ -105,7 +105,7 @@ export default function StaffManagementScreen() {
     }
   };
 
-  useLiveRefresh(loadStaff, Boolean(user && ['super_admin', 'manager'].includes(user.role)), `${tab}:${user?.role}`);
+  useLiveRefresh(loadStaff, Boolean(user && ['super_admin', 'manager'].includes(user.role)), `${tab}:${user?.role}`, 1000);
 
   const resetForm = () => setForm({
     first_name: '',
@@ -227,19 +227,19 @@ export default function StaffManagementScreen() {
     );
   };
 
-  const deleteDisposableAccount = (staff: StaffRecord) => {
+  const deleteWorker = (staff: StaffRecord) => {
     showConfirm(
-      'Permanently delete unactivated account',
-      `Delete ${displayName(staff)}? This is allowed only before they activate the account. Their phone number and Telegram account will become available for reuse.`,
+      'Permanently Delete Worker',
+      `Delete ${displayName(staff)} permanently?\n\nThis cannot be undone. Their login, phone number, and Telegram connection will be released, while historical records remain. Open assignments or bookings must be reassigned first. Use Deactivate if the worker may return.`,
       async () => {
         setActionLoading(true);
         try {
-          await api.delete(`/staff-accounts/${staff.id}`);
+          await api.delete(accountPath(staff));
           setSelected(null);
           await loadStaff();
-          showAlert('Account deleted', 'The unactivated account was deleted and its login details can be reused.');
+          showAlert('Worker Deleted', 'The worker was removed and their phone number can now be reused.');
         } catch (error: any) {
-          showAlert('Account was not deleted', apiErrorMessage(error));
+          showAlert('Worker Was Not Deleted', apiErrorMessage(error));
         } finally {
           setActionLoading(false);
         }
@@ -452,15 +452,15 @@ export default function StaffManagementScreen() {
                     <Text style={styles.actionText}>Release Telegram</Text>
                   </TouchableOpacity>
                 )}
-                {tab === 'leadership' && selected.can_delete_permanently && (
+                {isSuperAdmin && (
                   <TouchableOpacity
-                    testID="staff-delete-unactivated-button"
+                    testID={tab === 'support' ? 'support-staff-delete-button' : 'staff-delete-button'}
                     style={[styles.action, styles.destructiveAction]}
-                    onPress={() => deleteDisposableAccount(selected)}
+                    onPress={() => deleteWorker(selected)}
                     disabled={actionLoading}
                   >
                     <Ionicons name="trash" size={20} color={COLORS.error} />
-                    <Text style={[styles.actionText, styles.destructiveText]}>Delete unactivated account</Text>
+                    <Text style={[styles.actionText, styles.destructiveText]}>Delete Permanently</Text>
                   </TouchableOpacity>
                 )}
               </>
