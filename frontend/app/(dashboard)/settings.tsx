@@ -30,8 +30,6 @@ interface SystemSettings {
   student_id_digits: number;
   timezone: string;
   currency: string;
-  click_merchant_id?: string;
-  payme_merchant_id?: string;
 }
 
 export default function SettingsScreen() {
@@ -137,12 +135,16 @@ export default function SettingsScreen() {
           </View>
         </View>
 
-        {/* Payment Settings */}
-        <Text style={styles.sectionTitle}>Payment Settings</Text>
+        {/* Finance defaults. Receiving cards are managed in Finance > Online. */}
+        <Text style={styles.sectionTitle}>Finance defaults</Text>
         <View style={styles.card}>
           <SettingRow icon="card" label="Currency" value={settings?.currency || 'UZS'} onPress={() => openEditModal('currency', 'Currency', settings?.currency || '')} />
-          <SettingRow icon="logo-paypal" label="Click Merchant ID" value={settings?.click_merchant_id || 'Not set'} onPress={() => openEditModal('click_merchant_id', 'Click Merchant ID', settings?.click_merchant_id || '')} />
-          <SettingRow icon="wallet" label="Payme Merchant ID" value={settings?.payme_merchant_id || 'Not set'} onPress={() => openEditModal('payme_merchant_id', 'Payme Merchant ID', settings?.payme_merchant_id || '')} />
+          <View style={styles.financeNote}>
+            <Ionicons name="information-circle" size={22} color={COLORS.gold} />
+            <Text style={styles.financeNoteText}>
+              Click and Payme receiving cards are managed in Finance, under Online payments.
+            </Text>
+          </View>
         </View>
 
         <View style={{ height: 100 }} />
@@ -216,6 +218,8 @@ const styles = StyleSheet.create({
   settingContent: { flex: 1 },
   settingLabel: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   settingValue: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, fontWeight: '500', marginTop: 2 },
+  financeNote: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md },
+  financeNoteText: { flex: 1, fontSize: SIZES.fontSm, lineHeight: 20, color: COLORS.textSecondary },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, padding: SIZES.lg, paddingBottom: 40 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SIZES.lg },

@@ -26,7 +26,7 @@ import { DateTimePicker } from '../../src/components/DateTimePicker';
 
 const Alert = { alert: showAlert };
 
-type FinanceTab = 'overview' | 'receivables' | 'expenses' | 'payroll' | 'cash' | 'pricing' | 'closures';
+type FinanceTab = 'overview' | 'receivables' | 'online' | 'expenses' | 'payroll' | 'cash' | 'pricing' | 'closures';
 type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
 type GroupFormat = 'normal' | 'mini' | 'individual';
 
@@ -63,6 +63,37 @@ interface Receipt {
   advance_amount_uzs: number;
   received_at: string;
   status: string;
+  payment_method?: string;
+  payment_provider?: string;
+}
+
+interface PaymentDestination {
+  id: string;
+  provider: 'click' | 'payme';
+  card_number: string;
+  card_last4: string;
+  cardholder_name: string;
+  label?: string;
+  branch_id?: string | null;
+  status: 'active' | 'inactive';
+}
+
+interface CardPaymentReport {
+  id: string;
+  student_id: string;
+  student_number?: string;
+  student_name: string;
+  parent_name: string;
+  amount_uzs: number;
+  paid_at: string;
+  reported_at: string;
+  provider: 'click' | 'payme';
+  destination_last4: string;
+  destination_cardholder_name: string;
+  status: 'unresolved' | 'confirmed' | 'rejected';
+  resolution_reason?: string;
+  resolved_by_name?: string;
+  receipt_id?: string;
 }
 
 interface Expense {
@@ -152,6 +183,12 @@ interface GroupSummary {
   name: string;
 }
 
+interface FinanceCourse {
+  id: string;
+  name: string;
+  program_code?: ProgramCode | null;
+}
+
 interface LessonOccurrence {
   id: string;
   occurrence_key: string;
@@ -182,6 +219,8 @@ interface Position {
   net_tuition_uzs: number;
   other_income_uzs: number;
   cash_received_uzs: number;
+  card_transfer_received_uzs: number;
+  total_collections_uzs: number;
   receivables_uzs: number;
   overdue_uzs: number;
   advance_balances_uzs: number;
@@ -201,6 +240,7 @@ interface Position {
 const tabs: { key: FinanceTab; label: string; icon: string }[] = [
   { key: 'overview', label: 'Position', icon: 'analytics' },
   { key: 'receivables', label: 'Payments', icon: 'receipt' },
+  { key: 'online', label: 'Online', icon: 'card' },
   { key: 'expenses', label: 'Expenses', icon: 'arrow-up-circle' },
   { key: 'payroll', label: 'Payroll', icon: 'people-circle' },
   { key: 'cash', label: 'Cashbox', icon: 'cash' },
@@ -208,7 +248,22 @@ const tabs: { key: FinanceTab; label: string; icon: string }[] = [
   { key: 'closures', label: 'Closures', icon: 'calendar' },
 ];
 
+const PROGRAM_LABELS: Record<ProgramCode, string> = {
+  general: 'General English',
+  pre_ielts: 'Pre-IELTS',
+  ielts: 'IELTS',
+};
+
+const FORMAT_LABELS: Record<GroupFormat, string> = {
+  normal: 'Normal group',
+  mini: 'Mini group',
+  individual: 'Individual',
+};
+
+const GROUP_FORMATS: GroupFormat[] = ['normal', 'mini', 'individual'];
+
 const uzs = (value?: number) => `${new Intl.NumberFormat(getActiveLocale()).format(value || 0)} UZS`;
+const formatCard = (number: string) => number.replace(/(\d{4})(?=\d)/g, '$1 ');
 
 const tashkentDateParts = () => {
   const parts = new Intl.DateTimeFormat(getActiveLocale(), {
@@ -265,6 +320,8 @@ export default function FinanceScreen() {
   const [students, setStudents] = useState<Student[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [paymentDestinations, setPaymentDestinations] = useState<PaymentDestination[]>([]);
+  const [cardPaymentReports, setCardPaymentReports] = useState<CardPaymentReport[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [earnings, setEarnings] = useState<TeacherEarning[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -280,9 +337,11 @@ export default function FinanceScreen() {
   const [billingPolicy, setBillingPolicy] = useState<Policy | null>(null);
   const [closures, setClosures] = useState<any[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
+  const [financeCourses, setFinanceCourses] = useState<FinanceCourse[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState('');
   const [occurrences, setOccurrences] = useState<LessonOccurrence[]>([]);
   const refreshRequestRef = useRef(0);
+  const actionLocksRef = useRef(new Set<string>());
 
   const [receiptForm, setReceiptForm] = useState({ student_id: '', amount: '', notes: '' });
   const [financeSearch, setFinanceSearch] = useState('');
@@ -295,6 +354,18 @@ export default function FinanceScreen() {
   const [invoiceReversalReason, setInvoiceReversalReason] = useState('');
   const [receiptReversalTarget, setReceiptReversalTarget] = useState<Receipt | null>(null);
   const [receiptReversalReason, setReceiptReversalReason] = useState('');
+  const [destinationModalOpen, setDestinationModalOpen] = useState(false);
+  const [destinationTarget, setDestinationTarget] = useState<PaymentDestination | null>(null);
+  const [destinationForm, setDestinationForm] = useState({
+    provider: 'click' as 'click' | 'payme',
+    card_number: '',
+    cardholder_name: '',
+    label: '',
+    reason: '',
+  });
+  const [cardReportTarget, setCardReportTarget] = useState<CardPaymentReport | null>(null);
+  const [cardReportDecision, setCardReportDecision] = useState<'confirm' | 'reject'>('confirm');
+  const [cardReportReason, setCardReportReason] = useState('');
   const [shiftForm, setShiftForm] = useState({ opening: '0', closing: '' });
   const [cashRemovalForm, setCashRemovalForm] = useState({ amount: '', purpose: '' });
   const [otherIncomeForm, setOtherIncomeForm] = useState({
@@ -327,6 +398,12 @@ export default function FinanceScreen() {
     group_format: 'normal' as GroupFormat,
     percentage: '40', effective_from: tashkentDate(), reason: '',
   });
+  const [tariffEditor, setTariffEditor] = useState<{
+    program_code: ProgramCode;
+    group_format: GroupFormat;
+    courseNames: string;
+  } | null>(null);
+  const [teacherShareEditor, setTeacherShareEditor] = useState<GroupFormat | null>(null);
   const [billingForm, setBillingForm] = useState({ due: '10', freeze: '11', salary: '5', effective_from: tashkentDate(), reason: '' });
   const [recurringForm, setRecurringForm] = useState({
     expense_key: 'rent', name: 'Rent', amount: '', effective_from: tashkentDate(),
@@ -348,6 +425,17 @@ export default function FinanceScreen() {
     () => Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher])),
     [teachers],
   );
+  const coursePricingGroups = useMemo(() => {
+    const grouped = new Map<ProgramCode, FinanceCourse[]>();
+    financeCourses.forEach((course) => {
+      if (!course.program_code) return;
+      grouped.set(course.program_code, [...(grouped.get(course.program_code) || []), course]);
+    });
+    return Array.from(grouped.entries()).map(([program_code, courses]) => ({
+      program_code,
+      courses: courses.sort((left, right) => left.name.localeCompare(right.name)),
+    }));
+  }, [financeCourses]);
   const normalizedSearch = financeSearch.trim().toLowerCase();
   const matchesStudent = (studentId: string) => {
     if (!normalizedSearch) return true;
@@ -400,6 +488,8 @@ export default function FinanceScreen() {
       .slice(0, 12);
   })();
   const selectedReceiptStudent = receiptForm.student_id ? studentMap[receiptForm.student_id] : null;
+  const unresolvedCardReports = cardPaymentReports.filter((report) => report.status === 'unresolved');
+  const resolvedCardReports = cardPaymentReports.filter((report) => report.status !== 'unresolved');
 
   const changeMonth = (nextMonth: string) => {
     if (nextMonth === month) return;
@@ -452,6 +542,9 @@ export default function FinanceScreen() {
         api.get('/finance/cash-events', { params: { limit: 250 } }),
         api.get('/finance/other-income', { params: { service_month: month, limit: 500 } }),
         api.get('/finance/outgoing-payments', { params: { limit: 500 } }),
+        api.get('/courses'),
+        api.get('/finance/payment-destinations', { params: { include_inactive: true } }),
+        api.get('/finance/card-payment-reports', { params: { limit: 1000 } }),
       ]);
       const [common, admin] = await Promise.all([commonPromise, adminPromise]);
       // A newer invalidation owns the screen. Never let an older, slower set of
@@ -477,6 +570,9 @@ export default function FinanceScreen() {
         setCashEvents(admin[8].data || []);
         setOtherIncomeRows(admin[9].data || []);
         setOutgoingPayments(admin[10].data || []);
+        setFinanceCourses(admin[11].data || []);
+        setPaymentDestinations(admin[12].data || []);
+        setCardPaymentReports(admin[13].data || []);
         setSelectedGroupId((current) => current || admin[5].data?.[0]?.id || '');
         const billing = admin[3].data.billing_rules?.value;
         if (billing) {
@@ -531,6 +627,8 @@ export default function FinanceScreen() {
   }, [isReception, loadOccurrences, selectedGroupId]);
 
   const runAction = async (key: string, action: () => Promise<any>, success: string) => {
+    if (actionLocksRef.current.has(key)) return false;
+    actionLocksRef.current.add(key);
     setBusy(key);
     try {
       await action();
@@ -541,6 +639,7 @@ export default function FinanceScreen() {
       Alert.alert('Could not complete action', error.response?.data?.detail || error.message || 'Unknown error');
       return false;
     } finally {
+      actionLocksRef.current.delete(key);
       setBusy(null);
     }
   };
@@ -558,6 +657,103 @@ export default function FinanceScreen() {
     }), 'Cash receipt posted and allocated to the oldest debt first.').then((success) =>
       success && setReceiptForm({ student_id: '', amount: '', notes: '' }),
     );
+  };
+
+  const openNewDestination = () => {
+    setDestinationTarget(null);
+    setDestinationForm({ provider: 'click', card_number: '', cardholder_name: '', label: '', reason: '' });
+    setDestinationModalOpen(true);
+  };
+
+  const openDestinationEditor = (destination: PaymentDestination) => {
+    setDestinationTarget(destination);
+    setDestinationForm({
+      provider: destination.provider,
+      card_number: destination.card_number,
+      cardholder_name: destination.cardholder_name,
+      label: destination.label || '',
+      reason: '',
+    });
+    setDestinationModalOpen(true);
+  };
+
+  const savePaymentDestination = () => {
+    const cardNumber = destinationForm.card_number.replace(/\D/g, '');
+    if (cardNumber.length !== 16 || destinationForm.cardholder_name.trim().length < 2) {
+      return Alert.alert('Check receiving card', 'Enter exactly 16 card digits and the cardholder name.');
+    }
+    if (destinationTarget && destinationForm.reason.trim().length < 5) {
+      return Alert.alert('Audit reason required', 'Explain the receiving-card change in at least five characters.');
+    }
+    const action = destinationTarget
+      ? () => api.put(`/finance/payment-destinations/${destinationTarget.id}`, {
+        provider: destinationForm.provider,
+        card_number: cardNumber,
+        cardholder_name: destinationForm.cardholder_name.trim(),
+        label: destinationForm.label.trim(),
+        reason: destinationForm.reason.trim(),
+        idempotency_key: idempotencyKey(`destination-${destinationTarget.id}`),
+      })
+      : () => api.post('/finance/payment-destinations', {
+        provider: destinationForm.provider,
+        card_number: cardNumber,
+        cardholder_name: destinationForm.cardholder_name.trim(),
+        label: destinationForm.label.trim() || null,
+        idempotency_key: idempotencyKey('destination-create'),
+      });
+    void runAction(
+      'payment-destination',
+      action,
+      destinationTarget ? 'Receiving card updated.' : 'Receiving card added.',
+    ).then((success) => {
+      if (success) setDestinationModalOpen(false);
+    });
+  };
+
+  const changeDestinationStatus = (destination: PaymentDestination, activate: boolean) => {
+    showConfirm(
+      activate ? 'Reactivate receiving card?' : 'Deactivate receiving card?',
+      activate
+        ? `Parents will be able to report transfers to •••• ${destination.card_last4}.`
+        : 'Parents cannot start new payment reports to this card. Existing reports and history remain unchanged.',
+      () => void runAction(
+        `destination-status-${destination.id}`,
+        () => api.put(`/finance/payment-destinations/${destination.id}`, {
+          is_active: activate,
+          reason: activate ? 'Receiving card reactivated by authorized staff' : 'Receiving card deactivated by authorized staff',
+          idempotency_key: idempotencyKey(`destination-status-${destination.id}`),
+        }),
+        activate ? 'Receiving card reactivated.' : 'Receiving card deactivated without deleting its history.',
+      ),
+      activate ? 'Reactivate' : 'Deactivate',
+    );
+  };
+
+  const openCardReportResolution = (report: CardPaymentReport, decision: 'confirm' | 'reject') => {
+    setCardReportTarget(report);
+    setCardReportDecision(decision);
+    setCardReportReason(decision === 'confirm' ? 'Verified in receiving card transaction history' : '');
+  };
+
+  const resolveCardReport = () => {
+    if (!cardReportTarget) return;
+    if (cardReportDecision === 'reject' && cardReportReason.trim().length < 5) {
+      return Alert.alert('Rejection reason required', 'Explain why this transfer could not be verified.');
+    }
+    const reportId = cardReportTarget.id;
+    void runAction(
+      `card-report-${cardReportDecision}-${reportId}`,
+      () => api.post(`/finance/card-payment-reports/${reportId}/resolve`, {
+        decision: cardReportDecision,
+        reason: cardReportReason.trim() || null,
+        idempotency_key: idempotencyKey(`card-report-${cardReportDecision}-${reportId}`),
+      }),
+      cardReportDecision === 'confirm'
+        ? 'Transfer confirmed and posted as an official non-cash receipt.'
+        : 'Payment report rejected without changing the student balance.',
+    ).then((success) => {
+      if (success) setCardReportTarget(null);
+    });
   };
 
   const postInvoiceCorrection = () => {
@@ -785,6 +981,39 @@ export default function FinanceScreen() {
     });
   };
 
+  const openTariffEditor = (
+    program_code: ProgramCode,
+    group_format: GroupFormat,
+    courseNames: string,
+  ) => {
+    const current = tariffs.find(
+      (policy) => policy.policy_key === `tariff:${program_code}:${group_format}`,
+    );
+    setTariffForm({
+      program_code,
+      group_format,
+      amount: current?.value.monthly_price_uzs == null
+        ? ''
+        : String(current.value.monthly_price_uzs),
+      effective_from: tashkentDate(),
+      reason: '',
+    });
+    setTariffEditor({ program_code, group_format, courseNames });
+  };
+
+  const openTeacherShareEditor = (group_format: GroupFormat) => {
+    const current = teacherShares.find(
+      (policy) => policy.policy_key === `teacher_share:${group_format}`,
+    );
+    setTeacherShareForm({
+      group_format,
+      percentage: String((current?.value.basis_points || 0) / 100),
+      effective_from: tashkentDate(),
+      reason: '',
+    });
+    setTeacherShareEditor(group_format);
+  };
+
   const saveTariff = () => {
     const amount = parseWholeUzs(tariffForm.amount);
     if (amount == null || tariffForm.reason.trim().length < 3) {
@@ -796,9 +1025,11 @@ export default function FinanceScreen() {
       monthly_price_uzs: amount,
       effective_from: tariffForm.effective_from,
       reason: tariffForm.reason,
-    }), 'A new effective-dated tariff version was created.').then((success) =>
-      success && setTariffForm((current) => ({ ...current, amount: '', reason: '' })),
-    );
+    }), 'The course price was updated from its effective date.').then((success) => {
+      if (!success) return;
+      setTariffEditor(null);
+      setTariffForm((current) => ({ ...current, amount: '', reason: '' }));
+    });
   };
 
   const saveBillingRules = () => {
@@ -835,9 +1066,11 @@ export default function FinanceScreen() {
       basis_points: basisPoints,
       effective_from: teacherShareForm.effective_from,
       reason: teacherShareForm.reason,
-    }), 'A new effective-dated teacher share was created.').then((success) =>
-      success && setTeacherShareForm((current) => ({ ...current, reason: '' })),
-    );
+    }), 'The teacher share was updated from its effective date.').then((success) => {
+      if (!success) return;
+      setTeacherShareEditor(null);
+      setTeacherShareForm((current) => ({ ...current, reason: '' }));
+    });
   };
 
   const saveRecurringExpense = () => {
@@ -1006,6 +1239,8 @@ export default function FinanceScreen() {
         <Kpi testID={FINANCE.accruedRevenue} label="Accrued revenue" value={position.net_tuition_uzs + position.other_income_uzs} icon="trending-up" color={COLORS.success} />
         <Kpi testID={FINANCE.accruedProfit} label="Accrued profit" value={position.accrued_operating_profit_uzs} icon="pie-chart" color={position.accrued_operating_profit_uzs >= 0 ? COLORS.gold : COLORS.error} />
         <Kpi testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle" color={COLORS.info} />
+        <Kpi testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card" color={COLORS.success} />
+        <Kpi testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} icon="wallet" color={COLORS.gold} />
         <Kpi testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash" color={COLORS.gold} />
         <Kpi testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass" color={COLORS.warning} />
         <Kpi testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle" color={COLORS.error} />
@@ -1142,16 +1377,113 @@ export default function FinanceScreen() {
         {visibleReceipts.length === 0 ? <Empty text="No matching receipts." /> : visibleReceipts.slice(0, 50).map((receipt) => (
           <View key={receipt.id} testID={`finance-receipt-row-${receipt.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{receipt.receipt_number}</Text><Text style={styles.goodAmount}>{uzs(receipt.amount_uzs)}</Text></View>
-            <Text style={styles.recordMeta}>{studentName(receipt.student_id)} · {new Date(receipt.received_at).toLocaleString(getActiveLocale())}</Text>
+            <Text style={styles.recordMeta}>{studentName(receipt.student_id)} · {tashkentDateTime(receipt.received_at)}</Text>
+            <Text style={styles.recordMeta}>{receipt.payment_method === 'personal_card_transfer' ? `${receipt.payment_provider?.toUpperCase() || 'CARD'} transfer` : 'Cash'}</Text>
             <Text style={styles.recordMeta}>Debt {uzs(receipt.allocated_amount_uzs)} · advance {uzs(receipt.advance_amount_uzs)}</Text>
             {isSuperAdmin && receipt.status === 'posted' && <Button title="Reverse receipt" variant="outline" onPress={() => { setReceiptReversalTarget(receipt); setReceiptReversalReason(''); }} />}
           </View>
         ))}
       </Section>
       {isSuperAdmin && receiptReversalTarget && (
-        <FinanceActionModal title={`Reverse ${receiptReversalTarget.receipt_number}`} subtitle="The receipt and allocations are reversed atomically. A closed shift keeps its physical count and recalculates its discrepancy for review." onClose={() => setReceiptReversalTarget(null)}>
+        <FinanceActionModal title={`Reverse ${receiptReversalTarget.receipt_number}`} subtitle={receiptReversalTarget.payment_method === 'personal_card_transfer' ? 'The receipt and allocations are reversed atomically. The personal-card transfer remains in the provider history and must be handled separately if a refund is needed.' : 'The receipt and allocations are reversed atomically. A closed shift keeps its physical count and recalculates its discrepancy for review.'} onClose={() => setReceiptReversalTarget(null)}>
           <Input testID={FINANCE.receiptReversalReason} label="Audit reason" value={receiptReversalReason} onChangeText={setReceiptReversalReason} multiline />
           <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setReceiptReversalTarget(null)} /><Button testID={FINANCE.receiptReversalSubmit} title="Reverse receipt" style={styles.flexButton} onPress={reverseReceiptValue} loading={busy === 'receipt-reversal'} /></View>
+        </FinanceActionModal>
+      )}
+    </>
+  );
+
+  const renderOnlinePayments = () => (
+    <>
+      <View style={styles.modeBanner}>
+        <Ionicons name="shield-checkmark" size={22} color={COLORS.gold} />
+        <View style={styles.flex}>
+          <Text style={styles.modeTitle}>Human-verified personal-card transfers</Text>
+          <Text style={styles.modeText}>A parent report is only a notification. Confirm it only after the exact amount and time appear in the receiving Click or Payme card history.</Text>
+        </View>
+      </View>
+      <Section
+        title={`Unresolved payment reports (${unresolvedCardReports.length})`}
+        subtitle="These reports do not affect debt, collections, revenue, advances, or the cashbox until confirmed."
+      >
+        {unresolvedCardReports.length === 0 ? <Empty text="No card payments are waiting for verification." /> : unresolvedCardReports.map((report) => (
+          <View key={report.id} testID={`finance-card-report-${report.id}`} style={[styles.recordCard, styles.pendingReportCard]}>
+            <View style={styles.recordTop}>
+              <View style={styles.flex}>
+                <Text style={styles.recordTitle}>{report.student_name} · {report.student_number || studentMap[report.student_id]?.student_id}</Text>
+                <Text style={styles.recordMeta}>Reported by {report.parent_name}</Text>
+              </View>
+              <Text style={styles.warningAmount}>{uzs(report.amount_uzs)}</Text>
+            </View>
+            <Text style={styles.recordMeta}>Parent says paid {tashkentDateTime(report.paid_at)} · reported {tashkentDateTime(report.reported_at)}</Text>
+            <Text style={styles.recordMeta}>{report.provider.toUpperCase()} · destination •••• {report.destination_last4} · {report.destination_cardholder_name}</Text>
+            <Status value="unresolved" />
+            <View style={styles.lessonActions}>
+              <TouchableOpacity testID={`finance-card-report-confirm-${report.id}`} style={[styles.miniAction, styles.goodAction]} onPress={() => openCardReportResolution(report, 'confirm')}><Text style={styles.miniActionText}>Confirm transfer</Text></TouchableOpacity>
+              <TouchableOpacity testID={`finance-card-report-reject-${report.id}`} style={[styles.miniAction, styles.dangerAction]} onPress={() => openCardReportResolution(report, 'reject')}><Text style={styles.miniActionText}>Reject</Text></TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </Section>
+
+      <Section title="Receiving cards" subtitle="Only the card number and cardholder name are stored. Never enter a PIN, CVV, SMS code, or expiry date.">
+        <View style={styles.actionRow}>
+          <Button testID={FINANCE.destinationAdd} title="Add receiving card" onPress={openNewDestination} style={styles.flexButton} />
+        </View>
+        {paymentDestinations.length === 0 ? <Empty text="No Click or Payme receiving card has been configured." /> : paymentDestinations.map((destination) => (
+          <View key={destination.id} testID={`finance-payment-destination-${destination.id}`} style={styles.destinationRow}>
+            <View style={styles.destinationIcon}><Ionicons name={destination.provider === 'click' ? 'flash' : 'wallet'} size={22} color={COLORS.gold} /></View>
+            <View style={styles.flex}>
+              <View style={styles.recordTop}><Text style={styles.recordTitle}>{destination.label || destination.provider.toUpperCase()}</Text><Status value={destination.status} /></View>
+              <Text style={styles.receivingCardNumber}>{formatCard(destination.card_number)}</Text>
+              <Text style={styles.recordMeta}>{destination.cardholder_name} · {destination.provider.toUpperCase()}</Text>
+            </View>
+            <View style={styles.destinationActions}>
+              <TouchableOpacity testID={`finance-payment-destination-edit-${destination.id}`} accessibilityRole="button" style={styles.iconAction} onPress={() => openDestinationEditor(destination)}><Ionicons name="create-outline" size={20} color={COLORS.gold} /></TouchableOpacity>
+              <TouchableOpacity testID={`finance-payment-destination-status-${destination.id}`} accessibilityRole="button" style={styles.iconAction} onPress={() => changeDestinationStatus(destination, destination.status !== 'active')}><Ionicons name={destination.status === 'active' ? 'pause' : 'play'} size={20} color={destination.status === 'active' ? COLORS.error : COLORS.success} /></TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </Section>
+
+      <Section title="Resolved card-payment history" subtitle="Confirmation creates an official receipt. Rejection leaves all financial balances unchanged.">
+        {resolvedCardReports.length === 0 ? <Empty text="No card-payment reports have been resolved." /> : resolvedCardReports.slice(0, 250).map((report) => (
+          <View key={report.id} testID={`finance-card-report-history-${report.id}`} style={styles.recordCard}>
+            <View style={styles.recordTop}><Text style={styles.recordTitle}>{report.student_name} · {report.parent_name}</Text><Status value={report.status} /></View>
+            <Text style={report.status === 'confirmed' ? styles.goodAmount : styles.dangerAmount}>{uzs(report.amount_uzs)}</Text>
+            <Text style={styles.recordMeta}>{report.provider.toUpperCase()} •••• {report.destination_last4} · paid {tashkentDateTime(report.paid_at)}</Text>
+            <Text style={styles.recordMeta}>Resolved by {report.resolved_by_name || 'authorized staff'}{report.resolution_reason ? ` · ${report.resolution_reason}` : ''}</Text>
+          </View>
+        ))}
+      </Section>
+
+      {destinationModalOpen && (
+        <FinanceActionModal title={destinationTarget ? 'Edit receiving card' : 'Add receiving card'} subtitle="This is a transfer destination, not a merchant integration. Card credentials are never requested." onClose={() => setDestinationModalOpen(false)}>
+          <Text style={styles.inputLabel}>Provider</Text>
+          <View style={styles.pickerBox}><Picker testID={FINANCE.destinationProvider} selectedValue={destinationForm.provider} onValueChange={(provider) => setDestinationForm({ ...destinationForm, provider })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Click" value="click" /><LocalizedPickerItem label="Payme" value="payme" /></Picker></View>
+          <Input testID={FINANCE.destinationCardNumber} label="Receiving card number *" keyboardType="number-pad" value={destinationForm.card_number} onChangeText={(card_number) => setDestinationForm({ ...destinationForm, card_number })} placeholder="8600 0000 0000 0000" />
+          <Input testID={FINANCE.destinationCardholder} label="Cardholder name *" value={destinationForm.cardholder_name} onChangeText={(cardholder_name) => setDestinationForm({ ...destinationForm, cardholder_name })} placeholder="Name shown for the recipient" />
+          <Input testID={FINANCE.destinationLabel} label="Internal label" value={destinationForm.label} onChangeText={(label) => setDestinationForm({ ...destinationForm, label })} placeholder="Main tuition card" />
+          {destinationTarget && <Input testID={FINANCE.destinationReason} label="Audit reason *" value={destinationForm.reason} onChangeText={(reason) => setDestinationForm({ ...destinationForm, reason })} multiline />}
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setDestinationModalOpen(false)} /><Button testID={FINANCE.destinationSubmit} title={destinationTarget ? 'Save changes' : 'Add card'} style={styles.flexButton} onPress={savePaymentDestination} loading={busy === 'payment-destination'} /></View>
+        </FinanceActionModal>
+      )}
+
+      {cardReportTarget && (
+        <FinanceActionModal
+          title={cardReportDecision === 'confirm' ? 'Confirm this card transfer?' : 'Reject this payment report?'}
+          subtitle={cardReportDecision === 'confirm' ? 'Confirm only after matching the amount, time, and destination in the receiving card app. This immediately reduces debt.' : 'Rejection changes no money and the parent receives the reason.'}
+          onClose={() => setCardReportTarget(null)}
+        >
+          <View style={styles.verificationSummary}>
+            <MoneyRow label="Amount" value={cardReportTarget.amount_uzs} strong />
+            <Text style={styles.recordMeta}>Parent: {cardReportTarget.parent_name}</Text>
+            <Text style={styles.recordMeta}>Student: {cardReportTarget.student_name}</Text>
+            <Text style={styles.recordMeta}>Paid: {tashkentDateTime(cardReportTarget.paid_at)}</Text>
+            <Text style={styles.recordMeta}>Destination: {cardReportTarget.provider.toUpperCase()} •••• {cardReportTarget.destination_last4}</Text>
+          </View>
+          <Input testID={FINANCE.cardReportReason} label={cardReportDecision === 'confirm' ? 'Verification note' : 'Rejection reason *'} value={cardReportReason} onChangeText={setCardReportReason} multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setCardReportTarget(null)} /><Button testID={FINANCE.cardReportResolve} title={cardReportDecision === 'confirm' ? 'Yes, confirm payment' : 'Reject report'} style={styles.flexButton} onPress={resolveCardReport} loading={busy === `card-report-${cardReportDecision}-${cardReportTarget.id}`} /></View>
         </FinanceActionModal>
       )}
     </>
@@ -1306,41 +1638,137 @@ export default function FinanceScreen() {
 
   const renderPricing = () => (
     <>
-      <Section title="Current tuition tariffs" subtitle="Prices are effective-dated; old lesson lines retain their original version.">
-        {tariffs.map((policy) => (
-          <View key={policy.id} testID={`finance-tariff-row-${policy.policy_key}`} style={styles.policyRow}>
-            <View style={styles.flex}><Text style={styles.recordTitle}>{policy.policy_key.replace('tariff:', '').replaceAll(':', ' · ').replace('_', '-')}</Text><Text style={styles.recordMeta}>Effective {policy.effective_from}</Text></View>
-            <Text style={styles.goodAmount}>{uzs(policy.value.monthly_price_uzs)}</Text>
+      <Section
+        title="Course prices"
+        subtitle={isSuperAdmin
+          ? 'These are the courses students can join. Edit a price beside its format; the effective date protects earlier lesson charges.'
+          : 'Current prices for every active course. Only the Super Admin can change financial policy.'}
+      >
+        {coursePricingGroups.length === 0 ? (
+          <Empty text="No active courses with billing categories are configured." />
+        ) : coursePricingGroups.map(({ program_code, courses }) => (
+          <View key={program_code} testID={`finance-course-pricing-${program_code}`} style={styles.pricingCard}>
+            <View style={styles.pricingCardHeader}>
+              <View style={styles.flex}>
+                <Text style={styles.pricingCardTitle}>{courses.map((course) => course.name).join(', ')}</Text>
+                <Text style={styles.recordMeta}>Billing category: {PROGRAM_LABELS[program_code]}</Text>
+              </View>
+            </View>
+            {GROUP_FORMATS.map((group_format) => {
+              const policy = tariffs.find(
+                (row) => row.policy_key === `tariff:${program_code}:${group_format}`,
+              );
+              return (
+                <View
+                  key={group_format}
+                  testID={`finance-tariff-row-tariff:${program_code}:${group_format}`}
+                  style={styles.pricingRow}
+                >
+                  <View style={styles.flex}>
+                    <Text style={styles.moneyLabel}>{FORMAT_LABELS[group_format]}</Text>
+                    <Text style={styles.recordMeta}>
+                      {policy ? `Effective ${policy.effective_from}` : 'Price not configured'}
+                    </Text>
+                  </View>
+                  <Text style={policy ? styles.goodAmount : styles.warningText}>
+                    {policy ? uzs(policy.value.monthly_price_uzs) : 'Not configured'}
+                  </Text>
+                  {isSuperAdmin && (
+                    <TouchableOpacity
+                      testID={`finance-edit-tariff-${program_code}-${group_format}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Edit ${courses.map((course) => course.name).join(', ')} ${FORMAT_LABELS[group_format]} price`}
+                      style={styles.editPolicyButton}
+                      onPress={() => openTariffEditor(
+                        program_code,
+                        group_format,
+                        courses.map((course) => course.name).join(', '),
+                      )}
+                    >
+                      <Ionicons name="pencil" size={16} color={COLORS.gold} />
+                      <Text style={styles.editPolicyText}>Edit</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
           </View>
         ))}
       </Section>
-      <Section title="Teacher revenue shares" subtitle="Paid by the centre in full, independent of student payment and centre-funded discounts.">
-        {teacherShares.map((policy) => <MoneyRow key={policy.id} testID={`finance-teacher-share-row-${policy.policy_key}`} label={policy.policy_key.replace('teacher_share:', '')} value={policy.value.basis_points / 100} valueSuffix="%" raw />)}
+      <Section
+        title="Teacher pay"
+        subtitle="Teachers earn this share of each billable lesson. The centre pays the full earned amount even when a student has not paid yet."
+      >
+        {GROUP_FORMATS.map((group_format) => {
+          const policy = teacherShares.find(
+            (row) => row.policy_key === `teacher_share:${group_format}`,
+          );
+          return (
+            <View
+              key={group_format}
+              testID={`finance-teacher-share-row-teacher_share:${group_format}`}
+              style={styles.pricingRow}
+            >
+              <View style={styles.flex}>
+                <Text style={styles.moneyLabel}>{FORMAT_LABELS[group_format]}</Text>
+                <Text style={styles.recordMeta}>
+                  {policy ? `Effective ${policy.effective_from}` : 'Share not configured'}
+                </Text>
+              </View>
+              <Text style={policy ? styles.goodAmount : styles.warningText}>
+                {policy?.value.basis_points == null ? 'Not configured' : `${policy.value.basis_points / 100}%`}
+              </Text>
+              {isSuperAdmin && (
+                <TouchableOpacity
+                  testID={`finance-edit-teacher-share-${group_format}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Edit ${FORMAT_LABELS[group_format]} teacher share`}
+                  style={styles.editPolicyButton}
+                  onPress={() => openTeacherShareEditor(group_format)}
+                >
+                  <Ionicons name="pencil" size={16} color={COLORS.gold} />
+                  <Text style={styles.editPolicyText}>Edit</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })}
       </Section>
+      {isSuperAdmin && tariffEditor && (
+        <FinanceActionModal
+          title={`Edit ${FORMAT_LABELS[tariffEditor.group_format]} price`}
+          subtitle={`${tariffEditor.courseNames} · ${PROGRAM_LABELS[tariffEditor.program_code]}. A new effective-dated version preserves finalized and earlier lesson amounts.`}
+          onClose={() => setTariffEditor(null)}
+        >
+          <Input testID={FINANCE.tariffAmount} label="Monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
+          <CalendarDatePicker testID={FINANCE.tariffEffectiveFrom} label="Effective from" value={tariffForm.effective_from} onChange={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
+          <Input testID={FINANCE.tariffReason} label="Reason for price change" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
+          <View style={styles.actionRow}>
+            <Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setTariffEditor(null)} />
+            <Button testID={FINANCE.tariffSubmit} title="Save price" style={styles.flexButton} onPress={saveTariff} loading={busy === 'tariff'} />
+          </View>
+        </FinanceActionModal>
+      )}
+      {isSuperAdmin && teacherShareEditor && (
+        <FinanceActionModal
+          title={`Edit ${FORMAT_LABELS[teacherShareEditor]} teacher pay`}
+          subtitle="This affects future lesson earnings only. Finalized payroll remains unchanged."
+          onClose={() => setTeacherShareEditor(null)}
+        >
+          <Input testID={FINANCE.teacherSharePercentage} label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
+          <CalendarDatePicker testID={FINANCE.teacherShareEffectiveFrom} label="Effective from" value={teacherShareForm.effective_from} onChange={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
+          <Input testID={FINANCE.teacherShareReason} label="Reason for share change" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
+          <View style={styles.actionRow}>
+            <Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setTeacherShareEditor(null)} />
+            <Button testID={FINANCE.teacherShareSubmit} title="Save teacher share" style={styles.flexButton} onPress={saveTeacherShare} loading={busy === 'teacher-share'} />
+          </View>
+        </FinanceActionModal>
+      )}
       <Section title="Current recurring expenses" subtitle="Templates create obligations; they are not treated as paid until a cash payout is posted.">
         {recurringPolicies.map((policy) => policy.value.amount_mode === 'manual' || policy.value.amount_uzs == null
           ? <View key={policy.id} testID={`finance-recurring-row-${policy.policy_key}`} style={styles.moneyRow}><Text style={styles.moneyLabel}>{policy.value.name || policy.policy_key}</Text><Text style={styles.warningText}>Enter actual amount monthly</Text></View>
           : <MoneyRow key={policy.id} testID={`finance-recurring-row-${policy.policy_key}`} label={policy.value.name || policy.policy_key} value={policy.value.amount_uzs} />)}
       </Section>
-      {isSuperAdmin && (
-        <Section title="Create tariff version" subtitle="Use the exact effective date; this may split one month across two prices by scheduled lesson.">
-          <Text style={styles.inputLabel}>Program</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.program_code} onValueChange={(program_code) => setTariffForm({ ...tariffForm, program_code })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="General" value="general" /><LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" /><LocalizedPickerItem label="IELTS" value="ielts" /></Picker></View>
-          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={tariffForm.group_format} onValueChange={(group_format) => setTariffForm({ ...tariffForm, group_format })} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
-          <Input testID={FINANCE.tariffAmount} label="New monthly price (whole UZS)" keyboardType="number-pad" value={tariffForm.amount} onChangeText={(amount) => setTariffForm({ ...tariffForm, amount })} />
-          <CalendarDatePicker testID={FINANCE.tariffEffectiveFrom} label="Effective from" value={tariffForm.effective_from} onChange={(effective_from) => setTariffForm({ ...tariffForm, effective_from })} />
-          <Input testID={FINANCE.tariffReason} label="Reason" value={tariffForm.reason} onChangeText={(reason) => setTariffForm({ ...tariffForm, reason })} />
-          <Button testID={FINANCE.tariffSubmit} title="Create tariff version" onPress={saveTariff} loading={busy === 'tariff'} />
-        </Section>
-      )}
-      {isSuperAdmin && (
-        <Section title="Create teacher-share version" subtitle="This changes future lesson earnings only; finalized payroll remains immutable.">
-          <Text style={styles.inputLabel}>Format</Text><View style={styles.pickerBox}><Picker selectedValue={teacherShareForm.group_format} onValueChange={(group_format: GroupFormat) => { const current = teacherShares.find((policy) => policy.policy_key === `teacher_share:${group_format}`); setTeacherShareForm({ ...teacherShareForm, group_format, percentage: String((current?.value.basis_points || 0) / 100) }); }} style={styles.picker} dropdownIconColor={COLORS.gold}><LocalizedPickerItem label="Normal group" value="normal" /><LocalizedPickerItem label="Mini group" value="mini" /><LocalizedPickerItem label="Individual" value="individual" /></Picker></View>
-          <Input testID={FINANCE.teacherSharePercentage} label="Teacher share (%)" keyboardType="decimal-pad" value={teacherShareForm.percentage} onChangeText={(percentage) => setTeacherShareForm({ ...teacherShareForm, percentage })} />
-          <CalendarDatePicker testID={FINANCE.teacherShareEffectiveFrom} label="Effective from" value={teacherShareForm.effective_from} onChange={(effective_from) => setTeacherShareForm({ ...teacherShareForm, effective_from })} />
-          <Input testID={FINANCE.teacherShareReason} label="Reason" value={teacherShareForm.reason} onChangeText={(reason) => setTeacherShareForm({ ...teacherShareForm, reason })} />
-          <Button testID={FINANCE.teacherShareSubmit} title="Create teacher-share version" variant="outline" onPress={saveTeacherShare} loading={busy === 'teacher-share'} />
-        </Section>
-      )}
       {isSuperAdmin && (
         <Section title="Create recurring expense version" subtitle="Use the same key (rent, accountant, wifi, tax) to update a template, or a new key for another recurring expense.">
           <Input testID={FINANCE.recurringKey} label="Expense key" value={recurringForm.expense_key} onChangeText={(expense_key) => setRecurringForm({ ...recurringForm, expense_key })} placeholder="rent" autoCapitalize="none" />
@@ -1428,11 +1856,12 @@ export default function FinanceScreen() {
         {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={styles.monthInput} />}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
-        {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}</Text></TouchableOpacity>)}
+        {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
       </ScrollView>
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInset} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'receivables' && renderReceivables()}
+        {activeTab === 'online' && renderOnlinePayments()}
         {activeTab === 'expenses' && renderExpenses()}
         {activeTab === 'payroll' && renderPayroll()}
         {activeTab === 'cash' && renderCash()}
@@ -1507,7 +1936,7 @@ function SpendingBar({ label, value, total, color, testID }: { label: string; va
 
 function Status({ value }: { value: string }) {
   const danger = ['overdue', 'unpaid', 'reversed'].includes(value);
-  const good = ['paid', 'posted', 'finalized'].includes(value);
+  const good = ['paid', 'posted', 'finalized', 'confirmed', 'active'].includes(value);
   const color = danger ? COLORS.error : good ? COLORS.success : COLORS.warning;
   return <View style={[styles.status, { backgroundColor: color + '22' }]}><Text style={[styles.statusText, { color }]}>{value.replace('_', ' ')}</Text></View>;
 }
@@ -1562,6 +1991,7 @@ const styles = StyleSheet.create({
   goodAmount: { color: COLORS.success, fontSize: SIZES.fontSm, fontWeight: '800' },
   dangerAmount: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '800' },
   warningText: { color: COLORS.warning, fontSize: SIZES.fontXs, marginTop: SIZES.sm },
+  warningAmount: { color: COLORS.warning, fontSize: SIZES.fontSm, fontWeight: '800' },
   status: { paddingHorizontal: SIZES.sm, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusFull },
   statusText: { fontSize: SIZES.fontXs, fontWeight: '700', textTransform: 'capitalize' },
   inputLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600', marginBottom: SIZES.xs },
@@ -1589,6 +2019,19 @@ const styles = StyleSheet.create({
   modalScroll: { flexGrow: 0 },
   modalBody: { padding: SIZES.md, paddingBottom: SIZES.lg },
   policyRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray, paddingVertical: SIZES.sm },
+  pricingCard: { borderWidth: 1, borderColor: COLORS.marbleGray, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, marginBottom: SIZES.md, overflow: 'hidden' },
+  pricingCardHeader: { flexDirection: 'row', alignItems: 'center', padding: SIZES.md, backgroundColor: COLORS.gold + '10', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
+  pricingCardTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800' },
+  pricingRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
+  editPolicyButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
+  editPolicyText: { color: COLORS.gold, fontSize: SIZES.fontXs, fontWeight: '700' },
+  pendingReportCard: { borderColor: COLORS.warning + '88', borderWidth: 1 },
+  destinationRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray, marginBottom: SIZES.sm },
+  destinationIcon: { width: 44, height: 44, borderRadius: SIZES.radiusFull, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '18' },
+  destinationActions: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs },
+  iconAction: { width: 42, height: 42, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.backgroundCard },
+  receivingCardNumber: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', marginTop: SIZES.xs, fontVariant: ['tabular-nums'] },
+  verificationSummary: { borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '10', padding: SIZES.md, marginBottom: SIZES.md },
   lessonList: { marginTop: SIZES.md },
   lessonActions: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.md },
   miniAction: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.warning + '33', borderWidth: 1, borderColor: COLORS.warning },

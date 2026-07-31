@@ -56,11 +56,8 @@ def validate_group_data(group_data: GroupBase) -> None:
         validate_schedule_no_overlaps([session.model_dump() for session in group_data.schedule])
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error))
-    if bool(group_data.program_code) != bool(group_data.group_format):
-        raise HTTPException(
-            status_code=400,
-            detail="Program and group format must be selected together for finance setup",
-        )
+    if not group_data.group_format:
+        raise HTTPException(status_code=400, detail="Class format is required for finance setup")
 
 
 async def require_active_course(db, group_data: GroupBase) -> dict:
@@ -98,12 +95,11 @@ async def create_group(
     
     try:
         validate_group_data(group_data)
-        if not group_data.program_code or not group_data.group_format:
-            raise HTTPException(
-                status_code=400,
-                detail="Program and group format are required for financial billing",
-            )
-        await require_active_course(db, group_data)
+        course = await require_active_course(db, group_data)
+        course_program = program_for_course(course)
+        if not course_program:
+            raise HTTPException(status_code=409, detail="Selected course has no billing category")
+        selected_program = ProgramCode(course_program)
         teacher_id = group_data.teacher_id
         target_branch_id = group_data.branch_id or current_user.get("branch_id")
         if (
@@ -134,7 +130,7 @@ async def create_group(
             "end_date": group_data.end_date,
             "status": "active",
             "branch_id": target_branch_id,
-            "program_code": group_data.program_code.value if group_data.program_code else None,
+            "program_code": selected_program.value,
             "group_format": group_data.group_format.value if group_data.group_format else None,
             "finance_setup_status": "pending",
             "finance_latest_version": None,
@@ -149,14 +145,14 @@ async def create_group(
             {"$push": {"group_ids": str(result.inserted_id)}}
         )
 
-        if group_data.program_code and group_data.group_format:
+        if group_data.group_format:
             effective_from = (
                 group_data.finance_effective_from
                 or (group_data.start_date.date() if group_data.start_date else None)
                 or datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
             )
             version_payload = GroupFinanceVersionCreate(
-                program_code=group_data.program_code,
+                program_code=selected_program,
                 group_format=group_data.group_format,
                 effective_from=effective_from,
                 schedule=[session.model_dump() for session in group_data.schedule],
@@ -332,7 +328,10 @@ async def update_group(
 
     try:
         validate_group_data(group_data)
-        await require_active_course(db, group_data)
+        course = await require_active_course(db, group_data)
+        course_program = program_for_course(course)
+        if not course_program:
+            raise HTTPException(status_code=409, detail="Selected course has no billing category")
         existing = await db.groups.find_one({"_id": ObjectId(group_id)})
         if not existing:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -377,9 +376,7 @@ async def update_group(
         active_version = await active_group_finance_version(
             db, group_id, datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
         )
-        selected_program = group_data.program_code or (
-            ProgramCode(active_version["program_code"]) if active_version else None
-        )
+        selected_program = ProgramCode(course_program)
         selected_format = group_data.group_format or (
             GroupFormat(active_version["group_format"]) if active_version else None
         )

@@ -796,8 +796,8 @@ test('group UI creates exact billing schedule, manages membership, edits, and pr
     await session.page.getByPlaceholder('e.g., IELTS Morning A').fill(name);
     await session.page.getByTestId('group-course-picker').selectOption(course.id);
     await session.page.getByTestId('group-teacher-picker').selectOption(teacher.id);
-    await expect(session.page.getByTestId('group-program-picker')).toHaveValue('general');
-    await expect(session.page.getByTestId('group-program-picker')).toBeDisabled();
+    await expect(session.page.getByTestId('group-program-picker')).toHaveCount(0);
+    await expect(session.page.getByTestId('group-derived-program')).toHaveText('General English');
     await session.page.getByTestId('group-format-picker').selectOption('normal');
     await expect(session.page.getByText(/450[,.\s]000 UZS/)).toBeVisible();
     await expect(session.page.getByText('40%', { exact: true })).toBeVisible();
@@ -1122,8 +1122,9 @@ test('lead detail, status, conversion, and student list synchronize across activ
     await expect(reception.page.getByText('Add New Lead', { exact: true })).toBeVisible();
     await reception.page.getByPlaceholder('Enter first name').fill(`Live${unique}`);
     await reception.page.getByPlaceholder('Enter last name').fill('Prospect');
-    await reception.page.getByPlaceholder('+998901234567').fill(`+99891${unique}`);
-    await reception.page.getByPlaceholder('Enter parent name').fill('QA Parent Contact');
+    await reception.page.getByTestId('lead-access-parent_only').click();
+    await reception.page.getByTestId('lead-primary-phone').fill(`+99891${unique}`);
+    await reception.page.getByTestId('lead-parent-name').fill('QA Parent Contact');
     await reception.page.getByText('Create Lead', { exact: true }).click();
     await expect(reception.page.getByText(`Live${unique} Prospect`, { exact: true })).toBeVisible();
     await expect(manager.page.getByText(`Live${unique} Prospect`, { exact: true })).toBeVisible({ timeout: 5_000 });
@@ -1140,7 +1141,16 @@ test('lead detail, status, conversion, and student list synchronize across activ
     }, { timeout: 6_000 }).toBe('contacted');
     await reception.page.getByTestId(`lead-detail-convert-${lead.id}`).click();
     await expect(reception.page.getByText('Convert Lead to Student', { exact: true })).toBeVisible();
+    const conversionResponsePromise = reception.page.waitForResponse((response) => (
+      response.url().endsWith(`/api/leads/${lead.id}/convert`) && response.request().method() === 'POST'
+    ));
     await reception.page.getByTestId('lead-convert-confirm').click();
+    const conversionResponse = await conversionResponsePromise;
+    const conversion = await conversionResponse.json();
+    expect(conversion.account_access_mode).toBe('parent_only');
+    expect(conversion.student_account_status).toBe('phone_required');
+    expect(conversion.telegram_invites.parent?.telegram_invite_url).toBeTruthy();
+    expect(conversion.telegram_invites.student).toBeUndefined();
     await expect(reception.page.getByText('Lead Converted Successfully!', { exact: true })).toBeVisible({ timeout: 8_000 });
     await reception.page.getByTestId('lead-conversion-done').click();
     await manager.page.getByRole('tab', { name: 'Students' }).first().click();
@@ -1158,6 +1168,60 @@ test('lead detail, status, conversion, and student list synchronize across activ
     await reception.context.close();
     await manager.context.close();
   }
+});
+
+test('student and parent access creates distinct accounts and rejects a shared login phone', async ({ request }) => {
+  const token = await apiLogin(request, 'reception');
+  const unique = Date.now().toString().slice(-7);
+  const studentPhone = `+99890${unique}`;
+  const parentPhone = `+99893${unique}`;
+  const leadResponse = await apiCall(request, token, 'post', '/leads', {
+    first_name: `Separate${unique}`,
+    last_name: 'Student',
+    phone: studentPhone,
+    parent_name: 'Separate Parent',
+    parent_phone: parentPhone,
+    account_access_mode: 'separate',
+    interested_course: 'QA General English',
+    source: 'walk_in',
+    notes: 'Separate account ownership regression',
+  });
+  const lead = await expectApiOk(leadResponse, 'create separate-access lead');
+  expect(lead.phone).toBe(studentPhone);
+  expect(lead.parent_phone).toBe(parentPhone);
+  expect(lead.account_access_mode).toBe('separate');
+
+  const conversion = await expectApiOk(
+    await apiCall(request, token, 'post', `/leads/${lead.id}/convert`),
+    'convert separate-access lead',
+  );
+  expect(conversion.account_access_mode).toBe('separate');
+  expect(conversion.student_account_status).toBe('pending_invite');
+  expect(conversion.parent_account_status).toBe('pending_invite');
+  expect(conversion.telegram_invites.student?.telegram_invite_url).toBeTruthy();
+  expect(conversion.telegram_invites.parent?.telegram_invite_url).toBeTruthy();
+
+  const student = await rawMongoRecord('students', conversion.student_db_id);
+  const parent = await rawMongoRecord('parents', student!.parent_id);
+  expect(student!.user_id).not.toBe(parent!.user_id);
+  const studentUser = await rawMongoRecord('users', student!.user_id);
+  const parentUser = await rawMongoRecord('users', parent!.user_id);
+  expect(studentUser!.role).toBe('student');
+  expect(parentUser!.role).toBe('parent');
+  expect(studentUser!.phone_normalized).toBe(studentPhone);
+  expect(parentUser!.phone_normalized).toBe(parentPhone);
+
+  const sharedPhoneResponse = await apiCall(request, token, 'post', '/leads', {
+    first_name: `Shared${unique}`,
+    last_name: 'Rejected',
+    phone: studentPhone.replace('90', '94'),
+    parent_name: 'Shared Parent',
+    parent_phone: studentPhone.replace('90', '94'),
+    account_access_mode: 'separate',
+    source: 'walk_in',
+  });
+  expect(sharedPhoneResponse.status()).toBe(409);
+  expect(await sharedPhoneResponse.text()).toContain('different phone numbers');
 });
 
 test('chat messages synchronize live in both directions and read state reconciles', async ({ browser, request }) => {
@@ -1217,7 +1281,7 @@ test('settings rows open, save, and refresh in another super-admin session', asy
     }
     for (const label of [
       'Academy Name', 'Email', 'Phone', 'Address', 'Start Time', 'End Time',
-      'Prefix', 'Currency', 'Click Merchant ID', 'Payme Merchant ID',
+      'Prefix', 'Currency',
     ]) {
       await actor.page.getByRole('button', { name: `Edit ${label}` }).click();
       await expect(actor.page.getByText(`Edit ${label}`, { exact: true })).toBeVisible();
@@ -1232,6 +1296,9 @@ test('settings rows open, save, and refresh in another super-admin session', asy
     await expect(observer.page.getByText(academyName, { exact: true })).toBeVisible({ timeout: 7_000 });
     await expect(actor.page.getByText('Branch Management', { exact: true })).toHaveCount(0);
     await expect(actor.page.getByText('Add Branch', { exact: true })).toHaveCount(0);
+    await expect(actor.page.getByText('Click and Payme receiving cards are managed in Finance, under Online payments.')).toBeVisible();
+    await expect(actor.page.getByText('Click Merchant ID', { exact: true })).toHaveCount(0);
+    await expect(actor.page.getByText('Payme Merchant ID', { exact: true })).toHaveCount(0);
     await assertHealthy(actor, 'settings actor');
     await assertHealthy(observer, 'settings observer');
   } finally {

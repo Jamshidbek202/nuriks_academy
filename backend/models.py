@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 from datetime import date, datetime
 from enum import Enum
 from finance_models import GroupFormat, ProgramCode
@@ -282,6 +282,8 @@ class LeadBase(BaseModel):
     phone: str
     age: Optional[int] = None
     parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    account_access_mode: Optional[Literal["student_only", "parent_only", "separate"]] = None
     interested_course: Optional[str] = None
     source: LeadSource
     notes: Optional[str] = None

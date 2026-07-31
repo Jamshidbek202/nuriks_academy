@@ -1176,13 +1176,19 @@ async def reverse_cash_receipt(
                 )
                 if not stored:
                     raise ValueError("Only a posted receipt can be reversed")
-                shift = await db.cash_shifts.find_one(
-                    {"_id": ObjectId(stored["cash_shift_id"])}, **_session(session)
-                )
-                if not shift:
-                    raise ValueError("The receipt cash shift no longer exists")
+                is_cash_receipt = stored.get("payment_method", "cash") == "cash"
+                shift = None
+                if is_cash_receipt:
+                    shift_id = stored.get("cash_shift_id")
+                    if not shift_id or not ObjectId.is_valid(shift_id):
+                        raise ValueError("The receipt cash shift is invalid")
+                    shift = await db.cash_shifts.find_one(
+                        {"_id": ObjectId(shift_id)}, **_session(session)
+                    )
+                    if not shift:
+                        raise ValueError("The receipt cash shift no longer exists")
                 receipt_amount = int(stored["amount_uzs"])
-                if int(shift.get("receipt_total_uzs", 0)) < receipt_amount:
+                if shift and int(shift.get("receipt_total_uzs", 0)) < receipt_amount:
                     raise ValueError("Receipt reversal totals are inconsistent")
                 allocations = await db.finance_allocations.find({
                     "source_receipt_id": str(stored["_id"]), "active": True,
@@ -1276,37 +1282,38 @@ async def reverse_cash_receipt(
                     }},
                     **_session(session),
                 )
-                shift_set = {"post_close_corrected_at": now} if shift.get("status") == "closed" else {}
-                if shift.get("status") == "closed":
-                    corrected_expected = int(shift["expected_closing_balance_uzs"]) - receipt_amount
-                    corrected_discrepancy = int(shift["actual_closing_balance_uzs"]) - corrected_expected
-                    shift_set.update({
-                        "expected_closing_balance_uzs": corrected_expected,
-                        "discrepancy_uzs": corrected_discrepancy,
-                        "discrepancy_status": (
-                            "balanced" if corrected_discrepancy == 0 else "pending_review"
-                        ),
-                    })
-                shift_update = await db.cash_shifts.update_one(
-                    {"_id": shift["_id"], "status": shift["status"]},
-                    {
-                        "$inc": {"receipt_total_uzs": -receipt_amount},
-                        **({"$set": shift_set} if shift_set else {}),
-                    },
-                    **_session(session),
-                )
-                if shift_update.modified_count != 1:
-                    raise ValueError("The cash shift changed concurrently")
-                await db.cash_events.insert_one({
-                    "cash_shift_id": stored["cash_shift_id"],
-                    "event_type": "receipt_reversal",
-                    "amount_uzs": -int(stored["amount_uzs"]),
-                    "source_id": str(stored["_id"]),
-                    "idempotency_key": idempotency_key,
-                    "created_by": str(actor["_id"]),
-                    "created_at": now,
-                    "immutable": True,
-                }, **_session(session))
+                if shift:
+                    shift_set = {"post_close_corrected_at": now} if shift.get("status") == "closed" else {}
+                    if shift.get("status") == "closed":
+                        corrected_expected = int(shift["expected_closing_balance_uzs"]) - receipt_amount
+                        corrected_discrepancy = int(shift["actual_closing_balance_uzs"]) - corrected_expected
+                        shift_set.update({
+                            "expected_closing_balance_uzs": corrected_expected,
+                            "discrepancy_uzs": corrected_discrepancy,
+                            "discrepancy_status": (
+                                "balanced" if corrected_discrepancy == 0 else "pending_review"
+                            ),
+                        })
+                    shift_update = await db.cash_shifts.update_one(
+                        {"_id": shift["_id"], "status": shift["status"]},
+                        {
+                            "$inc": {"receipt_total_uzs": -receipt_amount},
+                            **({"$set": shift_set} if shift_set else {}),
+                        },
+                        **_session(session),
+                    )
+                    if shift_update.modified_count != 1:
+                        raise ValueError("The cash shift changed concurrently")
+                    await db.cash_events.insert_one({
+                        "cash_shift_id": stored["cash_shift_id"],
+                        "event_type": "receipt_reversal",
+                        "amount_uzs": -int(stored["amount_uzs"]),
+                        "source_id": str(stored["_id"]),
+                        "idempotency_key": idempotency_key,
+                        "created_by": str(actor["_id"]),
+                        "created_at": now,
+                        "immutable": True,
+                    }, **_session(session))
                 reversal = {
                     "receipt_id": str(stored["_id"]),
                     "reason": reason,
@@ -1323,6 +1330,161 @@ async def reverse_cash_receipt(
                 return {"reversal": reversal, "idempotent_replay": False}
     except OperationFailure as exc:
         raise RuntimeError("Receipt reversal requires MongoDB transaction support; nothing was changed") from exc
+
+
+async def record_card_transfer_receipt(
+    db,
+    student: dict,
+    payment_report: dict,
+    actor: dict,
+    session,
+) -> dict:
+    """Post one confirmed personal-card transfer inside the caller's transaction.
+
+    A card transfer is a collection but never a physical cashbox event. The
+    stable report-based key makes repeated staff confirmation unable to create
+    a second receipt.
+    """
+    report_id = str(payment_report["_id"])
+    receipt_key = f"card-payment-report:{report_id}"
+    replay = await db.finance_receipts.find_one(
+        {"idempotency_key": receipt_key}, **_session(session)
+    )
+    if replay:
+        return {"receipt": replay, "idempotent_replay": True}
+
+    counter = await db.counters.find_one_and_update(
+        {"_id": "finance_receipt_number"},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=ReturnDocument.AFTER,
+        **_session(session),
+    )
+    receipt_id = ObjectId()
+    receipt_number = f"RCP-{datetime.utcnow().strftime('%Y%m%d')}-{counter['seq']:06d}"
+    invoice_rows = await db.finance_invoices.find({
+        "student_id": str(student["_id"]),
+        "status": "finalized",
+        "balance_uzs": {"$gt": 0},
+    }, **_session(session)).sort([("due_date", 1), ("invoice_number", 1)]).to_list(10_000)
+    debts = [{
+        "id": str(row["_id"]),
+        "invoice_number": row["invoice_number"],
+        "due_date": row["due_date"],
+        "balance_uzs": row["balance_uzs"],
+    } for row in invoice_rows]
+    amount_uzs = int(payment_report["amount_uzs"])
+    allocations, advance = allocate_oldest_debts(amount_uzs, debts)
+    posted_at = datetime.utcnow()
+    receipt = {
+        "_id": receipt_id,
+        "receipt_number": receipt_number,
+        "student_id": str(student["_id"]),
+        "amount_uzs": amount_uzs,
+        "payment_method": "personal_card_transfer",
+        "payment_provider": payment_report["provider"],
+        "payment_destination_id": payment_report["destination_id"],
+        "payment_destination_last4": payment_report["destination_last4"],
+        "payment_report_id": report_id,
+        "status": "posted",
+        "branch_id": student.get("branch_id"),
+        "received_by": str(actor["_id"]),
+        "received_role": actor["role"],
+        "received_at": payment_report["paid_at"],
+        "posted_at": posted_at,
+        "reported_by": payment_report["reported_by"],
+        "notes": "Personal card transfer verified by staff",
+        "idempotency_key": receipt_key,
+        "allocated_amount_uzs": amount_uzs - advance,
+        "advance_amount_uzs": advance,
+        "immutable": True,
+    }
+    await db.finance_receipts.insert_one(receipt, **_session(session))
+
+    referrer_id = student.get("referred_by_student_id")
+    if referrer_id and referrer_id != str(student["_id"]):
+        referrer = None
+        if ObjectId.is_valid(referrer_id):
+            referrer = await db.students.find_one(
+                {"_id": ObjectId(referrer_id), "status": {"$ne": "archived"}},
+                **_session(session),
+            )
+        existing_referral = await db.finance_discount_entitlements.find_one(
+            {
+                "type": "referral",
+                "referred_student_id": str(student["_id"]),
+                "status": "approved",
+            },
+            **_session(session),
+        )
+        if referrer and not existing_referral:
+            qualified_local = receipt["received_at"].replace(
+                tzinfo=ZoneInfo("UTC")
+            ).astimezone(ZoneInfo(ACADEMY_TIMEZONE))
+            await db.finance_discount_entitlements.insert_one({
+                "type": "referral",
+                "student_id": str(referrer["_id"]),
+                "referred_student_id": str(student["_id"]),
+                "service_month": qualified_local.strftime("%Y-%m"),
+                "basis_points": 1_000,
+                "qualified_referral_count": 1,
+                "qualification": "referred_student_first_payment",
+                "source_receipt_id": str(receipt_id),
+                "status": "approved",
+                "idempotency_key": f"referral-first-payment:{student['_id']}",
+                "created_at": receipt["received_at"],
+                "created_by": str(actor["_id"]),
+                "immutable_qualification": True,
+            }, **_session(session))
+
+    credit_lot = {
+        "student_id": str(student["_id"]),
+        "branch_id": student.get("branch_id"),
+        "source_receipt_id": str(receipt_id),
+        "original_amount_uzs": amount_uzs,
+        "remaining_amount_uzs": advance,
+        "status": "active",
+        "created_at": receipt["received_at"],
+    }
+    lot_result = await db.finance_credit_lots.insert_one(
+        credit_lot, **_session(session)
+    )
+    for allocation_row in allocations:
+        invoice = next(
+            row for row in invoice_rows
+            if str(row["_id"]) == allocation_row["invoice_id"]
+        )
+        amount = allocation_row["amount_uzs"]
+        await db.finance_allocations.insert_one({
+            "invoice_id": str(invoice["_id"]),
+            "student_id": str(student["_id"]),
+            "source_receipt_id": str(receipt_id),
+            "credit_lot_id": str(lot_result.inserted_id),
+            "amount_uzs": amount,
+            "active_amount_uzs": amount,
+            "allocation_kind": "receipt",
+            "active": True,
+            "created_at": receipt["received_at"],
+        }, **_session(session))
+        new_paid = int(invoice["amount_paid_uzs"]) + amount
+        new_balance = max(0, int(invoice["amount_due_uzs"]) - new_paid)
+        update = await db.finance_invoices.update_one(
+            {"_id": invoice["_id"], "status": "finalized"},
+            {"$set": {
+                "amount_paid_uzs": new_paid,
+                "balance_uzs": new_balance,
+                "payment_status": payment_status(int(invoice["amount_due_uzs"]), new_paid),
+            }, "$inc": {"revision": 1}},
+            **_session(session),
+        )
+        if update.modified_count != 1:
+            raise ValueError("The invoice changed concurrently")
+    return {
+        "receipt": receipt,
+        "allocations": list(allocations),
+        "advance_amount_uzs": advance,
+        "idempotent_replay": False,
+    }
 
 
 async def open_cash_shift(db, opening_balance_uzs: int, notes: Optional[str], idempotency_key: str, actor: dict) -> dict:

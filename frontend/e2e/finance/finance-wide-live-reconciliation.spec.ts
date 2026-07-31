@@ -15,6 +15,7 @@ const ids = {
   expensesTab: 'finance-tab-expenses',
   payrollTab: 'finance-tab-payroll',
   cashTab: 'finance-tab-cash',
+  onlineTab: 'finance-tab-online',
   pricingTab: 'finance-tab-pricing',
   closuresTab: 'finance-tab-closures',
   actionModal: 'finance-action-modal',
@@ -22,6 +23,8 @@ const ids = {
   accruedRevenue: 'finance-kpi-accrued-revenue',
   accruedProfit: 'finance-kpi-accrued-profit',
   cashReceived: 'finance-kpi-cash-received',
+  cardReceived: 'finance-kpi-card-received',
+  totalCollections: 'finance-kpi-total-collections',
   cashboxPosition: 'finance-kpi-cashbox-position',
   receivables: 'finance-kpi-receivables',
   overdue: 'finance-kpi-overdue',
@@ -100,6 +103,14 @@ const ids = {
   closureEnds: 'finance-closure-ends',
   closureSubmit: 'finance-closure-submit',
   finalizeMonth: 'finance-finalize-month',
+  destinationAdd: 'finance-payment-destination-add',
+  destinationProvider: 'finance-payment-destination-provider',
+  destinationCardNumber: 'finance-payment-destination-card-number',
+  destinationCardholder: 'finance-payment-destination-cardholder',
+  destinationLabel: 'finance-payment-destination-label',
+  destinationSubmit: 'finance-payment-destination-submit',
+  cardReportReason: 'finance-card-report-reason',
+  cardReportResolve: 'finance-card-report-resolve',
 };
 
 type Position = Record<string, number | boolean | string | null | undefined>;
@@ -186,6 +197,29 @@ async function loginUi(browser: Browser, loginName: string, financeTabName = 'Fi
   return { context, page, frames, dialogs };
 }
 
+async function loginParentPaymentsUi(browser: Browser): Promise<Session> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const frames: string[] = [];
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(`${dialog.type()}:${dialog.message()}`);
+    void dialog.accept();
+  });
+  page.on('websocket', (socket) => {
+    socket.on('framereceived', (event) => frames.push(String(event.payload)));
+  });
+  await page.goto('/login');
+  await page.getByTestId(ids.login).fill('qa_parent_a');
+  await page.getByTestId(ids.password).fill(PASSWORD);
+  await page.getByTestId(ids.submit).click();
+  const paymentsTab = page.getByRole('tab', { name: 'Payments' });
+  await expect(paymentsTab).toBeVisible({ timeout: 15_000 });
+  await paymentsTab.click();
+  await expect(page.getByText('Official invoices, balances, due dates, and cash receipts')).toBeVisible({ timeout: 15_000 });
+  return { context, page, frames, dialogs };
+}
+
 const closureKindPicker = (page: Page) => page.locator('select').filter({
   has: page.locator('option[value="unexpected"]'),
 });
@@ -251,6 +285,8 @@ async function expectPosition(page: Page, position: Position) {
     [ids.accruedRevenue, Number(position.net_tuition_uzs) + Number(position.other_income_uzs)],
     [ids.accruedProfit, Number(position.accrued_operating_profit_uzs)],
     [ids.cashReceived, Number(position.cash_received_uzs)],
+    [ids.cardReceived, Number(position.card_transfer_received_uzs)],
+    [ids.totalCollections, Number(position.total_collections_uzs)],
     [ids.cashboxPosition, Number(position.cashbox_position_uzs)],
     [ids.receivables, Number(position.receivables_uzs)],
     [ids.overdue, Number(position.overdue_uzs)],
@@ -328,7 +364,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   const managerB = await loginUi(browser, 'qa_manager_b');
   const superAdmin = await loginUi(browser, 'qa_superadmin');
   const reception = await loginUi(browser, 'qa_reception_a', 'Payments');
-  const sessions = [manager, managerB, superAdmin, reception];
+  const parent = await loginParentPaymentsUi(browser);
+  const sessions = [manager, managerB, superAdmin, reception, parent];
   for (const session of sessions) {
     await expect.poll(
       () => session.frames.some((frame) => frame.includes('finance_ready')),
@@ -540,6 +577,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   await test.step('tariff, share, recurring policy, and billing calendar versions update managers live', async () => {
     for (const page of [manager.page, superAdmin.page]) await page.getByTestId(ids.pricingTab).click();
 
+    await expect(superAdmin.page.getByTestId('finance-course-pricing-general')).toContainText('QA General English');
+    await superAdmin.page.getByTestId('finance-edit-tariff-general-normal').click();
     await superAdmin.page.getByTestId(ids.tariffAmount).fill('460000');
     await superAdmin.page.getByTestId(ids.tariffReason).fill('Finance live tariff version');
     await superAdmin.page.getByTestId(ids.tariffSubmit).click();
@@ -548,6 +587,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       { timeout: LIVE_TIMEOUT_MS },
     );
 
+    await superAdmin.page.getByTestId('finance-edit-teacher-share-normal').click();
     await superAdmin.page.getByTestId(ids.teacherSharePercentage).fill('41');
     await superAdmin.page.getByTestId(ids.teacherShareReason).fill('Finance live share version');
     await superAdmin.page.getByTestId(ids.teacherShareSubmit).click();
@@ -659,7 +699,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
     const comparableFields = [
       'gross_tuition_uzs', 'centre_funded_discounts_uzs', 'net_tuition_uzs', 'other_income_uzs',
-      'cash_received_uzs', 'receivables_uzs', 'overdue_uzs', 'advance_balances_uzs',
+      'cash_received_uzs', 'card_transfer_received_uzs', 'total_collections_uzs',
+      'receivables_uzs', 'overdue_uzs', 'advance_balances_uzs',
       'teacher_salary_earned_uzs', 'teacher_salary_paid_uzs', 'teacher_salary_outstanding_uzs',
       'expenses_accrued_uzs', 'expenses_paid_uzs', 'expenses_outstanding_uzs',
       'accrued_operating_profit_uzs', 'period_cash_outflow_uzs', 'cashbox_position_uzs',
@@ -702,6 +743,176 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       compared_fields: comparableFields.length,
       all_fields_equal: true,
       branch_selector_visible: false,
+    });
+  });
+
+  await test.step('parent card report stays non-financial until manager verification and synchronizes live', async () => {
+    const amount = 100_000;
+    const positionBeforeReport = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    const invoiceBeforeReport = await qaDb.collection('finance_invoices').findOne({
+      _id: new ObjectId(finalizedInvoice.id),
+    });
+
+    for (const page of [manager.page, managerB.page, superAdmin.page]) {
+      await page.getByTestId(ids.onlineTab).click();
+    }
+    await manager.page.getByTestId(ids.destinationAdd).click();
+    await expectCompactActionModal(manager.page);
+    await manager.page.getByTestId(ids.destinationProvider).selectOption('click');
+    await manager.page.getByTestId(ids.destinationCardNumber).fill('8600123412341234');
+    await manager.page.getByTestId(ids.destinationCardholder).fill('NURIKS QA OWNER');
+    await manager.page.getByTestId(ids.destinationLabel).fill('QA parent payment card');
+    const [destinationResponse] = await Promise.all([
+      manager.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().endsWith('/api/finance/payment-destinations')),
+      manager.page.getByTestId(ids.destinationSubmit).click(),
+    ]);
+    expect(destinationResponse.ok(), await destinationResponse.text()).toBeTruthy();
+    const destination = (await destinationResponse.json()).destination;
+    await expect(superAdmin.page.getByTestId(`finance-payment-destination-${destination.id}`)).toContainText(
+      '1234',
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    await expect(managerB.page.getByTestId(`finance-payment-destination-${destination.id}`)).toHaveCount(0);
+    const storedDestination = await qaDb.collection('finance_payment_destinations').findOne({
+      _id: new ObjectId(destination.id),
+    });
+    expect(storedDestination?.card_number_ciphertext).toBeTruthy();
+    expect(JSON.stringify(storedDestination)).not.toContain('8600123412341234');
+
+    await expect(parent.page.getByTestId(`parent-report-payment-${finalizedInvoice.id}`)).toBeVisible({
+      timeout: LIVE_TIMEOUT_MS,
+    });
+    await parent.page.getByTestId(`parent-report-payment-${finalizedInvoice.id}`).click();
+    await expect(parent.page.getByTestId('parent-card-payment-modal')).toBeVisible();
+    await expect(parent.page.getByTestId('parent-payment-paid-at-date')).toBeVisible();
+    await expect(parent.page.getByTestId('parent-payment-paid-at-time')).toBeVisible();
+    await parent.page.getByTestId('parent-payment-amount').fill(String(amount));
+    let reportRequestCount = 0;
+    const reportRequestListener = (candidate: any) => {
+      if (candidate.method() === 'POST' && candidate.url().endsWith('/api/finance/card-payment-reports')) {
+        reportRequestCount += 1;
+      }
+    };
+    parent.page.on('request', reportRequestListener);
+    const reportResponsePromise = parent.page.waitForResponse((response) => response.request().method() === 'POST'
+      && response.url().endsWith('/api/finance/card-payment-reports'));
+    const reportButton = parent.page.getByTestId('parent-payment-submit');
+    await Promise.allSettled([
+      reportButton.click(),
+      reportButton.click({ timeout: 1_000 }),
+    ]);
+    const reportResponse = await reportResponsePromise;
+    parent.page.off('request', reportRequestListener);
+    expect(reportResponse.ok(), await reportResponse.text()).toBeTruthy();
+    expect(reportRequestCount).toBe(1);
+    const report = (await reportResponse.json()).report;
+    expect(report.status).toBe('unresolved');
+
+    for (const page of [manager.page, superAdmin.page]) {
+      await expect(page.getByTestId(`finance-card-report-${report.id}`)).toContainText(
+        student.first_name,
+        { timeout: LIVE_TIMEOUT_MS },
+      );
+      await expect(page.getByTestId(`finance-card-report-${report.id}`)).toContainText('100,000');
+    }
+    await expect(managerB.page.getByTestId(`finance-card-report-${report.id}`)).toHaveCount(0);
+    await expect(parent.page.getByTestId(`parent-payment-report-${report.id}`)).toContainText(
+      'unresolved',
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    expect(await qaDb.collection('finance_card_payment_notifications').countDocuments({
+      payment_report_id: report.id,
+      event: 'card_payment_reported',
+    })).toBe(2);
+
+    const positionWhileUnresolved = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    const invoiceWhileUnresolved = await qaDb.collection('finance_invoices').findOne({
+      _id: new ObjectId(finalizedInvoice.id),
+    });
+    expect(positionWhileUnresolved.card_transfer_received_uzs).toBe(positionBeforeReport.card_transfer_received_uzs);
+    expect(positionWhileUnresolved.total_collections_uzs).toBe(positionBeforeReport.total_collections_uzs);
+    expect(positionWhileUnresolved.receivables_uzs).toBe(positionBeforeReport.receivables_uzs);
+    expect(invoiceWhileUnresolved?.amount_paid_uzs).toBe(invoiceBeforeReport?.amount_paid_uzs);
+    expect(await qaDb.collection('finance_receipts').countDocuments({})).toBe(0);
+
+    await manager.page.getByTestId(`finance-card-report-confirm-${report.id}`).click();
+    await expectCompactActionModal(manager.page);
+    await manager.page.getByTestId(ids.cardReportReason).fill(
+      'Matched amount, timestamp and destination in Click history',
+    );
+    let resolutionRequestCount = 0;
+    const resolutionRequestListener = (candidate: any) => {
+      if (candidate.method() === 'POST' && candidate.url().endsWith(`/api/finance/card-payment-reports/${report.id}/resolve`)) {
+        resolutionRequestCount += 1;
+      }
+    };
+    manager.page.on('request', resolutionRequestListener);
+    const resolutionResponsePromise = manager.page.waitForResponse((response) => response.request().method() === 'POST'
+      && response.url().endsWith(`/api/finance/card-payment-reports/${report.id}/resolve`));
+    const resolveButton = manager.page.getByTestId(ids.cardReportResolve);
+    await Promise.allSettled([
+      resolveButton.click(),
+      resolveButton.click({ timeout: 1_000 }),
+    ]);
+    const resolutionResponse = await resolutionResponsePromise;
+    manager.page.off('request', resolutionRequestListener);
+    expect(resolutionResponse.ok(), await resolutionResponse.text()).toBeTruthy();
+    expect(resolutionRequestCount).toBe(1);
+
+    await expect(manager.page.getByTestId(`finance-card-report-history-${report.id}`)).toContainText(
+      'confirmed',
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    await expect(superAdmin.page.getByTestId(`finance-card-report-history-${report.id}`)).toContainText(
+      'confirmed',
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    await expect(parent.page.getByTestId(`parent-payment-report-${report.id}`)).toContainText(
+      'confirmed',
+      { timeout: LIVE_TIMEOUT_MS },
+    );
+    const receipt = await qaDb.collection('finance_receipts').findOne({ payment_report_id: report.id });
+    expect(receipt?.payment_method).toBe('personal_card_transfer');
+    expect(receipt?.cash_shift_id).toBeUndefined();
+    expect(await qaDb.collection('finance_receipts').countDocuments({ payment_report_id: report.id })).toBe(1);
+    const positionAfterConfirmation = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    expect(Number(positionAfterConfirmation.card_transfer_received_uzs)
+      - Number(positionBeforeReport.card_transfer_received_uzs)).toBe(amount);
+    expect(Number(positionAfterConfirmation.total_collections_uzs)
+      - Number(positionBeforeReport.total_collections_uzs)).toBe(amount);
+    expect(Number(positionAfterConfirmation.receivables_uzs)
+      - Number(positionBeforeReport.receivables_uzs)).toBe(-amount);
+    expect(positionAfterConfirmation.cash_received_uzs).toBe(positionBeforeReport.cash_received_uzs);
+    expect(positionAfterConfirmation.cashbox_position_uzs).toBe(positionBeforeReport.cashbox_position_uzs);
+    expect(positionAfterConfirmation.net_tuition_uzs).toBe(positionBeforeReport.net_tuition_uzs);
+    expect(positionAfterConfirmation.accrued_operating_profit_uzs).toBe(positionBeforeReport.accrued_operating_profit_uzs);
+    await expectPosition(manager.page, positionAfterConfirmation);
+    await expectPosition(
+      superAdmin.page,
+      await apiGet<Position>(request, superToken, `/finance/position?service_month=${month}`),
+    );
+    focusedEvidence.push({
+      workflow: 'parent_personal_card_report_and_confirmation',
+      unresolved_financial_delta_uzs: 0,
+      confirmed_collection_delta_uzs: amount,
+      report_rapid_click_request_count: reportRequestCount,
+      confirmation_rapid_click_request_count: resolutionRequestCount,
+      staff_notifications: 2,
+      manager_branch_isolation: true,
+      parent_live_status: 'confirmed',
     });
   });
 
@@ -775,9 +986,9 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       request,
       receptionToken,
       '/finance/receipts?limit=100',
-      (rows) => rows.length === 1,
+      (rows) => rows.filter((row) => (row.payment_method || 'cash') === 'cash').length === 1,
     );
-    const firstReceipt = receipts[0];
+    const firstReceipt = receipts.find((row) => (row.payment_method || 'cash') === 'cash');
     for (const page of [manager.page, superAdmin.page, reception.page]) {
       await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-receipt-row-${firstReceipt.id}`)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
@@ -800,9 +1011,9 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       request,
       receptionToken,
       '/finance/receipts?limit=100',
-      (rows) => rows.length === 2,
+      (rows) => rows.filter((row) => (row.payment_method || 'cash') === 'cash').length === 2,
     );
-    secondReceipt = receipts.find((row) => row.id !== firstReceipt.id);
+    secondReceipt = receipts.find((row) => (row.payment_method || 'cash') === 'cash' && row.id !== firstReceipt.id);
     managerPosition = await apiGet<Position>(request, managerToken, `/finance/position?service_month=${month}`);
     expect(managerPosition.advance_balances_uzs).toBe(50_000);
     expect(managerPosition.receivables_uzs).toBe(0);

@@ -14,6 +14,7 @@ from pathlib import Path
 import sys
 import unittest
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from httpx import ASGITransport, AsyncClient
@@ -50,6 +51,7 @@ from finance_qa.mongo_support import (  # noqa: E402
     QA_PASSWORD,
     QA_USERS,
     open_qa_database,
+    seed_finance_browser_fixture,
     seed_finance_qa_database,
 )
 
@@ -469,6 +471,248 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(position["teacher_salary_outstanding_uzs"], 180_000)
         self.assertEqual(position["cashbox_position_uzs"], 500_000)
         self.assertEqual(position["accrued_operating_profit_uzs"], 270_000)
+
+    async def test_parent_card_report_is_pending_until_scoped_staff_confirmation(self):
+        """A parent's claim is not money until an authorized human verifies it."""
+        browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
+        branch_id = self.fixture["branch_a_id"]
+        student_id = browser_fixture["student_id"]
+        service_month = date.today().strftime("%Y-%m")
+        month_start = date.fromisoformat(f"{service_month}-01")
+        now = datetime.utcnow()
+        invoice = {
+            "_id": ObjectId(),
+            "invoice_number": f"INV-{service_month.replace('-', '')}-CARD-QA",
+            "student_id": student_id,
+            "service_month": service_month,
+            "branch_id": branch_id,
+            "status": "finalized",
+            "gross_tuition_uzs": 450_000,
+            "discount_amount_uzs": 0,
+            "amount_due_uzs": 450_000,
+            "amount_paid_uzs": 0,
+            "balance_uzs": 450_000,
+            "payment_status": "unpaid",
+            "due_date": date(month_start.year, month_start.month, 5).isoformat(),
+            "finalized_at": now,
+            "revision": 1,
+        }
+        await self.db.finance_invoices.insert_one(invoice)
+
+        manager_a_headers = await self.login(QA_USERS["manager_a"])
+        manager_b_headers = await self.login(QA_USERS["manager_b"])
+        super_headers = await self.login(QA_USERS["super_admin"])
+        parent_headers = await self.login(QA_USERS["parent_a"])
+
+        destination_response = await self.http.post(
+            "/api/finance/payment-destinations",
+            json={
+                "provider": "click",
+                "card_number": "8600 1234 1234 1234",
+                "cardholder_name": "NURIKS TEST OWNER",
+                "label": "QA Click card",
+                "branch_id": self.fixture["branch_b_id"],
+                "idempotency_key": "qa:card-destination:create:a",
+            },
+            headers=manager_a_headers,
+        )
+        self.assertEqual(destination_response.status_code, 200, destination_response.text)
+        destination_body = destination_response.json()
+        destination_id = destination_body["destination"]["id"]
+        self.assertEqual(destination_body["destination"]["branch_id"], branch_id)
+        self.assertEqual(destination_body["destination"]["card_number"], "8600123412341234")
+
+        stored_destination = await self.db.finance_payment_destinations.find_one(
+            {"_id": ObjectId(destination_id)}
+        )
+        self.assertNotIn("8600123412341234", str(stored_destination))
+        parent_destinations = await self.http.get(
+            "/api/finance/payment-destinations", headers=parent_headers
+        )
+        self.assertEqual(parent_destinations.status_code, 200, parent_destinations.text)
+        self.assertEqual(parent_destinations.json()[0]["card_number"], "8600123412341234")
+        manager_b_destinations = await self.http.get(
+            "/api/finance/payment-destinations", headers=manager_b_headers
+        )
+        self.assertEqual(manager_b_destinations.status_code, 200, manager_b_destinations.text)
+        self.assertEqual(manager_b_destinations.json(), [])
+
+        paid_at = datetime.now(ZoneInfo("Asia/Tashkent")).replace(second=0, microsecond=0)
+        report_payload = {
+            "student_id": student_id,
+            "destination_id": destination_id,
+            "amount_uzs": 200_000,
+            "paid_at": paid_at.isoformat(),
+            "idempotency_key": "qa:card-report:piece-1",
+        }
+        reported = await self.http.post(
+            "/api/finance/card-payment-reports",
+            json=report_payload,
+            headers=parent_headers,
+        )
+        replay = await self.http.post(
+            "/api/finance/card-payment-reports",
+            json=report_payload,
+            headers=parent_headers,
+        )
+        self.assertEqual(reported.status_code, 200, reported.text)
+        self.assertEqual(reported.json()["report"]["status"], "unresolved")
+        self.assertTrue(replay.json()["idempotent_replay"])
+        report_id = reported.json()["report"]["id"]
+        self.assertEqual(
+            await self.db.finance_card_payment_reports.count_documents({}), 1
+        )
+        self.assertEqual(
+            await self.db.finance_card_payment_notifications.count_documents(
+                {"payment_report_id": report_id, "event": "card_payment_reported"}
+            ),
+            2,
+        )
+
+        pending_invoice = await self.db.finance_invoices.find_one({"_id": invoice["_id"]})
+        self.assertEqual(pending_invoice["amount_paid_uzs"], 0)
+        self.assertEqual(await self.db.finance_receipts.count_documents({}), 0)
+        pending_position = (
+            await self.http.get(
+                "/api/finance/position",
+                params={"service_month": service_month},
+                headers=manager_a_headers,
+            )
+        ).json()
+        self.assertEqual(pending_position["card_transfer_received_uzs"], 0)
+        self.assertEqual(pending_position["total_collections_uzs"], 0)
+        self.assertEqual(pending_position["receivables_uzs"], 450_000)
+
+        manager_b_list = await self.http.get(
+            "/api/finance/card-payment-reports", headers=manager_b_headers
+        )
+        self.assertEqual(manager_b_list.json(), [])
+        forbidden = await self.http.post(
+            f"/api/finance/card-payment-reports/{report_id}/resolve",
+            json={
+                "decision": "confirm",
+                "reason": "Should not cross branches",
+                "idempotency_key": "qa:card-resolution:forbidden",
+            },
+            headers=manager_b_headers,
+        )
+        self.assertEqual(forbidden.status_code, 403, forbidden.text)
+        self.assertEqual(await self.db.finance_receipts.count_documents({}), 0)
+
+        manager_resolution_payload = {
+            "decision": "confirm",
+            "reason": "Matched amount, timestamp and destination in Click history",
+            "idempotency_key": "qa:card-resolution:confirm-1",
+        }
+        super_resolution_payload = {
+            **manager_resolution_payload,
+            "idempotency_key": "qa:card-resolution:confirm-concurrent",
+        }
+        resolution_url = f"/api/finance/card-payment-reports/{report_id}/resolve"
+        outcomes = await asyncio.gather(
+            self.http.post(
+                resolution_url,
+                json=manager_resolution_payload,
+                headers=manager_a_headers,
+            ),
+            self.http.post(
+                resolution_url,
+                json=super_resolution_payload,
+                headers=super_headers,
+            ),
+        )
+        successful = [response for response in outcomes if response.status_code == 200]
+        conflicted = [response for response in outcomes if response.status_code == 409]
+        self.assertEqual(len(successful), 1, [response.text for response in outcomes])
+        self.assertEqual(len(conflicted), 1, [response.text for response in outcomes])
+        confirmed = successful[0]
+        successful_payload = (
+            manager_resolution_payload
+            if outcomes[0].status_code == 200
+            else super_resolution_payload
+        )
+        confirmed_replay = await self.http.post(
+            resolution_url,
+            json=successful_payload,
+            headers=(manager_a_headers if outcomes[0].status_code == 200 else super_headers),
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["report"]["status"], "confirmed")
+        self.assertTrue(confirmed_replay.json()["idempotent_replay"])
+        self.assertEqual(await self.db.finance_receipts.count_documents({}), 1)
+        receipt = await self.db.finance_receipts.find_one({"payment_report_id": report_id})
+        self.assertEqual(receipt["payment_method"], "personal_card_transfer")
+        self.assertEqual(receipt["payment_provider"], "click")
+        self.assertNotIn("cash_shift_id", receipt)
+        self.assertEqual(receipt["amount_uzs"], 200_000)
+
+        paid_invoice = await self.db.finance_invoices.find_one({"_id": invoice["_id"]})
+        self.assertEqual(paid_invoice["amount_paid_uzs"], 200_000)
+        self.assertEqual(paid_invoice["balance_uzs"], 250_000)
+        self.assertEqual(paid_invoice["payment_status"], "partial")
+        confirmed_position = (
+            await self.http.get(
+                "/api/finance/position",
+                params={"service_month": service_month},
+                headers=manager_a_headers,
+            )
+        ).json()
+        self.assertEqual(confirmed_position["cash_received_uzs"], 0)
+        self.assertEqual(confirmed_position["card_transfer_received_uzs"], 200_000)
+        self.assertEqual(confirmed_position["total_collections_uzs"], 200_000)
+        self.assertEqual(confirmed_position["cashbox_position_uzs"], 0)
+        self.assertEqual(confirmed_position["receivables_uzs"], 250_000)
+
+        parent_reports = await self.http.get(
+            "/api/finance/card-payment-reports", headers=parent_headers
+        )
+        self.assertEqual(parent_reports.json()[0]["status"], "confirmed")
+        super_reports = await self.http.get(
+            "/api/finance/card-payment-reports", headers=super_headers
+        )
+        self.assertEqual(super_reports.json()[0]["status"], "confirmed")
+
+        reversed_response = await self.http.post(
+            f"/api/finance/receipts/{receipt['_id']}/reverse",
+            json={
+                "reason": "QA verified card-transfer reversal",
+                "idempotency_key": "qa:card-receipt:reverse-1",
+            },
+            headers=super_headers,
+        )
+        self.assertEqual(reversed_response.status_code, 200, reversed_response.text)
+        restored_invoice = await self.db.finance_invoices.find_one({"_id": invoice["_id"]})
+        self.assertEqual(restored_invoice["amount_paid_uzs"], 0)
+        self.assertEqual(restored_invoice["balance_uzs"], 450_000)
+        reversed_receipt = await self.db.finance_receipts.find_one({"_id": receipt["_id"]})
+        self.assertEqual(reversed_receipt["status"], "reversed")
+
+        rejected_report = await self.http.post(
+            "/api/finance/card-payment-reports",
+            json={
+                **report_payload,
+                "amount_uzs": 25_000,
+                "idempotency_key": "qa:card-report:reject",
+            },
+            headers=parent_headers,
+        )
+        self.assertEqual(rejected_report.status_code, 200, rejected_report.text)
+        rejected_report_id = rejected_report.json()["report"]["id"]
+        rejected = await self.http.post(
+            f"/api/finance/card-payment-reports/{rejected_report_id}/resolve",
+            json={
+                "decision": "reject",
+                "reason": "No matching transfer in the Click card history",
+                "idempotency_key": "qa:card-resolution:reject-1",
+            },
+            headers=manager_a_headers,
+        )
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        self.assertEqual(rejected.json()["report"]["status"], "rejected")
+        self.assertEqual(await self.db.finance_receipts.count_documents({}), 1)
+        rejected_invoice = await self.db.finance_invoices.find_one({"_id": invoice["_id"]})
+        self.assertEqual(rejected_invoice["amount_paid_uzs"], 0)
+        self.assertEqual(rejected_invoice["balance_uzs"], 450_000)
 
     async def test_change_stream_emits_only_scoped_invalidation_metadata(self):
         manager_a = await self.db.users.find_one({"login": QA_USERS["manager_a"]})

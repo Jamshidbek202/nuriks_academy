@@ -31,6 +31,16 @@ class GroupFormat(str, Enum):
     INDIVIDUAL = "individual"
 
 
+class PersonalCardProvider(str, Enum):
+    CLICK = "click"
+    PAYME = "payme"
+
+
+class CardPaymentDecision(str, Enum):
+    CONFIRM = "confirm"
+    REJECT = "reject"
+
+
 class ClosureKind(str, Enum):
     HOLIDAY = "holiday"
     UNEXPECTED = "unexpected"
@@ -182,6 +192,82 @@ class CashReceiptCreate(StrictFinanceModel):
     cash_shift_id: str = Field(min_length=1, max_length=100)
     notes: Optional[str] = Field(default=None, max_length=500)
     idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class PaymentDestinationCreate(StrictFinanceModel):
+    provider: PersonalCardProvider
+    card_number: str = Field(min_length=16, max_length=23)
+    cardholder_name: str = Field(min_length=2, max_length=120)
+    label: Optional[str] = Field(default=None, max_length=100)
+    branch_id: Optional[str] = Field(default=None, max_length=100)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+    @field_validator("card_number")
+    @classmethod
+    def normalize_card_number(cls, value: str) -> str:
+        normalized = "".join(character for character in value if character.isdigit())
+        if len(normalized) != 16:
+            raise ValueError("Receiving card number must contain exactly 16 digits")
+        return normalized
+
+    @field_validator("cardholder_name")
+    @classmethod
+    def normalize_cardholder_name(cls, value: str) -> str:
+        normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("Cardholder name is required")
+        return normalized
+
+
+class PaymentDestinationUpdate(StrictFinanceModel):
+    provider: Optional[PersonalCardProvider] = None
+    card_number: Optional[str] = Field(default=None, min_length=16, max_length=23)
+    cardholder_name: Optional[str] = Field(default=None, min_length=2, max_length=120)
+    label: Optional[str] = Field(default=None, max_length=100)
+    is_active: Optional[bool] = None
+    reason: str = Field(min_length=5, max_length=500)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+    @field_validator("card_number")
+    @classmethod
+    def normalize_optional_card_number(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = "".join(character for character in value if character.isdigit())
+        if len(normalized) != 16:
+            raise ValueError("Receiving card number must contain exactly 16 digits")
+        return normalized
+
+    @field_validator("cardholder_name")
+    @classmethod
+    def normalize_optional_cardholder_name(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        normalized = " ".join(value.split())
+        if len(normalized) < 2:
+            raise ValueError("Cardholder name is required")
+        return normalized
+
+
+class CardPaymentReportCreate(StrictFinanceModel):
+    student_id: str = Field(min_length=1, max_length=100)
+    destination_id: str = Field(min_length=1, max_length=100)
+    amount_uzs: StrictInt = Field(gt=0, le=1_000_000_000)
+    paid_at: datetime
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+
+class CardPaymentReportResolution(StrictFinanceModel):
+    decision: CardPaymentDecision
+    reason: Optional[str] = Field(default=None, max_length=500)
+    idempotency_key: str = Field(min_length=8, max_length=200)
+
+    @model_validator(mode="after")
+    def require_rejection_reason(self):
+        if self.decision == CardPaymentDecision.REJECT:
+            if not self.reason or len(self.reason.strip()) < 5:
+                raise ValueError("A rejection reason of at least five characters is required")
+        return self
 
 
 class CashShiftOpen(StrictFinanceModel):

@@ -26,6 +26,11 @@ MANAGER_OPERATIONAL = {
     "preview_default_configuration",
     "list_policy_versions",
     "current_finance_pricing",
+    "list_payment_destinations",
+    "add_payment_destination",
+    "edit_payment_destination",
+    "list_card_payment_reports",
+    "resolve_reported_card_payment",
     "list_discount_entitlements",
     "add_group_finance_version",
     "list_group_finance_versions",
@@ -81,6 +86,11 @@ CRITICAL_MANAGER_BRANCH_SCOPES: Dict[str, str] = {
     "add_other_income": "branch_id",
     "get_financial_position": "branch_id",
     "override_student_finance_freeze": "_enforce_branch",
+    "list_payment_destinations": "_payment_destination_query",
+    "add_payment_destination": "branch_id",
+    "edit_payment_destination": "branch_id",
+    "list_card_payment_reports": "branch_id",
+    "resolve_reported_card_payment": "branch_id",
 }
 
 
@@ -158,7 +168,12 @@ def audit_finance_routes(route_file: Path) -> dict:
             problems.append(f"{name}: required manager workflow is missing")
             continue
         requirements = _require_role_expressions(function)
-        if not any("FINANCE_ROLES" in expression or "'manager'" in expression for expression in requirements):
+        if not any(
+            "FINANCE_ROLES" in expression
+            or "FINANCE_LIVE_ROLES" in expression
+            or "'manager'" in expression
+            for expression in requirements
+        ):
             problems.append(f"{name}: manager is no longer explicitly authorized")
 
     for name, required_guard in CRITICAL_MANAGER_BRANCH_SCOPES.items():

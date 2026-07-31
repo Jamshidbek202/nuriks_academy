@@ -43,6 +43,26 @@ const LEAD_STATUSES = [
   { value: 'lost', label: 'Lost', color: COLORS.error },
 ];
 
+type AccountAccessMode = 'student_only' | 'parent_only' | 'separate';
+
+const ACCOUNT_ACCESS_OPTIONS: { value: AccountAccessMode; label: string; detail: string }[] = [
+  {
+    value: 'student_only',
+    label: 'Student only',
+    detail: 'The student receives one invitation and uses their own phone.',
+  },
+  {
+    value: 'parent_only',
+    label: 'Parent manages access',
+    detail: 'The parent receives the invitation and sees this child. The student has no login yet.',
+  },
+  {
+    value: 'separate',
+    label: 'Student + parent',
+    detail: 'Two different phone numbers create two separate accounts and invitations.',
+  },
+];
+
 export default function LeadsScreen() {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,6 +89,8 @@ export default function LeadsScreen() {
     phone: '',
     age: '',
     parent_name: '',
+    parent_phone: '',
+    account_access_mode: 'student_only' as AccountAccessMode,
     interested_course: '',
     source: 'instagram',
     notes: '',
@@ -109,6 +131,22 @@ export default function LeadsScreen() {
       return;
     }
 
+    if (formData.account_access_mode !== 'student_only' && !formData.parent_name.trim()) {
+      showAlert('Parent details required', 'Enter the parent name for parent account access.');
+      return;
+    }
+    if (formData.account_access_mode === 'separate' && !formData.parent_phone.trim()) {
+      showAlert('Parent phone required', 'Separate student and parent accounts need two phone numbers.');
+      return;
+    }
+    if (
+      formData.account_access_mode === 'separate'
+      && formData.phone.replace(/\D/g, '') === formData.parent_phone.replace(/\D/g, '')
+    ) {
+      showAlert('Different phones required', 'One phone cannot be used for both the student and parent login.');
+      return;
+    }
+
     const age = formData.age ? Number(formData.age) : null;
     if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) {
       showAlert('Invalid age', 'Age must be a whole number between 1 and 100.');
@@ -118,6 +156,8 @@ export default function LeadsScreen() {
     try {
       await api.post('/leads', {
         ...formData,
+        parent_name: formData.account_access_mode === 'student_only' ? null : formData.parent_name.trim(),
+        parent_phone: formData.account_access_mode === 'separate' ? formData.parent_phone.trim() : null,
         age,
       });
       showAlert('Success', 'Lead created successfully');
@@ -207,6 +247,8 @@ export default function LeadsScreen() {
       phone: '',
       age: '',
       parent_name: '',
+      parent_phone: '',
+      account_access_mode: 'student_only',
       interested_course: '',
       source: 'instagram',
       notes: '',
@@ -356,8 +398,45 @@ export default function LeadsScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Phone *</Text>
+                <Text style={styles.label}>Who gets app access? *</Text>
+                <View style={styles.accessOptions}>
+                  {ACCOUNT_ACCESS_OPTIONS.map((option) => {
+                    const selected = formData.account_access_mode === option.value;
+                    return (
+                      <TouchableOpacity
+                        key={option.value}
+                        testID={`lead-access-${option.value}`}
+                        accessibilityRole="radio"
+                        accessibilityState={{ checked: selected }}
+                        style={[styles.accessOption, selected && styles.accessOptionSelected]}
+                        onPress={() => setFormData({
+                          ...formData,
+                          account_access_mode: option.value,
+                          parent_name: option.value === 'student_only' ? '' : formData.parent_name,
+                          parent_phone: option.value === 'separate' ? formData.parent_phone : '',
+                        })}
+                      >
+                        <Ionicons
+                          name={selected ? 'radio-button-on' : 'radio-button-off'}
+                          size={21}
+                          color={selected ? COLORS.gold : COLORS.textTertiary}
+                        />
+                        <View style={styles.accessOptionCopy}>
+                          <Text style={styles.accessOptionTitle}>{option.label}</Text>
+                          <Text style={styles.accessOptionDetail}>{option.detail}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              <View style={styles.formGroup}>
+                <Text style={styles.label}>
+                  {formData.account_access_mode === 'parent_only' ? 'Parent phone *' : 'Student phone *'}
+                </Text>
                 <TextInput
+                  testID="lead-primary-phone"
                   style={styles.input}
                   value={formData.phone}
                   onChangeText={(text) => setFormData({ ...formData, phone: text })}
@@ -379,16 +458,35 @@ export default function LeadsScreen() {
                 />
               </View>
 
-              <View style={styles.formGroup}>
-                <Text style={styles.label}>Parent Name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.parent_name}
-                  onChangeText={(text) => setFormData({ ...formData, parent_name: text })}
-                  placeholder="Enter parent name"
-                  placeholderTextColor={COLORS.textTertiary}
-                />
-              </View>
+              {formData.account_access_mode !== 'student_only' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Parent name *</Text>
+                  <TextInput
+                    testID="lead-parent-name"
+                    style={styles.input}
+                    value={formData.parent_name}
+                    onChangeText={(text) => setFormData({ ...formData, parent_name: text })}
+                    placeholder="Enter parent name"
+                    placeholderTextColor={COLORS.textTertiary}
+                  />
+                </View>
+              )}
+
+              {formData.account_access_mode === 'separate' && (
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Parent phone *</Text>
+                  <TextInput
+                    testID="lead-parent-phone"
+                    style={styles.input}
+                    value={formData.parent_phone}
+                    onChangeText={(text) => setFormData({ ...formData, parent_phone: text })}
+                    placeholder="+998901234568"
+                    placeholderTextColor={COLORS.textTertiary}
+                    keyboardType="phone-pad"
+                  />
+                  <Text style={styles.fieldHint}>Must differ from the student phone.</Text>
+                </View>
+              )}
 
               <View style={styles.formGroup}>
                 <Text style={styles.label}>Interested Course</Text>
@@ -470,6 +568,13 @@ export default function LeadsScreen() {
               <View style={styles.leadDetailBody}>
                 <Text style={styles.leadDetailName}>{selectedLead.first_name} {selectedLead.last_name}</Text>
                 <Text style={styles.leadDetailValue}>{selectedLead.phone}</Text>
+                <Text style={styles.leadDetailValue}>
+                  Access: {ACCOUNT_ACCESS_OPTIONS.find((option) => option.value === (
+                    selectedLead.account_access_mode || (selectedLead.parent_name ? 'parent_only' : 'student_only')
+                  ))?.label}
+                </Text>
+                {selectedLead.parent_name ? <Text style={styles.leadDetailValue}>Parent: {selectedLead.parent_name}</Text> : null}
+                {selectedLead.parent_phone ? <Text style={styles.leadDetailValue}>Parent phone: {selectedLead.parent_phone}</Text> : null}
                 {selectedLead.age ? <Text style={styles.leadDetailValue}>Age: {selectedLead.age}</Text> : null}
                 <Text style={styles.leadDetailValue}>Source: {selectedLead.source?.replace('_', ' ')}</Text>
                 {selectedLead.notes ? <Text style={styles.leadDetailNotes}>{selectedLead.notes}</Text> : null}
@@ -532,8 +637,11 @@ export default function LeadsScreen() {
             </Text>
             <Text style={styles.confirmDetails}>
               This will create:{'\n'}
-              • Student account with auto-generated ID{'\n'}
-              • Parent account (if parent name provided)
+              {leadToConvert?.account_access_mode === 'separate'
+                ? '• A student account and invitation\n• A separate parent account and invitation'
+                : (leadToConvert?.account_access_mode || (leadToConvert?.parent_name ? 'parent_only' : 'student_only')) === 'parent_only'
+                  ? '• A student profile with an auto-generated ID\n• One parent account that can view the child'
+                  : '• One student account and invitation'}
             </Text>
             <View style={styles.confirmButtons}>
               <TouchableOpacity
@@ -816,6 +924,37 @@ const styles = StyleSheet.create({
   formGroup: {
     marginBottom: SIZES.md,
   },
+  accessOptions: {
+    gap: SIZES.sm,
+  },
+  accessOption: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: SIZES.sm,
+    padding: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    borderColor: COLORS.marbleGray,
+    backgroundColor: COLORS.backgroundLight,
+  },
+  accessOptionSelected: {
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.gold + '14',
+  },
+  accessOptionCopy: {
+    flex: 1,
+  },
+  accessOptionTitle: {
+    color: COLORS.textPrimary,
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
+  },
+  accessOptionDetail: {
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontXs,
+    lineHeight: 17,
+    marginTop: 3,
+  },
   label: {
     fontSize: SIZES.fontSm,
     fontWeight: '600',
@@ -830,6 +969,11 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     borderWidth: 1,
     borderColor: COLORS.marbleGray,
+  },
+  fieldHint: {
+    color: COLORS.textTertiary,
+    fontSize: SIZES.fontXs,
+    marginTop: SIZES.xs,
   },
   textArea: {
     height: 100,

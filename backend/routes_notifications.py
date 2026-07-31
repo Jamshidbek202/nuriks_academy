@@ -51,6 +51,9 @@ NOTIFICATION_CATEGORIES = {
     "certificate": "academic",
     "payment_reminder": "payments",
     "payment_received": "payments",
+    "card_payment_reported": "payments",
+    "card_payment_confirmed": "payments",
+    "card_payment_rejected": "payments",
     "news_announcement": "news",
     "admin_broadcast": "system",
 }
@@ -63,6 +66,9 @@ PREFERENCE_BY_TYPE = {
     "attendance": "attendance_notifications",
     "payment_reminder": "payment_reminders",
     "payment_received": "payment_reminders",
+    "card_payment_reported": "payment_reminders",
+    "card_payment_confirmed": "payment_reminders",
+    "card_payment_rejected": "payment_reminders",
     "news_announcement": "news_announcements",
     "admin_broadcast": "admin_broadcasts",
 }
@@ -123,7 +129,13 @@ async def create_user_notification(
     user_id = str(user_id)
     preference_key = preference_key or PREFERENCE_BY_TYPE.get(notification_type)
     prefs = await db.notification_preferences.find_one({"user_id": user_id})
-    mandatory_financial = notification_type in {"payment_reminder", "payment_received"}
+    mandatory_financial = notification_type in {
+        "payment_reminder",
+        "payment_received",
+        "card_payment_reported",
+        "card_payment_confirmed",
+        "card_payment_rejected",
+    }
     if not mandatory_financial and preference_key and prefs and not prefs.get(preference_key, True):
         return None
 

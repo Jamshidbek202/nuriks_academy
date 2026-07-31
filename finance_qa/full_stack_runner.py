@@ -203,7 +203,7 @@ def main() -> None:
         )
         run_stage(
             report,
-            "four-session finance-wide live browser reconciliation",
+            "five-session finance-wide live browser reconciliation",
             ["npm", "run", "test:finance-e2e"],
             env,
             REPO_ROOT / "frontend",

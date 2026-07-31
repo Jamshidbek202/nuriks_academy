@@ -26,6 +26,7 @@ from finance_accounting import ensure_accounting_indexes  # noqa: E402
 from finance_controls import ensure_finance_control_indexes  # noqa: E402
 from finance_ledger import ensure_finance_ledger_indexes  # noqa: E402
 from finance_live import ensure_finance_live_indexes  # noqa: E402
+from finance_card_payments import ensure_card_payment_indexes  # noqa: E402
 from finance_models import (  # noqa: E402
     GroupFinanceVersionCreate,
     GroupFormat,
@@ -63,6 +64,7 @@ async def ensure_qa_indexes(db) -> None:
     await ensure_accounting_indexes(db)
     await ensure_finance_control_indexes(db)
     await ensure_finance_live_indexes(db)
+    await ensure_card_payment_indexes(db)
 
 
 async def seed_finance_qa_database(db) -> dict:

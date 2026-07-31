@@ -42,6 +42,8 @@ class LeadCreate(BaseModel):
     phone: str = Field(..., min_length=5, max_length=30)
     age: Optional[int] = Field(None, ge=1, le=100)
     parent_name: Optional[str] = Field(None, max_length=200)
+    parent_phone: Optional[str] = Field(None, min_length=5, max_length=30)
+    account_access_mode: Optional[Literal["student_only", "parent_only", "separate"]] = None
     interested_course: Optional[str] = None
     source: Literal["instagram", "telegram", "facebook", "tiktok", "referral", "banner", "walk_in", "website", "other"]
     notes: Optional[str] = Field(None, max_length=5000)
@@ -54,6 +56,8 @@ class LeadUpdate(BaseModel):
     phone: Optional[str] = None
     age: Optional[int] = Field(None, ge=1, le=100)
     parent_name: Optional[str] = None
+    parent_phone: Optional[str] = None
+    account_access_mode: Optional[Literal["student_only", "parent_only", "separate"]] = None
     interested_course: Optional[str] = None
     source: Optional[Literal["instagram", "telegram", "facebook", "tiktok", "referral", "banner", "walk_in", "website", "other"]] = None
     status: Optional[Literal["new_lead", "contacted", "trial_scheduled", "trial_completed", "negotiation", "enrolled", "lost"]] = None
@@ -61,6 +65,53 @@ class LeadUpdate(BaseModel):
     trial_lesson_date: Optional[datetime] = None
     assigned_to: Optional[str] = None
     referred_by_student_id: Optional[str] = None
+
+
+def lead_access_mode(lead: dict) -> str:
+    """Resolve older leads without changing their established account ownership."""
+    return lead.get("account_access_mode") or (
+        "parent_only" if lead.get("parent_name") else "student_only"
+    )
+
+
+def validate_lead_access_fields(lead: dict) -> tuple[str, str, Optional[str]]:
+    """Return the mode and normalized login phones before any account is written."""
+    mode = lead_access_mode(lead)
+    try:
+        contact_phone = normalize_phone(lead["phone"])
+    except PhoneValidationError as error:
+        raise HTTPException(status_code=400, detail=f"Contact phone: {error}") from error
+
+    if mode in {"parent_only", "separate"} and not lead.get("parent_name"):
+        raise HTTPException(
+            status_code=400,
+            detail="Parent name is required when the parent receives account access",
+        )
+
+    parent_phone = None
+    if mode == "parent_only":
+        raw_parent_phone = lead.get("parent_phone") or lead["phone"]
+        try:
+            parent_phone = normalize_phone(raw_parent_phone)
+        except PhoneValidationError as error:
+            raise HTTPException(status_code=400, detail=f"Parent phone: {error}") from error
+    elif mode == "separate":
+        if not lead.get("parent_phone"):
+            raise HTTPException(
+                status_code=400,
+                detail="Parent phone is required for separate student and parent accounts",
+            )
+        try:
+            parent_phone = normalize_phone(lead["parent_phone"])
+        except PhoneValidationError as error:
+            raise HTTPException(status_code=400, detail=f"Parent phone: {error}") from error
+        if parent_phone == contact_phone:
+            raise HTTPException(
+                status_code=409,
+                detail="Student and parent accounts need different phone numbers",
+            )
+
+    return mode, contact_phone, parent_phone
 
 # ==================== CREATE LEAD ====================
 
@@ -95,6 +146,10 @@ async def create_lead(
                 raise HTTPException(status_code=404, detail="Referring student not found")
             if target_branch_id and referrer.get("branch_id") != target_branch_id:
                 raise HTTPException(status_code=409, detail="Referring student belongs to another branch")
+        account_access_mode, contact_phone, parent_phone = validate_lead_access_fields(
+            lead_data.model_dump()
+        )
+
         # Get next lead ID
         result = await db.counters.find_one_and_update(
             {"_id": "lead_id"},
@@ -109,9 +164,11 @@ async def create_lead(
             "lead_id": lead_id,
             "first_name": lead_data.first_name,
             "last_name": lead_data.last_name,
-            "phone": lead_data.phone,
+            "phone": contact_phone,
             "age": lead_data.age,
             "parent_name": lead_data.parent_name,
+            "parent_phone": parent_phone,
+            "account_access_mode": account_access_mode,
             "interested_course": lead_data.interested_course,
             "source": lead_data.source,
             "status": "new_lead",
@@ -375,19 +432,25 @@ async def convert_lead_to_student(
         from auth import generate_student_id
         student_id = generate_student_id(result["seq"])
         
-        # Create parent if parent_name exists
-        try:
-            contact_phone = normalize_phone(lead["phone"])
-        except PhoneValidationError as error:
-            raise HTTPException(status_code=400, detail=f"Lead phone: {error}") from error
+        account_access_mode, contact_phone, parent_phone = validate_lead_access_fields(lead)
+        student_login_phone = (
+            contact_phone if account_access_mode in {"student_only", "separate"} else None
+        )
+
+        # Validate ownership before creating either account. One phone can own
+        # one login only; a parent-managed child has a profile but no login phone.
+        existing_parent_user = None
+        if parent_phone:
+            existing_parent_user = await db.users.find_one({"phone_normalized": parent_phone})
+            if existing_parent_user and existing_parent_user.get("role") != "parent":
+                raise HTTPException(status_code=409, detail="Parent phone is already used by another account")
+        if student_login_phone and await db.users.find_one({"phone_normalized": student_login_phone}):
+            raise HTTPException(status_code=409, detail="Student phone is already used by another account")
 
         parent_id = None
         invitation_users = []
-        if lead.get("parent_name"):
+        if account_access_mode in {"parent_only", "separate"}:
             # Check if parent already exists
-            existing_parent_user = await db.users.find_one({"phone_normalized": contact_phone})
-            if existing_parent_user and existing_parent_user.get("role") != "parent":
-                raise HTTPException(status_code=409, detail="Lead phone is already used by another account")
             existing_parent = None
             if existing_parent_user:
                 existing_parent = await db.parents.find_one({"user_id": str(existing_parent_user["_id"])})
@@ -403,7 +466,7 @@ async def convert_lead_to_student(
                         invitation_users.append(parent_user)
                 else:
                     parent_user = invited_user_document(
-                        phone=contact_phone,
+                        phone=parent_phone,
                         full_name=lead["parent_name"],
                         role="parent",
                         email=None,
@@ -421,7 +484,7 @@ async def convert_lead_to_student(
                     "user_id": str(parent_user_id),
                     "first_name": parent_names[0],
                     "last_name": parent_names[-1] if len(parent_names) > 1 else "",
-                    "phone": contact_phone,
+                    "phone": parent_phone,
                     "email": None,
                     "student_ids": [],
                     "branch_id": student_branch_id,
@@ -430,7 +493,7 @@ async def convert_lead_to_student(
                 parent_result = await db.parents.insert_one(parent_profile)
                 parent_id = str(parent_result.inserted_id)
         
-        if lead.get("parent_name"):
+        if not student_login_phone:
             student_user = phone_required_user_document(
                 login=student_id.lower(),
                 full_name=f"{lead['first_name']} {lead['last_name']}",
@@ -441,10 +504,8 @@ async def convert_lead_to_student(
                 created_by=str(current_user["_id"]),
             )
         else:
-            if await db.users.find_one({"phone_normalized": contact_phone}):
-                raise HTTPException(status_code=409, detail="Lead phone is already used by another account")
             student_user = invited_user_document(
-                phone=contact_phone,
+                phone=student_login_phone,
                 full_name=f"{lead['first_name']} {lead['last_name']}",
                 role="student",
                 email=None,
@@ -454,7 +515,7 @@ async def convert_lead_to_student(
             )
         student_user_result = await db.users.insert_one(student_user)
         student_user["_id"] = student_user_result.inserted_id
-        if not lead.get("parent_name"):
+        if student_login_phone:
             invitation_users.append(student_user)
         
         # Get interested course ID
@@ -480,7 +541,7 @@ async def convert_lead_to_student(
             "first_name": lead["first_name"],
             "last_name": lead["last_name"],
             "date_of_birth": None,
-            "phone": contact_phone,
+            "phone": student_login_phone,
             "email": None,
             "photo": None,
             "address": None,
@@ -549,6 +610,7 @@ async def convert_lead_to_student(
             "telegram_invites": telegram_invites,
             "student_account_status": student_user.get("account_status"),
             "parent_account_status": "pending_invite" if parent_id else None,
+            "account_access_mode": account_access_mode,
         }
         
     except HTTPException:

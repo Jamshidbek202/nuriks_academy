@@ -98,6 +98,15 @@ const tashkentDate = () => {
 const formatUzs = (amount?: number) =>
   amount == null ? 'Not configured' : `${new Intl.NumberFormat(getActiveLocale()).format(amount)} UZS`;
 
+const PROGRAM_LABELS: Record<ProgramCode, string> = {
+  general: 'General English',
+  pre_ielts: 'Pre-IELTS',
+  ielts: 'IELTS',
+};
+
+const programLabel = (program?: ProgramCode | null) =>
+  program ? PROGRAM_LABELS[program] : 'Not configured';
+
 export default function GroupsScreen() {
   const { user } = useAuth();
   const canCreateGroup = ['super_admin', 'manager'].includes(user?.role || '');
@@ -245,12 +254,12 @@ export default function GroupsScreen() {
   const handleCreateGroup = async () => {
     if (
       !formData.name || !formData.course_id || !formData.teacher_id
-      || !formData.program_code || !formData.group_format
+      || !selectedCourse?.program_code || !formData.group_format
       || formData.schedule.length === 0
     ) {
       Alert.alert(
         'Missing billing information',
-        'Name, course, teacher, program, format, and at least one exact schedule slot are required.',
+        'Name, course, teacher, class format, and at least one exact schedule slot are required.',
       );
       return;
     }
@@ -277,12 +286,12 @@ export default function GroupsScreen() {
   const handleUpdateGroup = async () => {
     if (
       !selectedGroup || !formData.name || !formData.course_id || !formData.teacher_id
-      || !formData.program_code || !formData.group_format
+      || !selectedCourse?.program_code || !formData.group_format
       || formData.schedule.length === 0
     ) {
       Alert.alert(
         'Missing billing information',
-        'Name, course, teacher, program, format, and at least one exact schedule slot are required.',
+        'Name, course, teacher, class format, and at least one exact schedule slot are required.',
       );
       return;
     }
@@ -556,9 +565,11 @@ export default function GroupsScreen() {
   );
 
   const selectedCourse = courses.find((c) => c.id === formData.course_id);
-  const selectedTariff = pricingPolicies.find(
-    (row) => row.policy_key === `tariff:${formData.program_code}:${formData.group_format}`,
-  );
+  const selectedTariff = selectedCourse?.program_code
+    ? pricingPolicies.find(
+        (row) => row.policy_key === `tariff:${selectedCourse.program_code}:${formData.group_format}`,
+      )
+    : undefined;
   const selectedTeacherShare = teacherSharePolicies.find(
     (row) => row.policy_key === `teacher_share:${formData.group_format}`,
   );
@@ -1024,7 +1035,7 @@ export default function GroupsScreen() {
                       ...formData,
                       course_id: value,
                       level: '',
-                      program_code: course?.program_code || formData.program_code,
+                      program_code: course?.program_code || 'general',
                     });
                   }}
                   style={styles.picker}
@@ -1092,28 +1103,8 @@ export default function GroupsScreen() {
 
               <Text style={styles.formSectionTitle}>Billing setup</Text>
               <Text style={styles.formHint}>
-                Program, format, price date, and schedule are versioned. Existing finalized bills never change.
+                The selected course determines its billing category. Format, price date, and schedule are versioned; finalized bills never change.
               </Text>
-
-              <Text style={styles.formLabel}>Program *</Text>
-              {!!selectedCourse?.program_code && (
-                <Text style={styles.formHint}>Set automatically from the selected course.</Text>
-              )}
-              <View style={styles.pickerContainer}>
-                <Picker
-                  testID="group-program-picker"
-                  selectedValue={formData.program_code}
-                  onValueChange={(value: ProgramCode) => setFormData({ ...formData, program_code: value })}
-                  enabled={!selectedCourse?.program_code}
-                  style={styles.picker}
-                  itemStyle={styles.pickerItem}
-                  dropdownIconColor={COLORS.gold}
-                >
-                  <LocalizedPickerItem label="General English" value="general" />
-                  <LocalizedPickerItem label="Pre-IELTS" value="pre_ielts" />
-                  <LocalizedPickerItem label="IELTS" value="ielts" />
-                </Picker>
-              </View>
 
               <Text style={styles.formLabel}>Class format *</Text>
               <View style={styles.pickerContainer}>
@@ -1138,6 +1129,12 @@ export default function GroupsScreen() {
               </View>
 
               <View style={styles.financePreview}>
+                <View style={styles.financePreviewRow}>
+                  <Text style={styles.financePreviewLabel}>Course billing category</Text>
+                  <Text testID="group-derived-program" style={styles.financePreviewValue}>
+                    {programLabel(selectedCourse?.program_code)}
+                  </Text>
+                </View>
                 <View style={styles.financePreviewRow}>
                   <Text style={styles.financePreviewLabel}>Effective monthly price</Text>
                   <Text style={styles.financePreviewValue}>

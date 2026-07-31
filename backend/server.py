@@ -106,6 +106,7 @@ async def startup_event():
     from finance_accounting import ensure_accounting_indexes
     from finance_controls import ensure_finance_control_indexes
     from finance_live import ensure_finance_live_indexes
+    from finance_card_payments import ensure_card_payment_indexes
     from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users
     from telegram_auth import ensure_telegram_indexes
     from routes_courses import ensure_course_indexes
@@ -144,6 +145,7 @@ async def startup_event():
     await ensure_accounting_indexes(db)
     await ensure_finance_control_indexes(db)
     await ensure_finance_live_indexes(db)
+    await ensure_card_payment_indexes(db)
     try:
         reconciliation = await reconcile_archived_student_accounts(db)
         logger.info("Student account reconciliation completed: %s", reconciliation)

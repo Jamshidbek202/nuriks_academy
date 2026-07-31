@@ -821,6 +821,13 @@ async def financial_position(db, service_month: str, branch_id: Optional[str]) -
         "received_at": {"$gte": utc_start, "$lt": utc_end},
         **branch_query,
     }).to_list(100_000)
+    cash_receipts = [
+        row for row in receipts if row.get("payment_method", "cash") == "cash"
+    ]
+    card_transfer_receipts = [
+        row for row in receipts
+        if row.get("payment_method") == "personal_card_transfer"
+    ]
     expense_payments = await db.finance_expense_payments.find({
         "paid_at": {"$gte": utc_start, "$lt": utc_end},
         "status": {"$ne": "reversed"},
@@ -872,7 +879,9 @@ async def financial_position(db, service_month: str, branch_id: Optional[str]) -
         "centre_funded_discounts_uzs": discounts,
         "net_tuition_uzs": net_tuition,
         "other_income_uzs": income_accrued,
-        "cash_received_uzs": _sum(receipts, "amount_uzs"),
+        "cash_received_uzs": _sum(cash_receipts, "amount_uzs"),
+        "card_transfer_received_uzs": _sum(card_transfer_receipts, "amount_uzs"),
+        "total_collections_uzs": _sum(receipts, "amount_uzs"),
         "receivables_uzs": _sum(all_receivables, "balance_uzs"),
         "overdue_uzs": _sum(overdue, "balance_uzs"),
         "advance_balances_uzs": _sum(credits, "remaining_amount_uzs"),

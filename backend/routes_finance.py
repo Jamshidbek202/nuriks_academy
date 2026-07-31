@@ -42,6 +42,10 @@ from finance_models import (
     StudentFreezeOverrideCreate,
     DailyFinanceRunRequest,
     DiscountEntitlementCreate,
+    PaymentDestinationCreate,
+    PaymentDestinationUpdate,
+    CardPaymentReportCreate,
+    CardPaymentReportResolution,
     ACADEMY_TIMEZONE,
 )
 from finance_service import (
@@ -98,11 +102,21 @@ from finance_live import (
     issue_finance_live_ticket,
     stream_finance_changes,
 )
+from finance_card_payments import (
+    create_card_payment_report,
+    create_payment_destination,
+    notify_reporter_resolution,
+    notify_staff_payment_report,
+    resolve_card_payment_report,
+    serialize_payment_destination,
+    update_payment_destination,
+)
 
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
 security = HTTPBearer()
 FINANCE_ROLES = {"super_admin", "manager"}
+FINANCE_LIVE_ROLES = FINANCE_ROLES | {"reception", "parent", "student"}
 
 
 def _academy_today() -> date:
@@ -120,7 +134,7 @@ async def create_finance_live_ticket(
 ):
     from server import db
 
-    _require_role(current_user, FINANCE_ROLES | {"reception"})
+    _require_role(current_user, FINANCE_LIVE_ROLES)
     return await issue_finance_live_ticket(db, current_user)
 
 
@@ -133,7 +147,7 @@ async def finance_live_updates(websocket: WebSocket, ticket: str = Query(min_len
     if not current_user:
         await websocket.close(code=4401)
         return
-    if current_user.get("role") not in FINANCE_ROLES | {"reception"}:
+    if current_user.get("role") not in FINANCE_LIVE_ROLES:
         await websocket.close(code=4403)
         return
 
@@ -1176,6 +1190,298 @@ async def review_cash_shift_discrepancy(
             {"accepted": payload.accepted, "reason": payload.reason},
             request.client.host if request.client else None,
         )
+    return finance_document_to_json(result)
+
+
+async def _payment_destination_query(db, current_user: dict, include_inactive: bool) -> dict:
+    role = current_user.get("role")
+    status_query = {} if include_inactive and role in FINANCE_ROLES else {"status": "active"}
+    if role == "super_admin":
+        return status_query
+    if role == "manager":
+        return {
+            **status_query,
+            "$or": [
+                {"branch_id": current_user.get("branch_id")},
+                {"branch_id": None},
+            ],
+        }
+    if role == "student":
+        student = await db.students.find_one({
+            "user_id": str(current_user["_id"]),
+            "status": {"$ne": "archived"},
+        })
+        if not student:
+            return {"_id": {"$exists": False}}
+        return {
+            "status": "active",
+            "$or": [{"branch_id": student.get("branch_id")}, {"branch_id": None}],
+        }
+    if role == "parent":
+        parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+        if not parent:
+            return {"_id": {"$exists": False}}
+        student_ids = [
+            ObjectId(student_id)
+            for student_id in parent.get("student_ids", [])
+            if ObjectId.is_valid(student_id)
+        ]
+        students = await db.students.find(
+            {"_id": {"$in": student_ids}, "status": {"$ne": "archived"}},
+            {"branch_id": 1},
+        ).to_list(10_000)
+        branch_ids = list({student.get("branch_id") for student in students})
+        return {
+            "status": "active",
+            "branch_id": {"$in": list({*branch_ids, None})},
+        }
+    raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+
+@router.get("/payment-destinations")
+async def list_payment_destinations(
+    include_inactive: bool = False,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+
+    _require_role(current_user, FINANCE_ROLES | {"parent", "student"})
+    query = await _payment_destination_query(db, current_user, include_inactive)
+    rows = await db.finance_payment_destinations.find(query).sort([
+        ("status", 1), ("provider", 1), ("created_at", -1)
+    ]).to_list(1_000)
+    try:
+        return [serialize_payment_destination(row) for row in rows]
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+@router.post("/payment-destinations")
+async def add_payment_destination(
+    payload: PaymentDestinationCreate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    _require_role(current_user, FINANCE_ROLES)
+    branch_id = (
+        current_user.get("branch_id")
+        if current_user.get("role") == "manager"
+        else payload.branch_id
+    )
+    try:
+        destination, replay = await create_payment_destination(
+            db, payload, current_user, branch_id
+        )
+    except ValueError as error:
+        _service_error(error)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    if not replay:
+        await create_audit_log(
+            str(current_user["_id"]),
+            "create",
+            "finance_payment_destination",
+            str(destination["_id"]),
+            {
+                "provider": destination["provider"],
+                "card_last4": destination["card_last4"],
+                "cardholder_name": destination["cardholder_name"],
+                "branch_id": destination.get("branch_id"),
+            },
+            request.client.host if request.client else None,
+        )
+    return {
+        "destination": serialize_payment_destination(destination),
+        "idempotent_replay": replay,
+    }
+
+
+@router.put("/payment-destinations/{destination_id}")
+async def edit_payment_destination(
+    destination_id: str,
+    payload: PaymentDestinationUpdate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    _require_role(current_user, FINANCE_ROLES)
+    destination = await db.finance_payment_destinations.find_one({
+        "_id": _valid_object_id(destination_id, "receiving card ID")
+    })
+    if not destination:
+        raise HTTPException(status_code=404, detail="Receiving card not found")
+    if (
+        current_user.get("role") == "manager"
+        and destination.get("branch_id") != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail="Managers can only manage their branch receiving cards")
+    try:
+        updated, replay = await update_payment_destination(
+            db, destination, payload, current_user
+        )
+    except ValueError as error:
+        _service_error(error)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    if not replay:
+        await create_audit_log(
+            str(current_user["_id"]),
+            "update",
+            "finance_payment_destination",
+            destination_id,
+            {
+                "provider": updated["provider"],
+                "card_last4": updated["card_last4"],
+                "status": updated["status"],
+                "reason": payload.reason,
+            },
+            request.client.host if request.client else None,
+        )
+    return {
+        "destination": serialize_payment_destination(updated),
+        "idempotent_replay": replay,
+    }
+
+
+@router.get("/card-payment-reports")
+async def list_card_payment_reports(
+    status: Optional[str] = Query(default=None, pattern=r"^(?:unresolved|confirmed|rejected)$"),
+    limit: int = Query(default=500, ge=1, le=2_000),
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+
+    _require_role(current_user, FINANCE_ROLES | {"parent"})
+    query = {}
+    if status:
+        query["status"] = status
+    if current_user.get("role") == "manager":
+        query["branch_id"] = current_user.get("branch_id")
+    elif current_user.get("role") == "parent":
+        query["reported_by"] = str(current_user["_id"])
+    rows = await db.finance_card_payment_reports.find(query).sort(
+        "reported_at", -1
+    ).limit(limit).to_list(limit)
+    return finance_document_to_json(rows)
+
+
+@router.post("/card-payment-reports")
+async def report_card_payment(
+    payload: CardPaymentReportCreate,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    _require_role(current_user, {"parent"})
+    parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
+    if not parent:
+        raise HTTPException(status_code=403, detail="Parent profile is not linked")
+    if payload.student_id not in {str(value) for value in parent.get("student_ids", [])}:
+        raise HTTPException(status_code=403, detail="Parent can only report a payment for their child")
+    student = await db.students.find_one({
+        "_id": _valid_object_id(payload.student_id, "student ID"),
+        "status": {"$ne": "archived"},
+    })
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    destination = await db.finance_payment_destinations.find_one({
+        "_id": _valid_object_id(payload.destination_id, "receiving card ID"),
+        "status": "active",
+    })
+    if not destination:
+        raise HTTPException(status_code=404, detail="Active receiving card not found")
+    if destination.get("branch_id") not in {None, student.get("branch_id")}:
+        raise HTTPException(status_code=403, detail="Receiving card is not available for this student")
+    try:
+        report, replay = await create_card_payment_report(
+            db,
+            payload=payload,
+            parent=parent,
+            student=student,
+            destination=destination,
+            actor=current_user,
+        )
+    except ValueError as error:
+        _service_error(error)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    if not replay:
+        await create_audit_log(
+            str(current_user["_id"]),
+            "report_card_payment",
+            "finance_card_payment_report",
+            str(report["_id"]),
+            {
+                "student_id": report["student_id"],
+                "amount_uzs": report["amount_uzs"],
+                "provider": report["provider"],
+                "destination_last4": report["destination_last4"],
+                "paid_at": report["paid_at"].isoformat(),
+            },
+            request.client.host if request.client else None,
+        )
+        await notify_staff_payment_report(db, report)
+    return {
+        "report": finance_document_to_json(report),
+        "idempotent_replay": replay,
+    }
+
+
+@router.post("/card-payment-reports/{report_id}/resolve")
+async def resolve_reported_card_payment(
+    report_id: str,
+    payload: CardPaymentReportResolution,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import create_audit_log, db
+
+    _require_role(current_user, FINANCE_ROLES)
+    report = await db.finance_card_payment_reports.find_one({
+        "_id": _valid_object_id(report_id, "payment report ID")
+    })
+    if not report:
+        raise HTTPException(status_code=404, detail="Payment report not found")
+    if (
+        current_user.get("role") == "manager"
+        and report.get("branch_id") != current_user.get("branch_id")
+    ):
+        raise HTTPException(status_code=403, detail="Managers can only resolve their branch payments")
+    try:
+        result = await resolve_card_payment_report(db, report, payload, current_user)
+    except ValueError as error:
+        _service_error(error)
+    except RuntimeError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+    resolved = result["report"]
+    if not result.get("idempotent_replay"):
+        await create_audit_log(
+            str(current_user["_id"]),
+            f"{payload.decision.value}_card_payment",
+            "finance_card_payment_report",
+            report_id,
+            {
+                "student_id": resolved["student_id"],
+                "amount_uzs": resolved["amount_uzs"],
+                "provider": resolved["provider"],
+                "reason": resolved.get("resolution_reason"),
+                "receipt_id": resolved.get("receipt_id"),
+            },
+            request.client.host if request.client else None,
+        )
+        if result.get("receipt"):
+            await queue_receipt_notification(db, result["receipt"])
+            result["freeze_reconciliation"] = await reconcile_student_finance_freeze(
+                db,
+                resolved["student_id"],
+                _academy_today(),
+                str(current_user["_id"]),
+            )
+        await notify_reporter_resolution(db, resolved)
     return finance_document_to_json(result)
 
 
