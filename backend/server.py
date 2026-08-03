@@ -40,6 +40,10 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+# Telegram Bot API credentials are part of the request path. Keep the HTTP
+# client's request logging above INFO so provider URLs never reach app logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 # Import route modules (after app/api_router creation, before startup)
