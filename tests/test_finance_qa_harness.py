@@ -24,6 +24,7 @@ from routes_finance import (
     FINANCE_ROLES,
     _enforce_branch,
     _require_role,
+    _service_error,
     add_other_expense,
     add_tariff_version,
     generate_invoice_drafts,
@@ -33,6 +34,13 @@ from routes_finance import (
 
 
 class DeterministicFinanceScenarioTests(unittest.TestCase):
+    def test_concurrent_payment_confirmation_maps_to_http_conflict(self):
+        with self.assertRaises(HTTPException) as raised:
+            _service_error(
+                ValueError("Payment confirmation changed concurrently; reload and retry")
+            )
+        self.assertEqual(raised.exception.status_code, 409)
+
     def test_approved_scenarios_match_independent_oracle(self):
         files = scenario_files()
         self.assertGreaterEqual(len(files), 4)

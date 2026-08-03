@@ -426,14 +426,14 @@ async def resolve_card_payment_report(db, report: dict, payload, actor: dict) ->
         current = await db.finance_card_payment_reports.find_one({"_id": report["_id"]})
         if current and current.get("status") != "unresolved":
             raise ValueError("Payment report has already been resolved") from exc
-        raise ValueError("Payment confirmation conflicted with another request; reload and retry") from exc
+        raise ValueError("Payment confirmation changed concurrently; reload and retry") from exc
     except OperationFailure as exc:
         current = await db.finance_card_payment_reports.find_one({"_id": report["_id"]})
         if current and current.get("status") != "unresolved":
             raise ValueError("Payment report has already been resolved") from exc
         if _is_transient_transaction_conflict(exc):
             raise ValueError(
-                "Payment confirmation conflicted with another request; reload and retry"
+                "Payment confirmation changed concurrently; reload and retry"
             ) from exc
         raise RuntimeError(
             "Payment confirmation requires transaction support; nothing was changed"
