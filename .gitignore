@@ -35,6 +35,8 @@ frontend/playwright-report/
 test_reports/finance-qa/
 test_reports/finance-playwright/
 test_reports/app-playwright/
+test_reports/remote-audit-playwright/
+test_reports/remote-live-*/
 
 # Next.js
 /.next/

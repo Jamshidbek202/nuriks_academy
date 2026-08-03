@@ -1,9 +1,21 @@
 import { APIRequestContext, Browser, BrowserContext, expect, Page, test } from '@playwright/test';
 import { MongoClient, ObjectId } from 'mongodb';
 
-const API_URL = 'http://127.0.0.1:8001/api';
+const API_URL = process.env.FINANCE_E2E_API_URL || 'http://127.0.0.1:8001/api';
 const PASSWORD = 'FinanceQA@2026';
 const LIVE_TIMEOUT_MS = 4_000;
+const REMOTE_LIVE_AUDIT = process.env.REMOTE_LIVE_AUDIT === '1';
+const REMOTE_IDENTITIES: Record<string, string> = {
+  qa_superadmin: '+998990000001',
+  qa_manager_a: '+998990000002',
+  qa_manager_b: '+998990000003',
+  qa_reception_a: '+998990000004',
+  qa_teacher_a: '+998990000005',
+  qa_student_a: '+998990000006',
+  qa_parent_a: '+998990000007',
+  qa_support_a: '+998990000008',
+};
+const loginIdentity = (value: string) => REMOTE_LIVE_AUDIT ? (REMOTE_IDENTITIES[value] || value) : value;
 
 const ids = {
   login: 'login-email-input',
@@ -43,6 +55,9 @@ const ids = {
   receiptAmount: 'finance-receipt-amount',
   receiptNotes: 'finance-receipt-notes',
   receiptSubmit: 'finance-receipt-submit',
+  unfreezeDate: 'finance-unfreeze-date',
+  unfreezeReason: 'finance-unfreeze-reason',
+  unfreezeSubmit: 'finance-unfreeze-submit',
   invoiceCorrectionAmount: 'finance-invoice-correction-amount',
   invoiceCorrectionReason: 'finance-invoice-correction-reason',
   invoiceCorrectionSubmit: 'finance-invoice-correction-submit',
@@ -146,7 +161,7 @@ const monthOffset = (month: string, offset: number) => {
 
 async function apiLogin(request: APIRequestContext, login: string) {
   const response = await request.post(`${API_URL}/auth/login`, {
-    data: { login, password: PASSWORD },
+    data: { login: loginIdentity(login), password: PASSWORD },
   });
   expect(response.ok(), await response.text()).toBeTruthy();
   return (await response.json()).access_token as string;
@@ -186,8 +201,8 @@ async function loginUi(browser: Browser, loginName: string, financeTabName = 'Fi
   page.on('websocket', (socket) => {
     socket.on('framereceived', (event) => frames.push(String(event.payload)));
   });
-  await page.goto('/login');
-  await page.getByTestId(ids.login).fill(loginName);
+  await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
+  await page.getByTestId(ids.login).fill(loginIdentity(loginName));
   await page.getByTestId(ids.password).fill(PASSWORD);
   await page.getByTestId(ids.submit).click();
   const financeTab = page.getByRole('tab', { name: financeTabName });
@@ -209,8 +224,8 @@ async function loginParentPaymentsUi(browser: Browser): Promise<Session> {
   page.on('websocket', (socket) => {
     socket.on('framereceived', (event) => frames.push(String(event.payload)));
   });
-  await page.goto('/login');
-  await page.getByTestId(ids.login).fill('qa_parent_a');
+  await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
+  await page.getByTestId(ids.login).fill(loginIdentity('qa_parent_a'));
   await page.getByTestId(ids.password).fill(PASSWORD);
   await page.getByTestId(ids.submit).click();
   const paymentsTab = page.getByRole('tab', { name: 'Payments' });
@@ -337,7 +352,7 @@ async function waitForRows<T extends { id: string }>(
 }
 
 test('every finance-page domain synchronizes live across authorized sessions', async ({ browser, request }, testInfo) => {
-  test.setTimeout(300_000);
+  test.setTimeout(REMOTE_LIVE_AUDIT ? 900_000 : 300_000);
   const month = serviceMonth();
   const mongoUrl = process.env.MONGO_URL;
   const databaseName = process.env.DB_NAME;
@@ -379,8 +394,128 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   let lockedOccurrenceForClosure: any;
   let secondReceipt: any;
   let otherExpense: any;
+  const resumeAfterFinalization = process.env.FINANCE_RESUME_AFTER_FINALIZATION === '1';
 
-  await test.step('all closure kinds and scopes work through the UI and synchronize live', async () => {
+  if (resumeAfterFinalization) {
+    await qaDb.collection('branches').updateMany(
+      { qa_key: { $in: ['branch-a', 'branch-b'] } },
+      { $set: { is_active: true } },
+    );
+    const invoices = await apiGet<any[]>(request, managerToken, `/finance/invoices?service_month=${month}&limit=100`);
+    finalizedInvoice = invoices.find((row) => row.status === 'finalized');
+    const earnings = await apiGet<any[]>(request, managerToken, `/finance/teacher-earnings?service_month=${month}`);
+    teacherEarning = earnings[0];
+    const occurrences = await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/lesson-occurrences?group_id=${group.id}&month=${month}`,
+    );
+    lockedOccurrenceForClosure = occurrences.find((row) => row.locked_at && row.lesson_status === 'held');
+    expect(finalizedInvoice, 'resume requires a finalized invoice').toBeTruthy();
+    expect(teacherEarning, 'resume requires a teacher earning').toBeTruthy();
+    expect(lockedOccurrenceForClosure, 'resume requires a financially locked held lesson').toBeTruthy();
+  }
+
+  if (process.env.FINANCE_SKIP_FREEZE_WORKFLOW !== '1') await test.step('financial freeze is visible to staff and only super admin can unfreeze after payment review', async () => {
+    for (const session of [manager, superAdmin, reception]) {
+      await session.page.getByTestId(ids.receivablesTab).click();
+      await expect(session.page.getByText(/Financially frozen students/)).toBeVisible();
+    }
+
+    const freezeReason = `QA overdue freeze ${Date.now()}`;
+    const freezeStartedAt = Date.now();
+    const freezeResponse = await request.post(`${API_URL}/finance/students/${student.id}/freeze-override`, {
+      headers: { Authorization: `Bearer ${superToken}` },
+      data: {
+        action: 'freeze',
+        effective_on: `${month}-01`,
+        reason: freezeReason,
+        idempotency_key: `qa-freeze-${student.id}-${Date.now()}`,
+      },
+    });
+    expect(freezeResponse.ok(), await freezeResponse.text()).toBeTruthy();
+
+    for (const session of [manager, superAdmin, reception]) {
+      await expect(session.page.getByTestId(`finance-frozen-student-${student.id}`)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+    }
+    const freezeObserverRenderedMs = Date.now() - freezeStartedAt;
+    await expect(manager.page.getByTestId(`finance-unfreeze-student-${student.id}`)).toHaveCount(0);
+    await expect(reception.page.getByTestId(`finance-unfreeze-student-${student.id}`)).toHaveCount(0);
+    await expect(superAdmin.page.getByTestId(`finance-unfreeze-student-${student.id}`)).toBeVisible();
+
+    const managerOverride = await request.post(`${API_URL}/finance/students/${student.id}/freeze-override`, {
+      headers: { Authorization: `Bearer ${managerToken}` },
+      data: {
+        action: 'unfreeze',
+        effective_on: `${month}-02`,
+        reason: 'Manager must not be allowed to release finance freeze',
+        idempotency_key: `qa-manager-unfreeze-${student.id}-${Date.now()}`,
+      },
+    });
+    expect(managerOverride.status()).toBe(403);
+
+    await superAdmin.page.getByTestId(`finance-unfreeze-student-${student.id}`).click();
+    await expectCompactActionModal(superAdmin.page);
+    await expect(superAdmin.page.getByTestId(ids.unfreezeDate)).toBeVisible();
+    await superAdmin.page.getByTestId(ids.unfreezeReason).fill('Payment receipt and overdue balance verified by super admin');
+    await testInfo.attach('finance-frozen-super-admin-review.png', {
+      body: await superAdmin.page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+    let unfreezeRequests = 0;
+    const unfreezeListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().endsWith(`/api/finance/students/${student.id}/freeze-override`)) {
+        unfreezeRequests += 1;
+      }
+    };
+    superAdmin.page.on('request', unfreezeListener);
+    const unfreezeResponsePromise = superAdmin.page.waitForResponse((response) => response.request().method() === 'POST'
+      && response.url().endsWith(`/api/finance/students/${student.id}/freeze-override`));
+    const unfreezeStartedAt = Date.now();
+    const unfreezeSubmit = superAdmin.page.getByTestId(ids.unfreezeSubmit);
+    await Promise.allSettled([
+      unfreezeSubmit.click(),
+      unfreezeSubmit.click({ timeout: 1_000 }),
+    ]);
+    const unfreezeResponse = await unfreezeResponsePromise;
+    superAdmin.page.off('request', unfreezeListener);
+    expect(unfreezeResponse.ok(), await unfreezeResponse.text()).toBeTruthy();
+    expect(unfreezeRequests).toBe(1);
+
+    await expect.poll(async () => {
+      const stored = await qaDb.collection('students').findOne({ _id: new ObjectId(student.id) });
+      return { status: stored?.status, financeFrozen: stored?.finance_frozen };
+    }, { timeout: LIVE_TIMEOUT_MS }).toEqual({ status: 'active', financeFrozen: false });
+    expect(await qaDb.collection('finance_freeze_override_events').countDocuments({
+      student_id: student.id,
+      action: 'unfreeze',
+      reason: 'Payment receipt and overdue balance verified by super admin',
+    })).toBe(1);
+    expect(await qaDb.collection('audit_logs').countDocuments({
+      action: 'finance_freeze_override',
+      resource_id: student.id,
+    })).toBeGreaterThanOrEqual(2);
+
+    for (const session of [manager, superAdmin, reception]) {
+      await expect(session.page.getByTestId(`finance-frozen-student-${student.id}`)).toHaveCount(0, { timeout: LIVE_TIMEOUT_MS });
+    }
+    const unfreezeObserverRenderedMs = Date.now() - unfreezeStartedAt;
+    focusedEvidence.push({
+      workflow: 'manual-unfreeze-after-payment-review',
+      freezeObserverRenderedMs,
+      unfreezeObserverRenderedMs,
+      unfreezeRequests,
+      actor: 'super_admin',
+      managerDeniedStatus: managerOverride.status(),
+      auditRecords: 2,
+    });
+    await testInfo.attach('finance-unfrozen-live-synchronized.png', {
+      body: await superAdmin.page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+  });
+
+  if (!resumeAfterFinalization) await test.step('all closure kinds and scopes work through the UI and synchronize live', async () => {
     const occurrences = await apiGet<any[]>(
       request,
       managerToken,
@@ -574,7 +709,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     });
   });
 
-  await test.step('tariff, share, recurring policy, and billing calendar versions update managers live', async () => {
+  if (!resumeAfterFinalization) await test.step('tariff, share, recurring policy, and billing calendar versions update managers live', async () => {
     for (const page of [manager.page, superAdmin.page]) await page.getByTestId(ids.pricingTab).click();
 
     await expect(superAdmin.page.getByTestId('finance-course-pricing-general')).toContainText('QA General English');
@@ -616,7 +751,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await expect.poll(() => manager.page.getByTestId(ids.billingSalary).inputValue(), { timeout: LIVE_TIMEOUT_MS }).toBe('6');
   });
 
-  await test.step('invoice finalization updates revenue, receivables, payroll, and reception live', async () => {
+  if (!resumeAfterFinalization) await test.step('invoice finalization updates revenue, receivables, payroll, and reception live', async () => {
     const drafts = await apiPost<any>(request, managerToken, '/finance/invoices/generate-drafts', {
       service_month: month,
       branch_id: null,
@@ -720,7 +855,12 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       if (!candidate.url().includes('/api/finance/position')) return false;
       return new URL(candidate.url()).searchParams.get('branch_id') === group.branch_id;
     });
-    await superAdmin.page.reload();
+    if (REMOTE_LIVE_AUDIT) {
+      await superAdmin.page.goto('/');
+      await superAdmin.page.getByRole('tab', { name: 'Finance' }).first().click();
+    } else {
+      await superAdmin.page.reload();
+    }
     await soleBranchPositionRequest;
     await expect(superAdmin.page.getByTestId(ids.screen)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
     await expect(superAdmin.page.getByTestId('finance-position-scope')).toHaveCount(0);
@@ -734,7 +874,12 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       if (!candidate.url().includes('/api/finance/position')) return false;
       return new URL(candidate.url()).searchParams.get('branch_id') === null;
     });
-    await superAdmin.page.reload();
+    if (REMOTE_LIVE_AUDIT) {
+      await superAdmin.page.goto('/');
+      await superAdmin.page.getByRole('tab', { name: 'Finance' }).first().click();
+    } else {
+      await superAdmin.page.reload();
+    }
     await globalPositionRequest;
     await expectPosition(superAdmin.page, superPosition);
     focusedEvidence.push({

@@ -3,9 +3,10 @@ import { createHash } from 'node:crypto';
 import { gunzipSync } from 'node:zlib';
 import { MongoClient, ObjectId } from 'mongodb';
 
-const API_URL = 'http://127.0.0.1:8002/api';
+const API_URL = process.env.APP_E2E_API_URL || 'http://127.0.0.1:8002/api';
 const PASSWORD = 'FinanceQA@2026';
 const TELEGRAM_WEBHOOK_SECRET = 'nuriks-finance-qa-webhook-secret';
+const REMOTE_LIVE_AUDIT = process.env.REMOTE_LIVE_AUDIT === '1';
 
 async function latestMockCode(phone: string, purpose: 'invite' | 'password_reset') {
   const mongoUrl = process.env.MONGO_URL;
@@ -92,7 +93,15 @@ type Session = {
   dialogs: string[];
 };
 
-const roleLogins: Record<RoleKey, string> = {
+const roleLogins: Record<RoleKey, string> = REMOTE_LIVE_AUDIT ? {
+  super_admin: '+998990000001',
+  manager: '+998990000002',
+  reception: '+998990000004',
+  teacher: '+998990000005',
+  student: '+998990000006',
+  parent: '+998990000007',
+  support: '+998990000008',
+} : {
   super_admin: 'qa_superadmin',
   manager: 'qa_manager_a',
   reception: 'qa_reception_a',
@@ -182,7 +191,7 @@ async function loginUi(browser: Browser, role: RoleKey, mobile = false): Promise
   const page = await context.newPage();
   const observed = { consoleErrors: [] as string[], pageErrors: [] as string[], serverErrors: [] as string[], dialogs: [] as string[] };
   monitor(page, observed);
-  await page.goto('/login');
+  await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
   await page.getByTestId('login-email-input').fill(roleLogins[role]);
   await page.getByTestId('login-password-input').fill(PASSWORD);
   await page.getByTestId('login-submit-button').click();
@@ -773,7 +782,7 @@ test('invited manager creates and recovers a password through the phone-auth UI'
   expect(oldPasswordLogin.status()).toBe(401);
 });
 
-test('group UI creates exact billing schedule, manages membership, edits, and protects financial history', async ({ browser, request }) => {
+test('group UI creates exact billing schedule, manages membership, edits, and protects financial history', async ({ browser, request }, testInfo) => {
   test.setTimeout(120_000);
   const superToken = await apiLogin(request, 'super_admin');
   const teachers = await expectApiOk(await apiCall(request, superToken, 'get', '/teachers'), 'load group teachers');
@@ -806,8 +815,34 @@ test('group UI creates exact billing schedule, manages membership, edits, and pr
     await session.page.getByPlaceholder('10:30').fill('18:30');
     await session.page.getByPlaceholder('Room 101').fill('QA Room');
     await session.page.getByTestId('group-add-schedule-button').click();
-    await session.page.getByTestId('group-save-button').click();
+    let createRequestCount = 0;
+    const createRequestListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().endsWith('/api/groups')) createRequestCount += 1;
+    };
+    session.page.on('request', createRequestListener);
+    const createResponsePromise = session.page.waitForResponse((response) => response.request().method() === 'POST'
+      && response.url().endsWith('/api/groups'));
+    const saveButton = session.page.getByTestId('group-save-button');
+    const createStartedAt = Date.now();
+    await Promise.allSettled([
+      saveButton.click(),
+      saveButton.click({ timeout: 1_000 }),
+    ]);
+    const createResponse = await createResponsePromise;
+    session.page.off('request', createRequestListener);
+    expect(createResponse.ok(), await createResponse.text()).toBeTruthy();
+    expect(createRequestCount).toBe(1);
+    await expect(session.page.getByText('Create New Group', { exact: true })).toHaveCount(0, { timeout: 10_000 });
     await expect(session.page.getByText(name, { exact: true })).toBeVisible({ timeout: 10_000 });
+    const createRenderedMs = Date.now() - createStartedAt;
+    await testInfo.attach('group-created-modal-closed.png', {
+      body: await session.page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+    await testInfo.attach('group-create-evidence.json', {
+      body: Buffer.from(JSON.stringify({ createRequestCount, createRenderedMs, modalClosed: true }, null, 2)),
+      contentType: 'application/json',
+    });
     const groups = await expectApiOk(await apiCall(request, superToken, 'get', '/groups'), 'load created group');
     const group = groups.find((row: any) => row.name === name);
     expect(group).toBeTruthy();
@@ -816,6 +851,9 @@ test('group UI creates exact billing schedule, manages membership, edits, and pr
     expect(group.schedule).toEqual([{ day: 'Thursday', start_time: '17:00', end_time: '18:30', room: 'QA Room' }]);
 
     await session.page.getByTestId(`group-card-${group.id}`).click();
+    const groupDetailsModal = session.page.getByTestId('group-details-modal');
+    await expect(groupDetailsModal.getByText('Group Details', { exact: true })).toBeVisible();
+    await expect(groupDetailsModal.getByText(name, { exact: true })).toBeVisible();
     await session.page.getByTestId('group-add-student-button').click();
     await session.page.getByPlaceholder('Search by name or student ID...').fill('QA-LIVE-001');
     await session.page.getByTestId(`group-select-student-${student.id}`).click();
@@ -836,6 +874,7 @@ test('group UI creates exact billing schedule, manages membership, edits, and pr
     await expect(miniOption).toBeDisabled();
     await session.page.getByPlaceholder('e.g., IELTS Morning A').fill(updatedName);
     await session.page.getByTestId('group-save-button').click();
+    await expect(session.page.getByText('Edit Group', { exact: true })).toHaveCount(0, { timeout: 10_000 });
     await expect(session.page.getByText(updatedName, { exact: true })).toBeVisible({ timeout: 10_000 });
     const [deleteResponse] = await Promise.all([
       session.page.waitForResponse((response) => response.url().includes(`/api/groups/${group.id}`) && response.request().method() === 'DELETE'),
@@ -1315,8 +1354,12 @@ test('language preference changes the app immediately and persists after reload'
     await session.page.getByTestId('profile-language-button').click();
     await session.page.getByTestId('profile-language-option-ru').click();
     await expect(session.page.getByRole('tab', { name: 'Профиль' }).first()).toBeVisible();
-    await session.page.reload();
+    if (REMOTE_LIVE_AUDIT) await session.page.goto('/');
+    else await session.page.reload();
     await expect(session.page.getByRole('tab', { name: 'Профиль' }).first()).toBeVisible();
+    if (REMOTE_LIVE_AUDIT) {
+      await session.page.getByRole('tab', { name: 'Профиль' }).first().click();
+    }
     await session.page.getByTestId('profile-language-button').click();
     await session.page.getByTestId('profile-language-option-uz').click();
     await expect(session.page.getByRole('tab', { name: 'Profil' }).first()).toBeVisible();
@@ -1434,7 +1477,12 @@ test('teacher create controls save journal, homework, and tests and update stude
     await expect(teacher.page.getByText(testTitle, { exact: true })).toBeVisible({ timeout: 8_000 });
     await expect(student.page.getByText(testTitle, { exact: true })).toBeVisible({ timeout: 8_000 });
 
-    await teacher.page.goto('/journal');
+    if (REMOTE_LIVE_AUDIT) {
+      await teacher.page.getByRole('tab', { name: 'Home' }).first().click();
+      await teacher.page.getByText('Journal', { exact: true }).click();
+    } else {
+      await teacher.page.goto('/journal');
+    }
     await expect(teacher.page.getByText('Teacher Journal', { exact: true })).toBeVisible();
     await teacher.page.getByTestId('journal-add-button').click();
     await expect(teacher.page.getByText('New Journal Entry', { exact: true })).toBeVisible();
@@ -1581,7 +1629,12 @@ test('academic records propagate live from teacher actions to student and parent
       notes: 'Whole-app QA score',
     }), 'grade test');
 
-    await teacher.page.goto('/journal');
+    if (REMOTE_LIVE_AUDIT) {
+      await teacher.page.getByRole('tab', { name: 'Home' }).first().click();
+      await teacher.page.getByText('Journal', { exact: true }).click();
+    } else {
+      await teacher.page.goto('/journal');
+    }
     await expect(teacher.page.getByText('Teacher Journal', { exact: true })).toBeVisible();
     await expectApiOk(await apiCall(request, teacherToken, 'post', '/journal', {
       group_id: group.id,
@@ -1594,7 +1647,12 @@ test('academic records propagate live from teacher actions to student and parent
     }), 'create journal entry');
     await expect(teacher.page.getByText(journalTopic, { exact: true })).toBeVisible({ timeout: 7_000 });
 
-    await studentUi.page.goto('/attendance');
+    if (REMOTE_LIVE_AUDIT) {
+      await studentUi.page.getByRole('tab', { name: 'Home' }).first().click();
+      await studentUi.page.getByText('Attendance', { exact: true }).last().click();
+    } else {
+      await studentUi.page.goto('/attendance');
+    }
     await expect(studentUi.page.getByText('Attendance', { exact: true }).first()).toBeVisible();
     await expectApiOk(await apiCall(request, teacherToken, 'post', '/attendance', {
       student_id: student.id,

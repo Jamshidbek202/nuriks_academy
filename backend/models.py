@@ -144,6 +144,7 @@ class Student(StudentBase):
     course_ids: List[str] = []
     group_ids: List[str] = []
     status: StudentStatus = StudentStatus.ACTIVE
+    finance_frozen: bool = False
     enrollment_date: datetime = Field(default_factory=datetime.utcnow)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

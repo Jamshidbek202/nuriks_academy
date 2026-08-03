@@ -5,7 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
+  Alert as NativeAlert,
   ActivityIndicator,
   RefreshControl,
   Modal,
@@ -21,6 +21,17 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { showAlert } from '../../src/utils/cross-platform-alert';
+
+const Alert = {
+  alert: (title: string, message: unknown, buttons?: Parameters<typeof NativeAlert.alert>[2]) => {
+    if (buttons) {
+      NativeAlert.alert(title, String(message), buttons);
+      return;
+    }
+    showAlert(title, message);
+  },
+};
 
 interface Schedule {
   day: string;
@@ -128,6 +139,7 @@ export default function GroupsScreen() {
   const [pricingPolicies, setPricingPolicies] = useState<PricingPolicy[]>([]);
   const [teacherSharePolicies, setTeacherSharePolicies] = useState<PricingPolicy[]>([]);
   const [isEditing, setIsEditing] = useState(false);
+  const [savingGroup, setSavingGroup] = useState(false);
   const [removingStudentId, setRemovingStudentId] = useState<string | null>(null);
   const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
   const pendingRemoval = useRef<{ groupId: string; studentId: string } | null>(null);
@@ -252,6 +264,7 @@ export default function GroupsScreen() {
   };
 
   const handleCreateGroup = async () => {
+    if (savingGroup) return;
     if (
       !formData.name || !formData.course_id || !formData.teacher_id
       || !selectedCourse?.program_code || !formData.group_format
@@ -272,18 +285,22 @@ export default function GroupsScreen() {
       return;
     }
 
+    setSavingGroup(true);
     try {
       await api.post('/groups', formData);
-      Alert.alert('Success', 'Group created successfully');
       setModalVisible(false);
       resetForm();
-      loadGroups();
+      await loadGroups();
+      Alert.alert('Success', 'Group created successfully');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to create group');
+    } finally {
+      setSavingGroup(false);
     }
   };
 
   const handleUpdateGroup = async () => {
+    if (savingGroup) return;
     if (
       !selectedGroup || !formData.name || !formData.course_id || !formData.teacher_id
       || !selectedCourse?.program_code || !formData.group_format
@@ -304,15 +321,18 @@ export default function GroupsScreen() {
       return;
     }
 
+    setSavingGroup(true);
     try {
       await api.put(`/groups/${selectedGroup.id}`, formData);
-      Alert.alert('Success', 'Group updated successfully');
       setModalVisible(false);
       setDetailModalVisible(false);
       resetForm();
       await loadGroups();
+      Alert.alert('Success', 'Group updated successfully');
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to update group');
+    } finally {
+      setSavingGroup(false);
     }
   };
 
@@ -741,7 +761,7 @@ export default function GroupsScreen() {
         onRequestClose={() => setDetailModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+          <View testID="group-details-modal" style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Group Details</Text>
               <View style={styles.modalHeaderActions}>
@@ -1241,6 +1261,8 @@ export default function GroupsScreen() {
                 testID="group-save-button"
                 title={isEditing ? 'Update Group' : 'Create Group'}
                 onPress={isEditing ? handleUpdateGroup : handleCreateGroup}
+                loading={savingGroup}
+                disabled={savingGroup}
                 style={{ marginTop: SIZES.lg }}
               />
             </ScrollView>

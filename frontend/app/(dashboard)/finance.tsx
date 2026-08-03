@@ -38,6 +38,8 @@ interface Student {
   phone?: string;
   parent_name?: string;
   parent_phone?: string;
+  status?: string;
+  finance_frozen?: boolean;
 }
 
 interface Invoice {
@@ -354,6 +356,9 @@ export default function FinanceScreen() {
   const [invoiceReversalReason, setInvoiceReversalReason] = useState('');
   const [receiptReversalTarget, setReceiptReversalTarget] = useState<Receipt | null>(null);
   const [receiptReversalReason, setReceiptReversalReason] = useState('');
+  const [unfreezeTarget, setUnfreezeTarget] = useState<Student | null>(null);
+  const [unfreezeDate, setUnfreezeDate] = useState(tashkentDate());
+  const [unfreezeReason, setUnfreezeReason] = useState('');
   const [destinationModalOpen, setDestinationModalOpen] = useState(false);
   const [destinationTarget, setDestinationTarget] = useState<PaymentDestination | null>(null);
   const [destinationForm, setDestinationForm] = useState({
@@ -419,6 +424,12 @@ export default function FinanceScreen() {
 
   const studentMap = useMemo(
     () => Object.fromEntries(students.map((student) => [student.id, student])),
+    [students],
+  );
+  const frozenStudents = useMemo(
+    () => students
+      .filter((student) => student.finance_frozen || student.status === 'frozen')
+      .sort((left, right) => `${left.first_name} ${left.last_name}`.localeCompare(`${right.first_name} ${right.last_name}`)),
     [students],
   );
   const teacherMap = useMemo(
@@ -632,8 +643,8 @@ export default function FinanceScreen() {
     setBusy(key);
     try {
       await action();
-      Alert.alert('Recorded', success);
       await loadData();
+      Alert.alert('Recorded', success);
       return true;
     } catch (error: any) {
       Alert.alert('Could not complete action', error.response?.data?.detail || error.message || 'Unknown error');
@@ -657,6 +668,41 @@ export default function FinanceScreen() {
     }), 'Cash receipt posted and allocated to the oldest debt first.').then((success) =>
       success && setReceiptForm({ student_id: '', amount: '', notes: '' }),
     );
+  };
+
+  const openUnfreezeStudent = (student: Student) => {
+    setUnfreezeTarget(student);
+    setUnfreezeDate(tashkentDate());
+    setUnfreezeReason('');
+  };
+
+  const unfreezeStudentAfterPayment = async () => {
+    if (!unfreezeTarget) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(unfreezeDate)) {
+      Alert.alert('Check unfreeze date', 'Choose a valid calendar date.');
+      return;
+    }
+    if (unfreezeReason.trim().length < 5) {
+      Alert.alert('Reason required', 'Enter at least five characters explaining how the payment was verified.');
+      return;
+    }
+    const studentId = unfreezeTarget.id;
+    const success = await runAction(
+      `unfreeze-${studentId}`,
+      () => api.post(`/finance/students/${studentId}/freeze-override`, {
+        action: 'unfreeze',
+        effective_on: unfreezeDate,
+        reason: unfreezeReason.trim(),
+        idempotency_key: idempotencyKey(`unfreeze-${studentId}`),
+      }),
+      `${unfreezeTarget.first_name} ${unfreezeTarget.last_name} can access classes again. The release was added to the finance audit trail.`,
+    );
+    if (!success) return;
+    setStudents((current) => current.map((student) => student.id === studentId
+      ? { ...student, status: 'active', finance_frozen: false }
+      : student));
+    setUnfreezeTarget(null);
+    setUnfreezeReason('');
   };
 
   const openNewDestination = () => {
@@ -1328,6 +1374,70 @@ export default function FinanceScreen() {
         <Input testID={FINANCE.receiptNotes} label="Notes" value={receiptForm.notes} onChangeText={(notes) => setReceiptForm({ ...receiptForm, notes })} placeholder="Optional receipt note" />
         <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Open cashbox before receiving payment'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
       </Section>
+      <Section
+        title={`Financially frozen students (${frozenStudents.length})`}
+        subtitle="Record the payment first. Automatic debt freezes clear when all overdue debt is paid; if a student remains frozen after review, only the super admin can release access here."
+      >
+        {frozenStudents.length === 0 ? <Empty text="No students are financially frozen." /> : frozenStudents.map((student) => {
+          const outstanding = invoices
+            .filter((invoice) => invoice.student_id === student.id && invoice.status === 'finalized')
+            .reduce((sum, invoice) => sum + invoice.balance_uzs, 0);
+          return (
+            <View key={student.id} testID={`finance-frozen-student-${student.id}`} style={styles.recordCard}>
+              <View style={styles.recordTop}>
+                <View style={styles.flex}>
+                  <Text style={styles.recordTitle}>{student.first_name} {student.last_name}</Text>
+                  <Text style={styles.recordMeta}>{student.student_id} · {student.phone || 'no phone'}</Text>
+                </View>
+                <Status value="frozen" />
+              </View>
+              <MoneyRow label="Outstanding finalized debt" value={outstanding} />
+              {isSuperAdmin ? (
+                <Button
+                  testID={`finance-unfreeze-student-${student.id}`}
+                  title="Unfreeze after payment review"
+                  variant="outline"
+                  onPress={() => openUnfreezeStudent(student)}
+                />
+              ) : (
+                <Text style={styles.warningText}>Only the super admin can unfreeze this student after the payment is verified.</Text>
+              )}
+            </View>
+          );
+        })}
+      </Section>
+      {isSuperAdmin && unfreezeTarget && (
+        <FinanceActionModal
+          title={`Unfreeze ${unfreezeTarget.first_name} ${unfreezeTarget.last_name}`}
+          subtitle="Confirm the payment in the receipt/card records first. This release is permanent, dated, and audited."
+          onClose={() => setUnfreezeTarget(null)}
+        >
+          <CalendarDatePicker
+            testID={FINANCE.unfreezeDate}
+            label="Unfreeze effective date"
+            value={unfreezeDate}
+            onChange={setUnfreezeDate}
+          />
+          <Input
+            testID={FINANCE.unfreezeReason}
+            label="Payment review / audit reason"
+            value={unfreezeReason}
+            onChangeText={setUnfreezeReason}
+            placeholder="Example: Receipt NA-R-000123 verified and overdue balance cleared"
+            multiline
+          />
+          <View style={styles.actionRow}>
+            <Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setUnfreezeTarget(null)} />
+            <Button
+              testID={FINANCE.unfreezeSubmit}
+              title="Confirm unfreeze"
+              style={styles.flexButton}
+              onPress={() => void unfreezeStudentAfterPayment()}
+              loading={busy === `unfreeze-${unfreezeTarget.id}`}
+            />
+          </View>
+        </FinanceActionModal>
+      )}
       <Section title={`Payment call list (${visibleCallList.length})`} subtitle="Overdue balances and payments due within five days, with student and parent contacts">
         {visibleCallList.length === 0 ? <Empty text="No matching overdue or upcoming balances." /> : visibleCallList.map((item) => (
           <View key={item.invoice_id} testID={`finance-call-row-${item.invoice_id}`} style={styles.recordCard}>
