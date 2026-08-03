@@ -3,6 +3,7 @@ import unittest
 
 from pydantic import ValidationError
 from bson import ObjectId
+from pymongo.errors import OperationFailure
 
 from finance_domain import (
     ChargeInput,
@@ -28,9 +29,24 @@ from finance_ledger import (
 from finance_accounting import calculate_projected_teacher_salary
 from finance_service import DEFAULT_FINANCE_POLICIES
 from finance_service import seed_reception_user
+from finance_card_payments import _is_transient_transaction_conflict
 
 
 class FinanceDomainTests(unittest.TestCase):
+    def test_transient_card_confirmation_conflicts_are_not_reported_as_missing_transactions(self):
+        write_conflict = OperationFailure(
+            "WriteConflict",
+            code=112,
+            details={"errorLabels": ["TransientTransactionError"]},
+        )
+        unsupported_transaction = OperationFailure(
+            "Transaction numbers are only allowed on a replica set",
+            code=20,
+        )
+
+        self.assertTrue(_is_transient_transaction_conflict(write_conflict))
+        self.assertFalse(_is_transient_transaction_conflict(unsupported_transaction))
+
     def test_temporary_reception_seed_is_retired(self):
         with self.assertRaisesRegex(ValueError, "phone-invited reception account"):
             import asyncio

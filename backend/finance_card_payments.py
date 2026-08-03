@@ -29,6 +29,14 @@ def _session(session) -> dict:
     return {"session": session} if session is not None else {}
 
 
+def _is_transient_transaction_conflict(error: OperationFailure) -> bool:
+    return error.has_error_label("TransientTransactionError") or error.code in {
+        112,  # WriteConflict
+        244,  # TransientTransactionError
+        251,  # NoSuchTransaction after a competing commit
+    }
+
+
 def _card_secret() -> bytes:
     configured = (
         os.environ.get("PAYMENT_CARD_ENCRYPTION_KEY", "").strip()
@@ -423,6 +431,10 @@ async def resolve_card_payment_report(db, report: dict, payload, actor: dict) ->
         current = await db.finance_card_payment_reports.find_one({"_id": report["_id"]})
         if current and current.get("status") != "unresolved":
             raise ValueError("Payment report has already been resolved") from exc
+        if _is_transient_transaction_conflict(exc):
+            raise ValueError(
+                "Payment confirmation conflicted with another request; reload and retry"
+            ) from exc
         raise RuntimeError(
             "Payment confirmation requires transaction support; nothing was changed"
         ) from exc
