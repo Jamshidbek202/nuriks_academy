@@ -22,6 +22,7 @@ import ParentHomeScreen from './parent-home';
 import TeacherHomeScreen from './teacher-home';
 import SupportHomeScreen from './support-home';
 import StudentHomeScreen from './student-home';
+import ReceptionHomeScreen from './reception-home';
 
 export default function DashboardHome() {
   const { user } = useAuth();
@@ -81,6 +82,8 @@ export default function DashboardHome() {
       return <SupportHomeScreen />;
     case 'student':
       return <StudentHomeScreen />;
+    case 'reception':
+      return <ReceptionHomeScreen />;
     case 'super_admin':
     case 'manager':
       // Continue to admin dashboard below

@@ -51,6 +51,7 @@ MANAGER_OPERATIONAL = {
     "list_cash_events",
     "record_cash_removal",
     "close_main_cash_shift",
+    "confirm_main_cash_day",
     "post_cash_receipt",
     "list_receipts",
     "list_teacher_earnings",

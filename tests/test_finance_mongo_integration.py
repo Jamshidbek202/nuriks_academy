@@ -7,7 +7,7 @@ validated, uniquely named database on a disposable MongoDB replica set.
 from __future__ import annotations
 
 import asyncio
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 import hashlib
 import os
 from pathlib import Path
@@ -97,6 +97,138 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    async def test_automatic_cash_day_reception_boundary_and_manager_confirmation(self):
+        reception_headers = await self.login(QA_USERS["reception_a"])
+        manager_headers = await self.login(QA_USERS["manager_a"])
+        current_response = await self.http.get(
+            "/api/finance/cash-shifts/current", headers=reception_headers
+        )
+        self.assertEqual(current_response.status_code, 200, current_response.text)
+        current = current_response.json()
+        self.assertEqual(current["status"], "open")
+        self.assertEqual(current["opening_mode"], "automatic")
+        self.assertTrue(current.get("business_date"))
+
+        forbidden_open = await self.http.post(
+            "/api/finance/cash-shifts/open",
+            headers=reception_headers,
+            json={
+                "opening_balance_uzs": 0,
+                "notes": None,
+                "idempotency_key": "qa:reception:manual-open",
+            },
+        )
+        self.assertEqual(forbidden_open.status_code, 403, forbidden_open.text)
+        forbidden_close = await self.http.post(
+            f"/api/finance/cash-shifts/{current['id']}/close",
+            headers=reception_headers,
+            json={
+                "actual_closing_balance_uzs": 0,
+                "notes": None,
+                "idempotency_key": "qa:reception:manual-close",
+            },
+        )
+        self.assertEqual(forbidden_close.status_code, 403, forbidden_close.text)
+
+        await self.db.cash_shifts.update_one(
+            {"_id": ObjectId(current["id"])},
+            {"$set": {
+                "business_date": "2000-01-01",
+                "idempotency_key": "qa:cash-day:old-fixture",
+                "opening_balance_uzs": 500_000,
+                "receipt_total_uzs": 100_000,
+                "removal_total_uzs": 25_000,
+            }},
+        )
+        next_day = (await self.http.get(
+            "/api/finance/cash-shifts/current", headers=reception_headers
+        )).json()
+        self.assertNotEqual(next_day["id"], current["id"])
+        self.assertEqual(next_day["opening_balance_uzs"], 575_000)
+        pending = await self.db.cash_shifts.find_one({"_id": ObjectId(current["id"])})
+        self.assertEqual(pending["status"], "awaiting_confirmation")
+        self.assertEqual(pending["expected_closing_balance_uzs"], 575_000)
+
+        confirmed = await self.http.post(
+            f"/api/finance/cash-shifts/{current['id']}/confirm",
+            headers=manager_headers,
+            json={
+                "actual_closing_balance_uzs": 565_000,
+                "notes": "QA physical count",
+                "idempotency_key": "qa:manager:cash-confirm",
+            },
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "closed")
+        self.assertEqual(confirmed.json()["discrepancy_uzs"], -10_000)
+        self.assertEqual(confirmed.json()["discrepancy_status"], "pending_review")
+
+        reception_dashboard = await self.http.get("/api/dashboard", headers=reception_headers)
+        self.assertEqual(reception_dashboard.status_code, 200, reception_dashboard.text)
+        safe_dashboard = reception_dashboard.json()
+        self.assertIn("payments", safe_dashboard)
+        self.assertIn("cash_day", safe_dashboard)
+        self.assertNotIn("revenue", safe_dashboard)
+        self.assertNotIn("profit", safe_dashboard)
+        revenue_forbidden = await self.http.get(
+            f"/api/finance/position?service_month={date.today():%Y-%m}",
+            headers=reception_headers,
+        )
+        self.assertEqual(revenue_forbidden.status_code, 403, revenue_forbidden.text)
+
+        removal = await self.http.post(
+            f"/api/finance/cash-shifts/{next_day['id']}/removals",
+            headers=manager_headers,
+            json={
+                "amount_uzs": 25_000,
+                "purpose": "Deposit to bank during QA",
+                "idempotency_key": "qa:manager:cash-removal",
+            },
+        )
+        self.assertEqual(removal.status_code, 200, removal.text)
+        forbidden_removal = await self.http.post(
+            f"/api/finance/cash-shifts/{next_day['id']}/removals",
+            headers=reception_headers,
+            json={
+                "amount_uzs": 1,
+                "purpose": "Not permitted",
+                "idempotency_key": "qa:reception:cash-removal",
+            },
+        )
+        self.assertEqual(forbidden_removal.status_code, 403, forbidden_removal.text)
+
+    async def test_reception_can_view_and_cancel_own_branch_support_booking(self):
+        browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
+        student_headers = await self.login(QA_USERS["student_a"])
+        reception_headers = await self.login(QA_USERS["reception_a"])
+        booking = await self.http.post(
+            "/api/support-bookings",
+            headers=student_headers,
+            json={
+                "support_staff_id": browser_fixture["support_staff_id"],
+                "booking_date": (date.today() + timedelta(days=1)).isoformat(),
+                "start_time": "11:00",
+                "duration_minutes": 40,
+                "topic": "Reception cancellation QA",
+            },
+        )
+        self.assertEqual(booking.status_code, 200, booking.text)
+        booking_id = booking.json()["id"]
+        reception_rows = await self.http.get(
+            "/api/support-bookings", headers=reception_headers
+        )
+        self.assertEqual(reception_rows.status_code, 200, reception_rows.text)
+        self.assertIn(booking_id, {row["id"] for row in reception_rows.json()})
+        cancelled = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel", headers=reception_headers
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        second_cancel = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel", headers=reception_headers
+        )
+        self.assertEqual(second_cancel.status_code, 409, second_cancel.text)
 
     async def test_concurrent_idempotent_expense_and_cash_payment_reconcile(self):
         manager = await self.db.users.find_one({"login": QA_USERS["manager_a"]})
@@ -405,16 +537,12 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(earning["gross_tuition_basis_uzs"], 450_000)
         self.assertEqual(earning["earned_amount_uzs"], 180_000)
 
-        opened = await self.http.post(
-            "/api/finance/cash-shifts/open",
-            json={
-                "opening_balance_uzs": 0,
-                "notes": "QA complete lifecycle",
-                "idempotency_key": "qa:shift:complete-lifecycle",
-            },
+        opened = await self.http.get(
+            "/api/finance/cash-shifts/current",
             headers=manager_headers,
         )
         self.assertEqual(opened.status_code, 200, opened.text)
+        self.assertEqual(opened.json()["opening_mode"], "automatic")
         shift_id = opened.json()["id"]
 
         async def receipt(amount: int, key: str):
@@ -472,6 +600,276 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(position["cashbox_position_uzs"], 500_000)
         self.assertEqual(position["accrued_operating_profit_uzs"], 270_000)
 
+    async def test_completed_lesson_updates_student_charge_teacher_pay_and_prepayment_live(self):
+        """One attendance-approved class must move both sides of the ledger once."""
+        manager = await self.db.users.find_one({"login": QA_USERS["manager_a"]})
+        teacher_user = await self.db.users.find_one({"login": QA_USERS["teacher_a"]})
+        student_user = await self.db.users.find_one({"login": QA_USERS["student_a"]})
+        manager_headers = await self.login(QA_USERS["manager_a"])
+        teacher_headers = await self.login(QA_USERS["teacher_a"])
+        student_headers = await self.login(QA_USERS["student_a"])
+        branch_id = self.fixture["branch_a_id"]
+        academy_today = datetime.now(ZoneInfo("Asia/Tashkent")).date()
+        service_month = academy_today.strftime("%Y-%m")
+        month_start = academy_today.replace(day=1)
+        weekday = academy_today.strftime("%A").lower()
+
+        teacher = {
+            "_id": ObjectId(),
+            "user_id": str(teacher_user["_id"]),
+            "first_name": "Rolling",
+            "last_name": "Teacher",
+            "branch_id": branch_id,
+            "group_ids": [],
+            "status": "active",
+            "created_at": datetime.utcnow(),
+        }
+        student = {
+            "_id": ObjectId(),
+            "user_id": str(student_user["_id"]),
+            "student_id": "QA-ROLLING-001",
+            "first_name": "Rolling",
+            "last_name": "Student",
+            "branch_id": branch_id,
+            "parent_id": None,
+            "group_ids": [],
+            "status": "active",
+            "created_at": datetime.utcnow(),
+        }
+        group = {
+            "_id": ObjectId(),
+            "name": "QA Rolling Lesson Group",
+            "branch_id": branch_id,
+            "teacher_id": str(teacher["_id"]),
+            "student_ids": [str(student["_id"])],
+            "schedule": [{
+                "day": weekday,
+                "start_time": "09:00",
+                "end_time": "10:30",
+                "room": "ROLLING-QA",
+            }],
+            "status": "active",
+            "start_date": datetime(month_start.year, month_start.month, 1),
+            "end_date": None,
+            "created_at": datetime.utcnow(),
+        }
+        student["group_ids"] = [str(group["_id"])]
+        teacher["group_ids"] = [str(group["_id"])]
+        await self.db.teachers.insert_one(teacher)
+        await self.db.students.insert_one(student)
+        await self.db.groups.insert_one(group)
+
+        await create_group_finance_version(
+            self.db,
+            group,
+            GroupFinanceVersionCreate(
+                program_code=ProgramCode.GENERAL,
+                group_format=GroupFormat.NORMAL,
+                effective_from=month_start,
+                schedule=[ScheduleSlot(
+                    day=weekday,
+                    start_time="09:00",
+                    end_time="10:30",
+                    room="ROLLING-QA",
+                )],
+                reason="QA rolling lesson accrual",
+            ),
+            str(manager["_id"]),
+        )
+        await self.db.group_memberships.insert_one({
+            "group_id": str(group["_id"]),
+            "student_id": str(student["_id"]),
+            "effective_from": month_start.isoformat(),
+            "effective_from_at": None,
+            "effective_to": None,
+            "effective_to_at": None,
+            "created_by": str(manager["_id"]),
+            "created_at": datetime.utcnow(),
+            "immutable_history": True,
+        })
+
+        occurrences = await self.db.lesson_occurrences.find({
+            "group_id": str(group["_id"]),
+            "generation_month": service_month,
+            "counts_as_scheduled": True,
+            "superseded": {"$ne": True},
+        }).sort("starts_at", 1).to_list(100)
+        occurrence = next(row for row in occurrences if row["local_date"] == academy_today.isoformat())
+        await self.db.lesson_occurrences.update_one(
+            {"_id": occurrence["_id"]},
+            {"$set": {
+                "starts_at": datetime.utcnow(),
+                "ends_at": datetime.utcnow() + timedelta(minutes=90),
+            }},
+        )
+        occurrence_id = str(occurrence["_id"])
+
+        occurrence_list = await self.http.get(
+            "/api/finance/lesson-occurrences",
+            params={"group_id": str(group["_id"]), "month": service_month},
+            headers=teacher_headers,
+        )
+        self.assertEqual(occurrence_list.status_code, 200, occurrence_list.text)
+        listed = next(row for row in occurrence_list.json() if row["id"] == occurrence_id)
+        self.assertEqual(listed["active_student_ids"], [str(student["_id"])])
+
+        resolution_payload = {
+            "resolution": "held",
+            "reason": "Attendance submitted for completed lesson",
+            "idempotency_key": f"qa:rolling-held:{occurrence_id}",
+        }
+        before_end = await self.http.post(
+            f"/api/finance/lesson-occurrences/{occurrence_id}/resolve",
+            json=resolution_payload,
+            headers=teacher_headers,
+        )
+        self.assertEqual(before_end.status_code, 409, before_end.text)
+        self.assertIn("scheduled end", before_end.json()["detail"])
+        await self.db.lesson_occurrences.update_one(
+            {"_id": occurrence["_id"]},
+            {"$set": {
+                "starts_at": datetime.utcnow() - timedelta(minutes=95),
+                "ends_at": datetime.utcnow() - timedelta(minutes=5),
+            }},
+        )
+        missing_attendance = await self.http.post(
+            f"/api/finance/lesson-occurrences/{occurrence_id}/resolve",
+            json=resolution_payload,
+            headers=teacher_headers,
+        )
+        self.assertEqual(missing_attendance.status_code, 409, missing_attendance.text)
+
+        marked_absent = await self.http.post(
+            "/api/attendance",
+            json={
+                "student_id": str(student["_id"]),
+                "group_id": str(group["_id"]),
+                "occurrence_id": occurrence_id,
+                "date": f"{academy_today.isoformat()}T00:00:00",
+                "status": "absent",
+            },
+            headers=teacher_headers,
+        )
+        self.assertEqual(marked_absent.status_code, 200, marked_absent.text)
+
+        completed = await self.http.post(
+            f"/api/finance/lesson-occurrences/{occurrence_id}/resolve",
+            json=resolution_payload,
+            headers=teacher_headers,
+        )
+        replay = await self.http.post(
+            f"/api/finance/lesson-occurrences/{occurrence_id}/resolve",
+            json=resolution_payload,
+            headers=teacher_headers,
+        )
+        self.assertEqual(completed.status_code, 200, completed.text)
+        self.assertEqual(completed.json()["rolling_accrual"]["status"], "updated")
+        self.assertEqual(replay.status_code, 200, replay.text)
+        self.assertTrue(replay.json()["idempotent_replay"])
+        self.assertEqual(
+            await self.db.lesson_resolution_events.count_documents({
+                "occurrence_id": occurrence_id,
+            }),
+            1,
+        )
+
+        student_invoices = await self.http.get(
+            "/api/finance/invoices",
+            params={"service_month": service_month},
+            headers=student_headers,
+        )
+        self.assertEqual(student_invoices.status_code, 200, student_invoices.text)
+        draft = next(row for row in student_invoices.json() if row["status"] == "draft")
+        self.assertGreater(draft["amount_due_uzs"], 0)
+        self.assertEqual(draft["uncovered_balance_uzs"], draft["amount_due_uzs"])
+        self.assertEqual(draft["prepayment_covered_uzs"], 0)
+
+        earnings = await self.http.get(
+            "/api/finance/teacher-earnings/summary",
+            params={"service_month": service_month},
+            headers=teacher_headers,
+        )
+        self.assertEqual(earnings.status_code, 200, earnings.text)
+        summary = earnings.json()
+        self.assertEqual(summary["completed_lesson_count"], 1)
+        self.assertEqual(summary["lessons"][0]["student_count"], 1)
+        self.assertEqual(summary["lessons"][0]["tuition_basis_uzs"], draft["gross_tuition_uzs"])
+        self.assertEqual(
+            summary["earned_to_date_uzs"],
+            (draft["gross_tuition_uzs"] * 4_000 + 5_000) // 10_000,
+        )
+        self.assertGreaterEqual(summary["projected_month_total_uzs"], summary["earned_to_date_uzs"])
+
+        shift = await self.http.get(
+            "/api/finance/cash-shifts/current", headers=manager_headers
+        )
+        self.assertEqual(shift.status_code, 200, shift.text)
+        prepayment = await self.http.post(
+            "/api/finance/receipts/cash",
+            json={
+                "student_id": str(student["_id"]),
+                "amount_uzs": draft["amount_due_uzs"],
+                "cash_shift_id": shift.json()["id"],
+                "notes": "QA current-month lesson prepayment",
+                "idempotency_key": "qa:rolling-current-prepayment",
+            },
+            headers=manager_headers,
+        )
+        self.assertEqual(prepayment.status_code, 200, prepayment.text)
+        self.assertEqual(prepayment.json()["advance_amount_uzs"], draft["amount_due_uzs"])
+        covered_invoices = await self.http.get(
+            "/api/finance/invoices",
+            params={"service_month": service_month},
+            headers=student_headers,
+        )
+        covered = next(row for row in covered_invoices.json() if row["status"] == "draft")
+        self.assertEqual(covered["prepayment_covered_uzs"], draft["amount_due_uzs"])
+        self.assertEqual(covered["uncovered_balance_uzs"], 0)
+        self.assertEqual(covered["amount_paid_uzs"], 0)
+
+        for index, unresolved in enumerate(occurrences):
+            if str(unresolved["_id"]) == occurrence_id:
+                continue
+            await record_lesson_resolution(
+                self.db,
+                unresolved,
+                LessonResolutionCreate(
+                    resolution=LessonResolution.TEACHER_CANCELLED,
+                    reason="QA closes remaining schedule without charge",
+                    idempotency_key=f"qa:rolling-cancel:{index:03d}",
+                ),
+                manager,
+            )
+        regenerated = await self.http.post(
+            "/api/finance/invoices/generate-drafts",
+            json={"service_month": service_month, "branch_id": branch_id},
+            headers=manager_headers,
+        )
+        self.assertEqual(regenerated.status_code, 200, regenerated.text)
+        finalized = await self.http.post(
+            "/api/finance/invoices/finalize-month",
+            json={
+                "service_month": service_month,
+                "branch_id": branch_id,
+                "idempotency_key": "qa:rolling-finalize",
+            },
+            headers=manager_headers,
+        )
+        self.assertEqual(finalized.status_code, 200, finalized.text)
+        self.assertEqual(finalized.json()["advance_applied_uzs"], draft["amount_due_uzs"])
+        official = await self.db.teacher_earnings.find_one({
+            "teacher_id": str(teacher["_id"]),
+            "service_month": service_month,
+        })
+        self.assertEqual(official["earned_amount_uzs"], summary["earned_to_date_uzs"])
+        final_invoice = await self.db.finance_invoices.find_one({
+            "student_id": str(student["_id"]),
+            "service_month": service_month,
+        })
+        self.assertEqual(final_invoice["status"], "finalized")
+        self.assertEqual(final_invoice["balance_uzs"], 0)
+        self.assertEqual(final_invoice["payment_status"], "paid")
+
     async def test_parent_card_report_is_pending_until_scoped_staff_confirmation(self):
         """A parent's claim is not money until an authorized human verifies it."""
         browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
@@ -503,6 +901,7 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         manager_b_headers = await self.login(QA_USERS["manager_b"])
         super_headers = await self.login(QA_USERS["super_admin"])
         parent_headers = await self.login(QA_USERS["parent_a"])
+        student_headers = await self.login(QA_USERS["student_a"])
 
         destination_response = await self.http.post(
             "/api/finance/payment-destinations",
@@ -713,6 +1112,29 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         rejected_invoice = await self.db.finance_invoices.find_one({"_id": invoice["_id"]})
         self.assertEqual(rejected_invoice["amount_paid_uzs"], 0)
         self.assertEqual(rejected_invoice["balance_uzs"], 450_000)
+
+        student_report = await self.http.post(
+            "/api/finance/card-payment-reports",
+            json={
+                **report_payload,
+                "amount_uzs": 30_000,
+                "idempotency_key": "qa:card-report:student-self",
+            },
+            headers=student_headers,
+        )
+        self.assertEqual(student_report.status_code, 200, student_report.text)
+        self.assertEqual(student_report.json()["report"]["status"], "unresolved")
+        self.assertEqual(student_report.json()["report"]["reporter_role"], "student")
+        self.assertEqual(
+            student_report.json()["report"]["reported_by"],
+            self.fixture["users"]["student_a"]["id"],
+        )
+        own_reports = await self.http.get(
+            "/api/finance/card-payment-reports", headers=student_headers
+        )
+        self.assertEqual(own_reports.status_code, 200, own_reports.text)
+        self.assertEqual(len(own_reports.json()), 1)
+        self.assertEqual(own_reports.json()[0]["reporter_role"], "student")
 
     async def test_change_stream_emits_only_scoped_invalidation_metadata(self):
         manager_a = await self.db.users.find_one({"login": QA_USERS["manager_a"]})

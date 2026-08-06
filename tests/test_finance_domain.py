@@ -28,11 +28,20 @@ from finance_ledger import (
 )
 from finance_accounting import calculate_projected_teacher_salary
 from finance_service import DEFAULT_FINANCE_POLICIES
-from finance_service import seed_reception_user
+from finance_service import finance_document_to_json, seed_reception_user
 from finance_card_payments import _is_transient_transaction_conflict
 
 
 class FinanceDomainTests(unittest.TestCase):
+    def test_finance_datetimes_are_serialized_as_explicit_utc_instants(self):
+        naive = datetime(2026, 8, 6, 3, 4, 5)
+        aware = datetime(2026, 8, 6, 8, 4, 5, tzinfo=timezone.utc)
+
+        serialized = finance_document_to_json({"naive": naive, "aware": aware})
+
+        self.assertEqual(serialized["naive"], "2026-08-06T03:04:05Z")
+        self.assertEqual(serialized["aware"], "2026-08-06T08:04:05Z")
+
     def test_transient_card_confirmation_conflicts_are_not_reported_as_missing_transactions(self):
         write_conflict = OperationFailure(
             "WriteConflict",

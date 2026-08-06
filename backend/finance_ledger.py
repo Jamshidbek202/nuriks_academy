@@ -90,6 +90,11 @@ async def ensure_finance_ledger_indexes(db) -> None:
         unique=True,
         partialFilterExpression={"status": "open"},
     )
+    await db.cash_shifts.create_index(
+        [("cashbox_id", ASCENDING), ("business_date", ASCENDING)],
+        unique=True,
+        sparse=True,
+    )
     await db.cash_events.create_index("idempotency_key", unique=True)
     await db.cash_discrepancy_reviews.create_index("idempotency_key", unique=True)
 
@@ -653,6 +658,228 @@ async def generate_draft_invoices(
         "gross_tuition_uzs": sum(row["gross_tuition_uzs"] for row in invoices),
         "discount_amount_uzs": sum(row["discount_amount_uzs"] for row in invoices),
         "amount_due_uzs": sum(row["amount_due_uzs"] for row in invoices),
+    }
+
+
+async def _projected_teacher_month_total(
+    db,
+    teacher_id: str,
+    service_month: str,
+) -> int:
+    """Estimate month-end salary if every unresolved scheduled lesson is held.
+
+    This is a projection only. Resolved closures and cancellations remain
+    excluded, membership and price versions are evaluated at each lesson, and
+    student discounts or payment status never reduce the teacher basis.
+    """
+    inputs = await _invoice_inputs(db, service_month, None)
+    memberships_by_student: Dict[str, List[dict]] = {}
+    for row in inputs["memberships"]:
+        memberships_by_student.setdefault(row["student_id"], []).append(row)
+    freezes_by_student: Dict[str, List[dict]] = {}
+    for row in inputs["freeze_periods"]:
+        freezes_by_student.setdefault(row["student_id"], []).append(row)
+
+    exact = Fraction(0)
+    for student in inputs["students"]:
+        student_id = str(student["_id"])
+        student_memberships = memberships_by_student.get(student_id, [])
+        freeze_periods = freezes_by_student.get(student_id, [])
+        group_ids = sorted({row["group_id"] for row in student_memberships})
+        for group_id in group_ids:
+            group_rows = inputs["occurrences_by_group"].get(group_id, [])
+            originals = sorted(
+                [row for row in group_rows if row.get("counts_as_scheduled")],
+                key=lambda row: row["starts_at"],
+            )
+            if not originals:
+                continue
+            charge_inputs = []
+            metadata = {}
+            for original in originals:
+                service_lesson_date = original["local_date"]
+                tariff_key = f"tariff:{original['program_code']}:{original['group_format']}"
+                tariff = _resolve_versioned_policy(inputs["policies"], tariff_key, service_lesson_date)
+                if not tariff:
+                    raise ValueError(
+                        f"No tariff is effective for {tariff_key} on {service_lesson_date}"
+                    )
+
+                projected_occurrence = _actual_for_original(original, group_rows)
+                if projected_occurrence is None and original.get("resolution_status") == "unresolved":
+                    projected_occurrence = original
+                if projected_occurrence is None and original.get("replacement_occurrence_id"):
+                    replacement = next(
+                        (
+                            row for row in group_rows
+                            if str(row.get("_id")) == original["replacement_occurrence_id"]
+                            and row.get("resolution_status") == "unresolved"
+                        ),
+                        None,
+                    )
+                    projected_occurrence = replacement
+
+                active = (
+                    projected_occurrence is not None
+                    and _membership_active(
+                        student_memberships,
+                        group_id,
+                        service_lesson_date,
+                        original.get("starts_at"),
+                    )
+                    and _not_frozen(freeze_periods, service_lesson_date)
+                )
+                if projected_occurrence is not None and projected_occurrence.get("resolution_status") == "resolved":
+                    active = active and projected_occurrence.get("student_billable") is True
+
+                line_key = (
+                    projected_occurrence["occurrence_key"]
+                    if projected_occurrence is not None
+                    else original["occurrence_key"]
+                )
+                charge_inputs.append(ChargeInput(
+                    key=line_key,
+                    monthly_price_uzs=int(tariff["value"]["monthly_price_uzs"]),
+                    student_billable=active,
+                ))
+                if active and projected_occurrence is not None:
+                    share_key = f"teacher_share:{original['group_format']}"
+                    share = _resolve_versioned_policy(
+                        inputs["policies"], share_key, service_lesson_date
+                    )
+                    if not share:
+                        raise ValueError(
+                            f"No teacher share is effective for {share_key} on {service_lesson_date}"
+                        )
+                    metadata[line_key] = {
+                        "teacher_id": (
+                            projected_occurrence.get("payable_teacher_id")
+                            or projected_occurrence.get("teacher_id")
+                        ),
+                        "share_basis_points": int(share["value"]["basis_points"]),
+                    }
+
+            for line in calculate_student_charge(charge_inputs).lines:
+                detail = metadata.get(line.key)
+                if detail and detail["teacher_id"] == teacher_id:
+                    exact += Fraction(
+                        int(line.amount_uzs) * detail["share_basis_points"],
+                        10_000,
+                    )
+    return round_fraction_half_up(exact)
+
+
+async def teacher_earnings_snapshot(
+    db,
+    teacher_id: str,
+    service_month: str,
+) -> dict:
+    """Return the teacher's live earned salary and auditable lesson breakdown."""
+    invoices = await db.finance_invoices.find({
+        "service_month": service_month,
+        "status": {"$in": ["draft", "finalized"]},
+    }).to_list(100_000)
+    current_runs = {
+        str(row["_id"]): row.get("current_generation_run_id")
+        for row in invoices
+        if row.get("current_generation_run_id")
+    }
+    lines = []
+    if current_runs:
+        candidates = await db.finance_invoice_lines.find({
+            "invoice_id": {"$in": list(current_runs)},
+            "payable_teacher_id": teacher_id,
+            "invoice_status": {"$in": ["draft", "finalized"]},
+        }).to_list(100_000)
+        lines = [
+            row for row in candidates
+            if row.get("generation_run_id") == current_runs.get(row["invoice_id"])
+        ]
+
+    by_occurrence: Dict[str, dict] = {}
+    for line in lines:
+        key = line["occurrence_id"]
+        item = by_occurrence.setdefault(key, {
+            "occurrence_id": key,
+            "group_id": line["group_id"],
+            "lesson_date": line["lesson_date"],
+            "actual_lesson_date": line.get("actual_lesson_date") or line["lesson_date"],
+            "program_code": line["program_code"],
+            "group_format": line["group_format"],
+            "scheduled_lesson_denominator": int(line["scheduled_lesson_denominator"]),
+            "teacher_share_basis_points": int(line["teacher_share_basis_points"]),
+            "student_count": 0,
+            "tuition_basis_uzs": 0,
+            "invoice_line_ids": [],
+            "exact_earning": Fraction(0),
+        })
+        amount = int(line["amount_uzs"])
+        share = int(line["teacher_share_basis_points"])
+        item["student_count"] += 1
+        item["tuition_basis_uzs"] += amount
+        item["invoice_line_ids"].append(str(line["_id"]))
+        item["exact_earning"] += Fraction(amount * share, 10_000)
+
+    target_earned = round_fraction_half_up(
+        sum((item["exact_earning"] for item in by_occurrence.values()), Fraction(0))
+    )
+    floor_by_key = {
+        key: item["exact_earning"].numerator // item["exact_earning"].denominator
+        for key, item in by_occurrence.items()
+    }
+    remaining = target_earned - sum(floor_by_key.values())
+    remainder_order = sorted(
+        by_occurrence,
+        key=lambda key: (
+            -(by_occurrence[key]["exact_earning"] - floor_by_key[key]),
+            key,
+        ),
+    )
+    for key in remainder_order[:remaining]:
+        floor_by_key[key] += 1
+
+    group_ids = sorted({item["group_id"] for item in by_occurrence.values()})
+    group_names = {}
+    if group_ids:
+        groups = await db.groups.find({
+            "_id": {"$in": [ObjectId(value) for value in group_ids if ObjectId.is_valid(value)]}
+        }, {"name": 1}).to_list(len(group_ids))
+        group_names = {str(row["_id"]): row.get("name", "Group") for row in groups}
+
+    lesson_rows = []
+    for key, item in sorted(
+        by_occurrence.items(), key=lambda pair: (pair[1]["lesson_date"], pair[0])
+    ):
+        public = {field: value for field, value in item.items() if field != "exact_earning"}
+        public["group_name"] = group_names.get(item["group_id"], "Group")
+        public["earning_uzs"] = floor_by_key[key]
+        lesson_rows.append(public)
+
+    official = await db.teacher_earnings.find_one({
+        "teacher_id": teacher_id,
+        "service_month": service_month,
+    })
+    earned = int(official["earned_amount_uzs"]) if official else target_earned
+    if lesson_rows and earned != target_earned:
+        lesson_rows[-1]["earning_uzs"] += earned - target_earned
+    projected_total = earned if official else await _projected_teacher_month_total(
+        db, teacher_id, service_month
+    )
+    projected_total = max(projected_total, earned)
+    paid = int(official.get("paid_amount_uzs", 0)) if official else 0
+    return {
+        "teacher_id": teacher_id,
+        "service_month": service_month,
+        "status": "finalized" if official else "accruing",
+        "earned_to_date_uzs": earned,
+        "projected_month_total_uzs": projected_total,
+        "projected_remaining_uzs": projected_total - earned,
+        "paid_amount_uzs": paid,
+        "outstanding_amount_uzs": max(0, earned - paid),
+        "completed_lesson_count": len(lesson_rows),
+        "lessons": lesson_rows,
+        "official_earning_id": str(official["_id"]) if official else None,
+        "updated_at": datetime.utcnow(),
     }
 
 
@@ -1487,6 +1714,122 @@ async def record_card_transfer_receipt(
     }
 
 
+def _cash_expected_balance(shift: dict) -> int:
+    return (
+        int(shift.get("opening_balance_uzs", 0))
+        + int(shift.get("receipt_total_uzs", 0))
+        + int(shift.get("other_income_total_uzs", 0))
+        - int(shift.get("removal_total_uzs", 0))
+    )
+
+
+def _academy_business_date(value: Optional[datetime] = None) -> str:
+    instant = value or datetime.utcnow()
+    if instant.tzinfo is None:
+        instant = instant.replace(tzinfo=timezone.utc)
+    return instant.astimezone(ZoneInfo(ACADEMY_TIMEZONE)).date().isoformat()
+
+
+async def ensure_daily_cash_shift(db, *, now: Optional[datetime] = None) -> dict:
+    """Roll the main cashbox into the current Tashkent business day.
+
+    Reception never owns or manually opens a drawer. A stale day is closed at
+    its immutable expected amount and waits for a manager's physical count.
+    The next day carries that expected amount so a late confirmation cannot
+    silently rewrite a day that is already in progress.
+    """
+    instant = now or datetime.utcnow()
+    today = _academy_business_date(instant)
+    current = await db.cash_shifts.find_one({"cashbox_id": "main", "status": "open"})
+    if current and not current.get("business_date"):
+        inferred = _academy_business_date(current.get("opened_at") or instant)
+        await db.cash_shifts.update_one(
+            {"_id": current["_id"], "business_date": {"$exists": False}},
+            {"$set": {"business_date": inferred, "opening_mode": "legacy_migrated"}},
+        )
+        current["business_date"] = inferred
+    if current and current.get("business_date") == today:
+        return current
+
+    carry_forward = 0
+    if current:
+        expected = _cash_expected_balance(current)
+        rollover_key = f"cash-day:auto-close:{current['_id']}:{today}"
+        event = {
+            "cash_shift_id": str(current["_id"]),
+            "event_type": "automatic_day_close",
+            "amount_uzs": expected,
+            "expected_balance_uzs": expected,
+            "created_by": "system-cash-day",
+            "created_at": instant,
+            "idempotency_key": rollover_key,
+            "immutable": True,
+        }
+        try:
+            inserted = await db.cash_events.insert_one(event)
+            close_event_id = str(inserted.inserted_id)
+        except DuplicateKeyError:
+            stored_event = await db.cash_events.find_one({"idempotency_key": rollover_key})
+            close_event_id = str(stored_event["_id"]) if stored_event else None
+        result = await db.cash_shifts.update_one(
+            {"_id": current["_id"], "status": "open"},
+            {"$set": {
+                "status": "awaiting_confirmation",
+                "expected_closing_balance_uzs": expected,
+                "auto_closed_at": instant,
+                "closed_at": instant,
+                "closed_by": "system-cash-day",
+                "close_event_id": close_event_id,
+                "confirmation_status": "pending",
+                "discrepancy_status": "awaiting_count",
+            }},
+        )
+        if result.modified_count == 1:
+            carry_forward = expected
+        else:
+            current = await db.cash_shifts.find_one({"_id": current["_id"]})
+            carry_forward = int(current.get("expected_closing_balance_uzs", expected))
+    else:
+        previous = await db.cash_shifts.find_one(
+            {"cashbox_id": "main"}, sort=[("business_date", DESCENDING), ("opened_at", DESCENDING)]
+        )
+        if previous:
+            carry_forward = int(
+                previous.get("actual_closing_balance_uzs")
+                if previous.get("actual_closing_balance_uzs") is not None
+                else previous.get("expected_closing_balance_uzs", 0)
+            )
+
+    document = {
+        "cashbox_id": "main",
+        "business_date": today,
+        "status": "open",
+        "operator_id": "system-cash-day",
+        "operator_role": "system",
+        "branch_id": None,
+        "opening_balance_uzs": carry_forward,
+        "notes": "Opened automatically for the Tashkent business day",
+        "idempotency_key": f"cash-day:auto-open:{today}",
+        "opened_at": instant,
+        "opening_mode": "automatic",
+        "receipt_total_uzs": 0,
+        "removal_total_uzs": 0,
+        "other_income_total_uzs": 0,
+    }
+    try:
+        result = await db.cash_shifts.insert_one(document)
+        document["_id"] = result.inserted_id
+        return document
+    except DuplicateKeyError:
+        stored = await db.cash_shifts.find_one({"cashbox_id": "main", "business_date": today})
+        if stored and stored.get("status") == "open":
+            return stored
+        concurrent = await db.cash_shifts.find_one({"cashbox_id": "main", "status": "open"})
+        if concurrent:
+            return concurrent
+        raise ValueError("The automatic cash day could not be opened safely")
+
+
 async def open_cash_shift(db, opening_balance_uzs: int, notes: Optional[str], idempotency_key: str, actor: dict) -> dict:
     replay = await db.cash_shifts.find_one({"idempotency_key": idempotency_key})
     if replay:
@@ -1534,9 +1877,6 @@ async def record_cash_receipt(
                 )
                 if not stored_shift:
                     raise ValueError("The selected cash shift is not open")
-                if actor["role"] == "reception" and stored_shift["operator_id"] != str(actor["_id"]):
-                    raise ValueError("Reception can only record cash in its own open shift")
-
                 counter = await db.counters.find_one_and_update(
                     {"_id": "finance_receipt_number"},
                     {"$inc": {"seq": 1}},
@@ -1691,12 +2031,7 @@ async def add_cash_removal(db, shift: dict, amount_uzs: int, purpose: str, idemp
                 )
                 if not stored_shift:
                     raise ValueError("Cash can only be removed from an open shift")
-                available_cash = (
-                    int(stored_shift["opening_balance_uzs"])
-                    + int(stored_shift.get("receipt_total_uzs", 0))
-                    + int(stored_shift.get("other_income_total_uzs", 0))
-                    - int(stored_shift.get("removal_total_uzs", 0))
-                )
+                available_cash = _cash_expected_balance(stored_shift)
                 if amount_uzs > available_cash:
                     raise ValueError("Cash removal exceeds the amount physically available in the cashbox")
                 event = {
@@ -1797,6 +2132,72 @@ async def close_cash_shift(
     except OperationFailure as exc:
         raise RuntimeError(
             "Closing a cash shift requires MongoDB transaction support; nothing was recorded"
+        ) from exc
+
+
+async def confirm_cash_shift(
+    db,
+    shift: dict,
+    actual_closing_balance_uzs: int,
+    notes: Optional[str],
+    idempotency_key: str,
+    actor: dict,
+) -> dict:
+    """Manager confirmation for a system-closed business day."""
+    try:
+        async with await db.client.start_session() as session:
+            async with session.start_transaction():
+                replay = await db.cash_events.find_one(
+                    {"idempotency_key": idempotency_key}, **_session(session)
+                )
+                if replay:
+                    return await db.cash_shifts.find_one(
+                        {"_id": ObjectId(replay["cash_shift_id"])}, **_session(session)
+                    )
+                stored = await db.cash_shifts.find_one(
+                    {"_id": shift["_id"], "status": "awaiting_confirmation"},
+                    **_session(session),
+                )
+                if not stored:
+                    raise ValueError("This cash day is not waiting for confirmation")
+                expected = int(stored.get("expected_closing_balance_uzs", _cash_expected_balance(stored)))
+                discrepancy = actual_closing_balance_uzs - expected
+                event = {
+                    "cash_shift_id": str(stored["_id"]),
+                    "event_type": "manager_day_confirmation",
+                    "amount_uzs": actual_closing_balance_uzs,
+                    "expected_balance_uzs": expected,
+                    "discrepancy_uzs": discrepancy,
+                    "notes": notes,
+                    "created_by": str(actor["_id"]),
+                    "created_at": datetime.utcnow(),
+                    "idempotency_key": idempotency_key,
+                    "immutable": True,
+                }
+                inserted = await db.cash_events.insert_one(event, **_session(session))
+                result = await db.cash_shifts.update_one(
+                    {"_id": stored["_id"], "status": "awaiting_confirmation"},
+                    {"$set": {
+                        "status": "closed",
+                        "confirmation_status": "confirmed",
+                        "actual_closing_balance_uzs": actual_closing_balance_uzs,
+                        "discrepancy_uzs": discrepancy,
+                        "discrepancy_status": "pending_review" if discrepancy else "balanced",
+                        "confirmed_by": str(actor["_id"]),
+                        "confirmed_at": event["created_at"],
+                        "confirmation_notes": notes,
+                        "confirmation_event_id": str(inserted.inserted_id),
+                    }},
+                    **_session(session),
+                )
+                if result.modified_count != 1:
+                    raise ValueError("Cash day changed concurrently; reload before confirming")
+                return await db.cash_shifts.find_one(
+                    {"_id": stored["_id"]}, **_session(session)
+                )
+    except OperationFailure as exc:
+        raise RuntimeError(
+            "Cash-day confirmation requires MongoDB transaction support; nothing was recorded"
         ) from exc
 
 

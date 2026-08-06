@@ -57,7 +57,7 @@ async def require_booking_staff_access(db, current_user: dict, booking: dict) ->
     role = current_user.get("role")
     if role == "super_admin":
         return
-    if role == "manager":
+    if role in {"manager", "reception"}:
         if await get_booking_branch_id(db, booking) != current_user.get("branch_id"):
             raise HTTPException(status_code=403, detail="Booking belongs to another branch")
         return
@@ -191,7 +191,7 @@ async def get_bookings(
     """Get support bookings based on user role"""
     from server import db, serialize_doc
 
-    if current_user.get("role") not in ["student", "support", "parent", "super_admin", "manager"]:
+    if current_user.get("role") not in ["student", "support", "parent", "super_admin", "manager", "reception"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -231,7 +231,7 @@ async def get_bookings(
 
         if "student_id" not in query:
             student_query = {"status": {"$ne": "archived"}}
-            if current_user["role"] in ["manager", "support"]:
+            if current_user["role"] in ["manager", "support", "reception"]:
                 student_query["branch_id"] = current_user.get("branch_id")
             active_students = await db.students.find(student_query).to_list(5000)
             query["student_id"] = {"$in": [str(student["_id"]) for student in active_students]}
@@ -353,6 +353,8 @@ async def confirm_booking(
         booking = await db.support_bookings.find_one({"_id": ObjectId(booking_id)})
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
+        if booking.get("status") not in {"scheduled", "confirmed"}:
+            raise HTTPException(status_code=409, detail="Only an upcoming booking can be confirmed")
         
         await require_booking_staff_access(db, current_user, booking)
         
@@ -392,6 +394,8 @@ async def cancel_booking(
         booking = await db.support_bookings.find_one({"_id": ObjectId(booking_id)})
         if not booking:
             raise HTTPException(status_code=404, detail="Booking not found")
+        if booking.get("status") not in {"scheduled", "confirmed"}:
+            raise HTTPException(status_code=409, detail="Only an upcoming booking can be cancelled")
         
         # Check permissions
         if current_user["role"] == "student":
@@ -399,7 +403,7 @@ async def cancel_booking(
                 raise HTTPException(status_code=403, detail="You can only cancel your own bookings")
         elif current_user["role"] == "support":
             await require_booking_staff_access(db, current_user, booking)
-        elif current_user["role"] not in ["super_admin", "manager"]:
+        elif current_user["role"] not in ["super_admin", "manager", "reception"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         else:
             await require_booking_staff_access(db, current_user, booking)

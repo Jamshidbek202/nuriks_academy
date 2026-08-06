@@ -44,6 +44,11 @@ class StaffAccountUpdate(BaseModel):
     language_preference: Literal["en", "ru", "uz"] = "ru"
 
 
+class StaffRoleChange(BaseModel):
+    role: Literal["manager", "reception", "support"]
+    reason: str = Field(..., min_length=5, max_length=500)
+
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import create_audit_log, db
 
@@ -72,6 +77,8 @@ def _public_account(user: dict) -> dict:
         "is_active": bool(user.get("is_active", False)),
         "invite_delivery_status": user.get("invite_delivery_status"),
         "telegram_connected": user.get("telegram_link_status") == "linked",
+        "telegram_link_status": user.get("telegram_link_status", "not_connected"),
+        "telegram_link_expires_at": user.get("telegram_link_expires_at"),
         "can_delete_permanently": True,
         "invite_sent_at": user.get("invite_sent_at"),
         "last_login": user.get("last_login"),
@@ -93,6 +100,38 @@ async def _managed_user(db, account_id: str) -> dict:
     if not user:
         raise HTTPException(status_code=404, detail="Staff account not found")
     return user
+
+
+async def _operational_user(db, account_id: str) -> tuple[dict, Optional[dict]]:
+    """Resolve either a user ID or the support-profile ID shown in the UI."""
+    if not ObjectId.is_valid(account_id):
+        raise HTTPException(status_code=400, detail="Invalid staff account ID")
+    object_id = ObjectId(account_id)
+    user = await db.users.find_one({
+        "_id": object_id,
+        "role": {"$in": ["manager", "reception", "support"]},
+        "is_deleted": {"$ne": True},
+    })
+    support_profile = None
+    if not user:
+        support_profile = await db.support_staff.find_one({
+            "_id": object_id,
+            "is_deleted": {"$ne": True},
+        })
+        if support_profile and ObjectId.is_valid(support_profile.get("user_id", "")):
+            user = await db.users.find_one({
+                "_id": ObjectId(support_profile["user_id"]),
+                "role": "support",
+                "is_deleted": {"$ne": True},
+            })
+    if not user:
+        raise HTTPException(status_code=404, detail="Operational staff account not found")
+    if user.get("role") == "support" and not support_profile:
+        support_profile = await db.support_staff.find_one({
+            "user_id": str(user["_id"]),
+            "is_deleted": {"$ne": True},
+        })
+    return user, support_profile
 
 
 @router.get("")
@@ -210,6 +249,89 @@ async def update_staff_account(
         {"role": user["role"]}, _client_ip(request),
     )
     return _public_account(await db.users.find_one({"_id": user["_id"]}))
+
+
+@router.patch("/{account_id}/role")
+async def change_staff_role(
+    account_id: str,
+    payload: StaffRoleChange,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Correct an operational role without creating a second login identity.
+
+    Teacher conversions are intentionally excluded because groups, payroll,
+    and historical teaching records require a separate migration workflow.
+    """
+    from server import create_audit_log, db
+
+    require_super_admin(current_user)
+    user, support_profile = await _operational_user(db, account_id)
+    old_role = user["role"]
+    if payload.role == old_role:
+        raise HTTPException(status_code=409, detail="The account already has this role")
+
+    if old_role == "support" and support_profile:
+        booking_count = await db.support_bookings.count_documents({
+            "support_staff_id": str(support_profile["_id"]),
+            "is_deleted": {"$ne": True},
+        })
+        if booking_count:
+            raise HTTPException(
+                status_code=409,
+                detail="This support teacher has booking history. Reassign or preserve that role instead of changing it.",
+            )
+
+    now = datetime.utcnow()
+    async with await db.client.start_session() as session:
+        async with session.start_transaction():
+            if payload.role == "support":
+                names = user.get("full_name", "").strip().split(maxsplit=1)
+                first_name = names[0] if names else "Staff"
+                last_name = names[1] if len(names) > 1 else "Member"
+                profile = {
+                    "user_id": str(user["_id"]),
+                    "first_name": first_name,
+                    "last_name": last_name,
+                    "phone": user.get("phone_normalized") or user.get("phone"),
+                    "email": user.get("email"),
+                    "photo": None,
+                    "available_hours": {},
+                    "branch_id": user.get("branch_id"),
+                    "created_at": now,
+                    "role_correction_reason": payload.reason.strip(),
+                }
+                await db.support_staff.insert_one(profile, session=session)
+            elif support_profile:
+                await db.support_staff.delete_one({"_id": support_profile["_id"]}, session=session)
+
+            result = await db.users.update_one(
+                {"_id": user["_id"], "role": old_role},
+                {"$set": {
+                    "role": payload.role,
+                    "updated_at": now,
+                    "last_role_change_reason": payload.reason.strip(),
+                    "last_role_changed_by": str(current_user["_id"]),
+                    "last_role_changed_at": now,
+                }, "$inc": {"token_version": 1}},
+                session=session,
+            )
+            if result.modified_count != 1:
+                raise HTTPException(status_code=409, detail="Staff account changed concurrently; reload and try again")
+
+    await create_audit_log(
+        str(current_user["_id"]),
+        "change_role",
+        "staff_account",
+        str(user["_id"]),
+        {"old_role": old_role, "new_role": payload.role, "reason": payload.reason.strip()},
+        _client_ip(request),
+    )
+    updated = await db.users.find_one({"_id": user["_id"]})
+    return {
+        "message": f"Role changed from {old_role} to {payload.role}; existing sessions were ended",
+        "account": _public_account(updated),
+    }
 
 
 @router.post("/{account_id}/send-access-code", status_code=status.HTTP_202_ACCEPTED)

@@ -271,7 +271,7 @@ async def create_card_payment_report(
     db,
     *,
     payload,
-    parent: dict,
+    reporter_profile: dict,
     student: dict,
     destination: dict,
     actor: dict,
@@ -292,12 +292,18 @@ async def create_card_payment_report(
         if replay.get("report_fingerprint") != fingerprint:
             raise ValueError("Idempotency key was already used for another payment report")
         return replay, True
+    reporter_name = (
+        f"{reporter_profile.get('first_name', '')} {reporter_profile.get('last_name', '')}".strip()
+        or actor.get("full_name", "")
+    )
     report = {
         "student_id": str(student["_id"]),
         "student_number": student.get("student_id"),
         "student_name": f"{student.get('first_name', '')} {student.get('last_name', '')}".strip(),
-        "parent_id": str(parent["_id"]),
-        "parent_name": f"{parent.get('first_name', '')} {parent.get('last_name', '')}".strip(),
+        "parent_id": str(reporter_profile["_id"]) if actor.get("role") == "parent" else None,
+        "parent_name": reporter_name if actor.get("role") == "parent" else None,
+        "reporter_name": reporter_name,
+        "reporter_role": actor.get("role"),
         "reported_by": reporter_id,
         "destination_id": str(destination["_id"]),
         "provider": destination["provider"],
@@ -513,7 +519,7 @@ async def notify_staff_payment_report(db, report: dict) -> None:
     }).to_list(10_000)
     amount = f"{int(report['amount_uzs']):,}".replace(",", " ")
     message = (
-        f"Parent: {report['parent_name']}\n"
+        f"Reported by: {report.get('reporter_name') or report.get('parent_name') or report['student_name']} ({report.get('reporter_role') or 'parent'})\n"
         f"Student: {report['student_name']} ({report.get('student_number') or 'no ID'})\n"
         f"Amount: {amount} UZS\n"
         f"Reported payment time: {_tashkent_display(report['paid_at'])}\n"

@@ -129,6 +129,64 @@ async def configure_telegram_webhook() -> bool:
     return True
 
 
+async def telegram_provider_health() -> dict:
+    """Return safe delivery diagnostics without exposing bot credentials."""
+    validate_telegram_configuration()
+    mode = delivery_mode()
+    base = {
+        "mode": mode,
+        "bot_username": bot_username(),
+        "token_configured": bool(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()),
+        "expected_webhook_url": _webhook_url(),
+    }
+    if mode != "live":
+        return {
+            **base,
+            "healthy": mode == "mock",
+            "message": "Telegram delivery is not running in live mode",
+        }
+    token = os.environ["TELEGRAM_BOT_TOKEN"].strip()
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0, connect=10.0)) as client:
+            identity_response = await client.get(f"{BOT_API_BASE}/bot{token}/getMe")
+            webhook_response = await client.get(f"{BOT_API_BASE}/bot{token}/getWebhookInfo")
+            identity_response.raise_for_status()
+            webhook_response.raise_for_status()
+            identity_payload = identity_response.json()
+            webhook_payload = webhook_response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise TelegramDeliveryError("Telegram health check failed") from exc
+    identity = identity_payload.get("result", {}) if isinstance(identity_payload, dict) else {}
+    webhook = webhook_payload.get("result", {}) if isinstance(webhook_payload, dict) else {}
+    expected_url = _webhook_url()
+    actual_url = webhook.get("url")
+    username_matches = str(identity.get("username", "")).lower() == bot_username().lower()
+    webhook_matches = bool(expected_url and actual_url == expected_url)
+    last_error = webhook.get("last_error_message")
+    return {
+        **base,
+        "healthy": bool(
+            identity_payload.get("ok") is True
+            and webhook_payload.get("ok") is True
+            and username_matches
+            and webhook_matches
+            and not last_error
+        ),
+        "provider_bot_username": identity.get("username"),
+        "username_matches": username_matches,
+        "webhook_configured": bool(actual_url),
+        "webhook_matches": webhook_matches,
+        "pending_update_count": int(webhook.get("pending_update_count", 0) or 0),
+        "last_error_at": webhook.get("last_error_date"),
+        "last_error_message": last_error,
+        "message": (
+            "Telegram bot and webhook are ready"
+            if username_matches and webhook_matches and not last_error
+            else "Telegram needs attention; review the mismatch or provider error below"
+        ),
+    }
+
+
 async def send_telegram_message(chat_id: int, message: str) -> TelegramDelivery:
     """Send one private bot message without logging its contents or credentials."""
     validate_telegram_configuration()

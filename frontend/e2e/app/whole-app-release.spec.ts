@@ -136,6 +136,7 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Groups', path: /\/groups/ },
     { name: 'Attendance', path: /\/attendance/ },
+    { name: 'Earnings', path: /\/earnings/ },
     { name: 'Homework', path: /\/homework/ },
     { name: 'Tests', path: /\/tests/ },
     { name: 'Profile', path: /\/profile/ },
@@ -582,6 +583,50 @@ test('every worker supports reversible deactivation and guarded permanent deleti
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Invitation pending', { exact: true })).toBeVisible({ timeout: 8_000 });
     await activateInvitedAccount(request, `+99897${suffix}`, 'UiManager@2026!');
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
+    const activatedManagerToken = await apiLoginWithPassword(request, `+99897${suffix}`, 'UiManager@2026!');
+    await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
+    const managerDeactivateResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/staff-accounts/${managerAccount.id}/deactivate`
+      && response.request().method() === 'PATCH'
+    ));
+    await session.page.getByTestId('staff-deactivate-button').click();
+    const deactivatedManager = await managerDeactivateResponse;
+    expect(deactivatedManager.ok(), `deactivate activated manager: ${await deactivatedManager.text()}`).toBeTruthy();
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Deactivated', { exact: true })).toBeVisible({ timeout: 8_000 });
+    const revokedManagerSession = await request.get(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${activatedManagerToken}` },
+    });
+    expect([401, 403]).toContain(revokedManagerSession.status());
+    await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
+    const managerReactivateResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/staff-accounts/${managerAccount.id}/reactivate`
+      && response.request().method() === 'PATCH'
+    ));
+    await session.page.getByTestId('staff-reactivate-button').click();
+    const reactivatedManager = await managerReactivateResponse;
+    expect(reactivatedManager.ok(), `reactivate manager: ${await reactivatedManager.text()}`).toBeTruthy();
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Active', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
+    await session.page.getByTestId('change-role-reception').click();
+    await session.page.getByTestId('staff-role-change-reason').fill('Created under the wrong operational role');
+    const roleChangeResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/staff-accounts/${managerAccount.id}/role`
+      && response.request().method() === 'PATCH'
+    ));
+    await session.page.getByTestId('staff-role-change-submit').click();
+    const changedRole = await roleChangeResponse;
+    expect(changedRole.ok(), `correct staff role: ${await changedRole.text()}`).toBeTruthy();
+    expect((await changedRole.json()).account.role).toBe('reception');
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Reception', { exact: true })).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
+    const receptionDeactivateResponse = session.page.waitForResponse((response) => (
+      response.url() === `${API_URL}/staff-accounts/${managerAccount.id}/deactivate`
+      && response.request().method() === 'PATCH'
+    ));
+    await session.page.getByTestId('staff-deactivate-button').click();
+    const deactivatedReception = await receptionDeactivateResponse;
+    expect(deactivatedReception.ok(), `deactivate role-corrected reception: ${await deactivatedReception.text()}`).toBeTruthy();
+    await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`).getByText('Deactivated', { exact: true })).toBeVisible({ timeout: 8_000 });
     await session.page.getByTestId(`staff-account-card-${managerAccount.id}`).click();
     const managerDeleteResponse = session.page.waitForResponse((response) => (
       response.url() === `${API_URL}/staff-accounts/${managerAccount.id}`
@@ -905,6 +950,8 @@ test('API roles, linked profiles, and principal read models agree', async ({ req
     ['parent', '/students'],
     ['parent', '/payments/history'],
     ['support', '/support-bookings'],
+    ['reception', '/dashboard'],
+    ['reception', '/groups'],
     ['reception', '/finance/reception/call-list'],
     ['manager', '/admin/settings'],
   ];
@@ -920,12 +967,11 @@ test('API roles, linked profiles, and principal read models agree', async ({ req
     ['student', '/dashboard'],
     ['parent', '/dashboard'],
     ['teacher', '/dashboard'],
-    ['reception', '/dashboard'],
     ['support', '/dashboard'],
-    ['reception', '/groups'],
     ['support', '/groups'],
     ['support', '/finance/position?service_month=2026-07'],
     ['student', '/finance/position?service_month=2026-07'],
+    ['reception', '/finance/position?service_month=2026-07'],
     ['reception', '/finance/policies'],
   ];
   for (const [role, path] of forbiddenChecks) {
@@ -1814,11 +1860,13 @@ test('support booking can be received, accepted, and reflected live', async ({ b
   test.setTimeout(75_000);
   const studentToken = await apiLogin(request, 'student');
   const supportToken = await apiLogin(request, 'support');
+  const receptionToken = await apiLogin(request, 'reception');
   const supportRows = await expectApiOk(await apiCall(request, studentToken, 'get', '/support'), 'load support staff');
   const supportProfile = supportRows.find((row: any) => row.first_name === 'Live');
   expect(supportProfile).toBeTruthy();
   const student = await loginUi(browser, 'student');
   const support = await loginUi(browser, 'support');
+  const reception = await loginUi(browser, 'reception');
   const topic = `QA booking ${Date.now().toString().slice(-6)}`;
   try {
     await support.page.getByText('Pending', { exact: true }).last().click();
@@ -1838,11 +1886,28 @@ test('support booking can be received, accepted, and reflected live', async ({ b
       return rows.find((row: any) => row.id === booking.id)?.status;
     }, { timeout: 7_000 }).toBe('confirmed');
     await expect(student.page.getByText('confirmed', { exact: true })).toBeVisible({ timeout: 6_000 });
+    await expect(reception.page.getByTestId('reception-home')).toBeVisible();
+    await expect(reception.page.getByTestId('reception-new-lead')).toBeVisible();
+    await expect(reception.page.getByTestId('reception-students')).toBeVisible();
+    await expect(reception.page.getByTestId('reception-groups')).toBeVisible();
+    await expect(reception.page.getByTestId('reception-record-payment')).toBeVisible();
+    await expect(reception.page.getByTestId('reception-cash-day')).toContainText('Opened automatically');
+    const receptionBooking = reception.page.getByTestId(`reception-booking-${booking.id}`);
+    await expect(receptionBooking).toContainText('confirmed', { timeout: 7_000 });
+    await reception.page.getByTestId(`reception-cancel-booking-${booking.id}`).click();
+    await expect.poll(async () => {
+      const rows = await expectApiOk(await apiCall(request, receptionToken, 'get', '/support-bookings'), 'poll reception cancellation');
+      return rows.find((row: any) => row.id === booking.id)?.status;
+    }, { timeout: 7_000 }).toBe('cancelled');
+    await expect(receptionBooking).toHaveCount(0, { timeout: 7_000 });
+    await expect(student.page.getByText('confirmed', { exact: true })).toHaveCount(0, { timeout: 7_000 });
     await assertHealthy(student, 'student booking observer');
     await assertHealthy(support, 'support booking actor');
+    await assertHealthy(reception, 'reception booking cancellation');
   } finally {
     await student.context.close();
     await support.context.close();
+    await reception.context.close();
   }
 });
 

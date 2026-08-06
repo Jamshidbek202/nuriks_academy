@@ -224,6 +224,7 @@ class AttendanceBase(BaseModel):
     student_id: str
     group_id: str
     date: datetime
+    occurrence_id: Optional[str] = None
     status: AttendanceStatus
     notes: Optional[str] = None
 

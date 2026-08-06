@@ -212,7 +212,7 @@ async function loginUi(browser: Browser, loginName: string, financeTabName = 'Fi
   return { context, page, frames, dialogs };
 }
 
-async function loginParentPaymentsUi(browser: Browser): Promise<Session> {
+async function loginPaymentsUi(browser: Browser, loginName: 'qa_parent_a' | 'qa_student_a'): Promise<Session> {
   const context = await browser.newContext();
   const page = await context.newPage();
   const frames: string[] = [];
@@ -225,13 +225,40 @@ async function loginParentPaymentsUi(browser: Browser): Promise<Session> {
     socket.on('framereceived', (event) => frames.push(String(event.payload)));
   });
   await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
-  await page.getByTestId(ids.login).fill(loginIdentity('qa_parent_a'));
+  await page.getByTestId(ids.login).fill(loginIdentity(loginName));
   await page.getByTestId(ids.password).fill(PASSWORD);
   await page.getByTestId(ids.submit).click();
   const paymentsTab = page.getByRole('tab', { name: 'Payments' });
   await expect(paymentsTab).toBeVisible({ timeout: 15_000 });
   await paymentsTab.click();
-  await expect(page.getByText('Official invoices, balances, due dates, and cash receipts')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText('Live lesson charges, official invoices, payments, and receipts')).toBeVisible({ timeout: 15_000 });
+  return { context, page, frames, dialogs };
+}
+
+async function loginTeacherUi(browser: Browser, tab: 'Attendance' | 'Earnings'): Promise<Session> {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const frames: string[] = [];
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(`${dialog.type()}:${dialog.message()}`);
+    void dialog.accept();
+  });
+  page.on('websocket', (socket) => {
+    socket.on('framereceived', (event) => frames.push(String(event.payload)));
+  });
+  await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
+  await page.getByTestId(ids.login).fill(loginIdentity('qa_teacher_a'));
+  await page.getByTestId(ids.password).fill(PASSWORD);
+  await page.getByTestId(ids.submit).click();
+  const target = page.getByRole('tab', { name: tab });
+  await expect(target).toBeVisible({ timeout: 15_000 });
+  await target.click();
+  if (tab === 'Earnings') {
+    await expect(page.getByTestId('teacher-earnings-page')).toBeVisible({ timeout: 15_000 });
+  } else {
+    await expect(page.getByText('Mark and track student attendance')).toBeVisible({ timeout: 15_000 });
+  }
   return { context, page, frames, dialogs };
 }
 
@@ -367,6 +394,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   const managerBToken = await apiLogin(request, 'qa_manager_b');
   const superToken = await apiLogin(request, 'qa_superadmin');
   const receptionToken = await apiLogin(request, 'qa_reception_a');
+  const teacherToken = await apiLogin(request, 'qa_teacher_a');
+  const studentToken = await apiLogin(request, 'qa_student_a');
 
   const groups = await apiGet<any[]>(request, managerToken, '/groups?limit=1000');
   const students = await apiGet<any[]>(request, managerToken, '/students?limit=1000');
@@ -379,9 +408,13 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   const managerB = await loginUi(browser, 'qa_manager_b');
   const superAdmin = await loginUi(browser, 'qa_superadmin');
   const reception = await loginUi(browser, 'qa_reception_a', 'Payments');
-  const parent = await loginParentPaymentsUi(browser);
-  const sessions = [manager, managerB, superAdmin, reception, parent];
-  for (const session of sessions) {
+  const parent = await loginPaymentsUi(browser, 'qa_parent_a');
+  const studentPayments = await loginPaymentsUi(browser, 'qa_student_a');
+  const teacherAttendance = await loginTeacherUi(browser, 'Attendance');
+  const teacherEarnings = await loginTeacherUi(browser, 'Earnings');
+  const sessions = [manager, managerB, superAdmin, reception, parent, studentPayments, teacherAttendance, teacherEarnings];
+  const financeLiveSessions = [manager, managerB, superAdmin, reception, parent, studentPayments, teacherEarnings];
+  for (const session of financeLiveSessions) {
     await expect.poll(
       () => session.frames.some((frame) => frame.includes('finance_ready')),
       { timeout: LIVE_TIMEOUT_MS },
@@ -415,6 +448,105 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(teacherEarning, 'resume requires a teacher earning').toBeTruthy();
     expect(lockedOccurrenceForClosure, 'resume requires a financially locked held lesson').toBeTruthy();
   }
+
+  if (!resumeAfterFinalization) await test.step('attendance completion updates teacher earnings and student charges live', async () => {
+    await apiPost(request, managerToken, '/finance/invoices/generate-drafts', {
+      service_month: month,
+      branch_id: group.branch_id,
+    });
+    const occurrences = await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/lesson-occurrences?group_id=${group.id}&month=${month}`,
+    );
+    const unresolved = occurrences.filter((row) => row.resolution_status === 'unresolved');
+    expect(unresolved).toHaveLength(3);
+    const today = `${tashkentParts().year}-${tashkentParts().month}-${tashkentParts().day}`;
+    const target = unresolved.find((row) => row.local_date === today);
+    expect(target).toBeTruthy();
+    expect(target.local_date).toBe(today);
+    await qaDb.collection('lesson_occurrences').updateOne(
+      { _id: new ObjectId(target.id) },
+      { $set: {
+        starts_at: new Date(Date.now() - 95 * 60_000),
+        ends_at: new Date(Date.now() - 5 * 60_000),
+      } },
+    );
+    // The attendance page was opened before the test clock adjustment. Reload
+    // so the real control receives the committed occurrence end time rather
+    // than clicking a correctly disabled stale copy.
+    await teacherAttendance.page.reload();
+    await expect(teacherAttendance.page.getByText('Attendance missing for 1 student(s).')).toBeVisible({
+      timeout: LIVE_TIMEOUT_MS,
+    });
+
+    const baselineEarnings = await apiGet<any>(
+      request,
+      teacherToken,
+      `/finance/teacher-earnings/summary?service_month=${month}`,
+    );
+    const baselineInvoices = await apiGet<any[]>(
+      request,
+      studentToken,
+      `/finance/invoices?service_month=${month}`,
+    );
+    const baselineDraft = baselineInvoices.find((row) => row.status === 'draft');
+    expect(baselineDraft).toBeTruthy();
+    await expectLiveMoney(teacherEarnings.page, 'teacher-earned-to-date', baselineEarnings.earned_to_date_uzs);
+    await expectLiveMoney(studentPayments.page, `student-rolling-accrued-${baselineDraft.id}`, baselineDraft.amount_due_uzs);
+
+    const present = teacherAttendance.page.getByRole('button', { name: 'Live Student: Present' });
+    await expect(present).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+    await Promise.all([
+      teacherAttendance.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().endsWith('/api/attendance')),
+      present.click(),
+    ]);
+    await expect(teacherAttendance.page.getByText('This adds one lesson charge per active student and updates your earnings.')).toBeVisible({
+      timeout: LIVE_TIMEOUT_MS,
+    });
+    const complete = teacherAttendance.page.getByTestId(`attendance-complete-lesson-${target.id}`);
+    teacherEarnings.frames.length = 0;
+    studentPayments.frames.length = 0;
+    const startedAt = Date.now();
+    const [completionResponse] = await Promise.all([
+      teacherAttendance.page.waitForResponse((response) => response.request().method() === 'POST'
+        && response.url().endsWith(`/api/finance/lesson-occurrences/${target.id}/resolve`)),
+      complete.click(),
+    ]);
+    expect(completionResponse.ok(), await completionResponse.text()).toBeTruthy();
+    const updatedEarnings = await apiGet<any>(
+      request,
+      teacherToken,
+      `/finance/teacher-earnings/summary?service_month=${month}`,
+    );
+    const updatedInvoices = await apiGet<any[]>(
+      request,
+      studentToken,
+      `/finance/invoices?service_month=${month}`,
+    );
+    const updatedDraft = updatedInvoices.find((row) => row.id === baselineDraft.id);
+    expect(updatedDraft.amount_due_uzs).toBeGreaterThan(baselineDraft.amount_due_uzs);
+    expect(updatedEarnings.earned_to_date_uzs).toBeGreaterThan(baselineEarnings.earned_to_date_uzs);
+    await expectLiveMoney(teacherEarnings.page, 'teacher-earned-to-date', updatedEarnings.earned_to_date_uzs);
+    await expectLiveMoney(studentPayments.page, `student-rolling-accrued-${baselineDraft.id}`, updatedDraft.amount_due_uzs);
+    expect(Date.now() - startedAt).toBeLessThanOrEqual(LIVE_TIMEOUT_MS);
+    expect(teacherEarnings.frames.some((frame) => frame.includes('finance_changed'))).toBe(true);
+    expect(studentPayments.frames.some((frame) => frame.includes('finance_changed'))).toBe(true);
+    focusedEvidence.push({
+      workflow: 'rolling-lesson-accrual',
+      lesson_id: target.id,
+      student_charge_before_uzs: baselineDraft.amount_due_uzs,
+      student_charge_after_uzs: updatedDraft.amount_due_uzs,
+      teacher_earned_before_uzs: baselineEarnings.earned_to_date_uzs,
+      teacher_earned_after_uzs: updatedEarnings.earned_to_date_uzs,
+      observer_rendered_ms: Date.now() - startedAt,
+    });
+    await testInfo.attach('rolling-lesson-accrual-live.png', {
+      body: await teacherEarnings.page.screenshot({ fullPage: true }),
+      contentType: 'image/png',
+    });
+  });
 
   if (process.env.FINANCE_SKIP_FREEZE_WORKFLOW !== '1') await test.step('financial freeze is visible to staff and only super admin can unfreeze after payment review', async () => {
     for (const session of [manager, superAdmin, reception]) {
@@ -1108,14 +1240,14 @@ test('every finance-page domain synchronizes live across authorized sessions', a
 
   await test.step('reception cash receipts update debt, cash, overpayment advance, and all roles live', async () => {
     await reception.page.getByTestId(ids.cashTab).click();
-    await reception.page.getByTestId(ids.cashOpeningAmount).fill('20000000');
-    await reception.page.getByTestId(ids.cashOpen).click();
     await expect.poll(async () => {
       shift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
       return shift?.status;
     }, { timeout: LIVE_TIMEOUT_MS }).toBe('open');
     await manager.page.getByTestId(ids.cashTab).click();
-    await expectLiveMoney(manager.page, 'finance-cash-opening-kpi', 20_000_000);
+    await expect(manager.page.getByText('Opened automatically', { exact: false })).toBeVisible();
+    await expect(reception.page.getByTestId(ids.cashOpen)).toHaveCount(0);
+    await expect(reception.page.getByTestId(ids.cashClose)).toHaveCount(0);
 
     await reception.page.getByTestId(ids.receivablesTab).click();
     await selectFinanceStudent(reception.page, student, `${student.first_name} ${student.last_name}`);
@@ -1518,6 +1650,99 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   });
 
   await test.step('cash close and discrepancy review synchronize operator and administrators live', async () => {
+    {
+    const closingShift = await apiGet<any>(request, managerToken, '/finance/cash-shifts/current');
+    const expectedAtRollover = Number(closingShift.opening_balance_uzs || 0)
+      + Number(closingShift.receipt_total_uzs || 0)
+      + Number(closingShift.other_income_total_uzs || 0)
+      - Number(closingShift.removal_total_uzs || 0);
+    await qaDb.collection('cash_shifts').updateOne(
+      { _id: new ObjectId(closingShift.id) },
+      { $set: {
+        business_date: '2000-01-01',
+        idempotency_key: 'qa:cash-day:old-browser-fixture',
+      } },
+    );
+    const nextDayShift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
+    expect(nextDayShift.id).not.toBe(closingShift.id);
+    expect(nextDayShift.status).toBe('open');
+    expect(nextDayShift.opening_balance_uzs).toBe(expectedAtRollover);
+
+    await reception.page.getByTestId(ids.cashTab).click();
+    await expect(reception.page.getByTestId(ids.cashOpen)).toHaveCount(0);
+    await expect(reception.page.getByTestId(ids.cashClose)).toHaveCount(0);
+
+    await manager.page.getByTestId(ids.cashTab).click();
+    const managerPendingRow = manager.page.getByTestId(`finance-cash-shift-row-${closingShift.id}`);
+    await expect(managerPendingRow).toContainText('awaiting count', { timeout: LIVE_TIMEOUT_MS });
+    await managerPendingRow.getByText('Confirm end-of-day count').click();
+    await manager.page.getByTestId(ids.cashClosingAmount).fill(String(expectedAtRollover - 10_000));
+    await manager.page.getByTestId(ids.cashClose).click();
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, managerToken, '/finance/cash-shifts?limit=100');
+      return rows.find((row) => row.id === closingShift.id)?.discrepancy_status;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe('pending_review');
+
+    await superAdmin.page.getByTestId(ids.cashTab).click();
+    const superInvestigationRow = superAdmin.page.getByTestId(`finance-cash-shift-row-${closingShift.id}`);
+    await expect(superInvestigationRow).toContainText('pending review', { timeout: LIVE_TIMEOUT_MS });
+    await superInvestigationRow.getByText('Review discrepancy').click();
+    superAdmin.dialogs.length = 0;
+    let validationRequests = 0;
+    const validationListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/cash-shifts/${closingShift.id}/discrepancy-review`)) validationRequests += 1;
+    };
+    superAdmin.page.on('request', validationListener);
+    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('bad');
+    await superAdmin.page.getByTestId(ids.discrepancyInvestigate).click();
+    await superAdmin.page.waitForTimeout(300);
+    superAdmin.page.off('request', validationListener);
+    expect(validationRequests).toBe(0);
+
+    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('Investigate the ten-thousand UZS physical cash shortage');
+    let investigateRequestCount = 0;
+    let investigateRequestPayload: Record<string, unknown> | null = null;
+    const investigateListener = (requestValue: any) => {
+      if (requestValue.method() === 'POST' && requestValue.url().includes(`/api/finance/cash-shifts/${closingShift.id}/discrepancy-review`)) {
+        investigateRequestCount += 1;
+        investigateRequestPayload = requestValue.postDataJSON();
+      }
+    };
+    superAdmin.page.on('request', investigateListener);
+    await Promise.allSettled([
+      superAdmin.page.getByTestId(ids.discrepancyInvestigate).click(),
+      superAdmin.page.getByTestId(ids.discrepancyInvestigate).click({ timeout: 1_000 }),
+    ]);
+    await expect.poll(async () => {
+      const rows = await apiGet<any[]>(request, managerToken, '/finance/cash-shifts?limit=100');
+      return rows.find((row) => row.id === closingShift.id)?.discrepancy_status;
+    }, { timeout: LIVE_TIMEOUT_MS }).toBe('investigation_required');
+    superAdmin.page.off('request', investigateListener);
+    expect(investigateRequestCount).toBe(1);
+    expect(investigateRequestPayload).toMatchObject({ accepted: false });
+    const replay = await apiPost<any>(
+      request,
+      superToken,
+      `/finance/cash-shifts/${closingShift.id}/discrepancy-review`,
+      investigateRequestPayload!,
+    );
+    expect(replay.idempotent_replay).toBe(true);
+    const storedShift = await qaDb.collection('cash_shifts').findOne({ _id: new ObjectId(closingShift.id) });
+    expect(storedShift?.expected_closing_balance_uzs).toBe(expectedAtRollover);
+    expect(storedShift?.actual_closing_balance_uzs).toBe(expectedAtRollover - 10_000);
+    expect(storedShift?.discrepancy_uzs).toBe(-10_000);
+    expect(storedShift?.discrepancy_status).toBe('investigation_required');
+    focusedEvidence.push({
+      workflow: 'automatic_cash_day_and_discrepancy_investigate',
+      discrepancy_uzs: -10_000,
+      reception_manual_controls: 0,
+      rapid_click_request_count: investigateRequestCount,
+      immutable_review_count_after_retry: 1,
+    });
+    shift = nextDayShift;
+    return;
+    }
+
     await reception.page.getByTestId(ids.cashTab).click();
     const expectedCash = parseUzs(await reception.page.getByTestId(ids.cashExpectedKpi).textContent());
     await reception.page.getByTestId(ids.cashClosingAmount).fill(String(expectedCash - 10_000));

@@ -65,16 +65,18 @@ from finance_service import (
     create_billing_rules_version,
 )
 from finance_ledger import (
+    _membership_active,
     add_cash_removal,
-    close_cash_shift,
+    confirm_cash_shift,
+    ensure_daily_cash_shift,
     finalize_invoice_month,
     generate_draft_invoices,
-    open_cash_shift,
     record_cash_receipt,
     adjust_finalized_invoice,
     reverse_invoice_and_create_replacement,
     reverse_cash_receipt,
     review_cash_discrepancy,
+    teacher_earnings_snapshot,
 )
 from finance_accounting import (
     create_other_expense_obligation,
@@ -116,11 +118,76 @@ from finance_card_payments import (
 router = APIRouter(prefix="/finance", tags=["Finance"])
 security = HTTPBearer()
 FINANCE_ROLES = {"super_admin", "manager"}
-FINANCE_LIVE_ROLES = FINANCE_ROLES | {"reception", "parent", "student"}
+FINANCE_LIVE_ROLES = FINANCE_ROLES | {"reception", "parent", "student", "teacher"}
 
 
 def _academy_today() -> date:
     return datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
+
+
+async def _require_teacher_attendance_completion(db, occurrence: dict) -> None:
+    """Require the scheduled end and a mark for every active class member."""
+    ends_at = occurrence.get("ends_at")
+    if not isinstance(ends_at, datetime):
+        raise HTTPException(status_code=409, detail="This lesson has no valid scheduled end time")
+    comparable_end = ends_at.replace(tzinfo=None) if ends_at.tzinfo else ends_at
+    if datetime.utcnow() < comparable_end:
+        raise HTTPException(
+            status_code=409,
+            detail="The lesson can only be completed after its scheduled end time",
+        )
+
+    memberships = await db.group_memberships.find({
+        "group_id": occurrence["group_id"],
+    }).to_list(10_000)
+    active_student_ids = sorted({
+        row["student_id"]
+        for row in memberships
+        if _membership_active(
+            [row],
+            occurrence["group_id"],
+            occurrence["local_date"],
+            occurrence.get("starts_at"),
+        )
+    })
+    if not active_student_ids:
+        raise HTTPException(
+            status_code=409,
+            detail="This lesson has no financially active students to complete",
+        )
+
+    attendance_rows = await db.attendance.find({
+        "occurrence_id": str(occurrence["_id"]),
+        "student_id": {"$in": active_student_ids},
+    }, {"student_id": 1}).to_list(len(active_student_ids))
+    marked = {row["student_id"] for row in attendance_rows}
+
+    # Backward-compatible bridge for pre-occurrence attendance records when a
+    # group had exactly one scheduled lesson that day.
+    missing = [student_id for student_id in active_student_ids if student_id not in marked]
+    if missing:
+        same_day_count = await db.lesson_occurrences.count_documents({
+            "group_id": occurrence["group_id"],
+            "local_date": occurrence["local_date"],
+            "counts_as_scheduled": True,
+            "superseded": {"$ne": True},
+        })
+        if same_day_count == 1:
+            day = datetime.fromisoformat(occurrence["local_date"])
+            legacy = await db.attendance.find({
+                "group_id": occurrence["group_id"],
+                "student_id": {"$in": missing},
+                "occurrence_id": {"$exists": False},
+                "date": {"$gte": day, "$lt": day + timedelta(days=1)},
+            }, {"student_id": 1}).to_list(len(missing))
+            marked.update(row["student_id"] for row in legacy)
+
+    missing = [student_id for student_id in active_student_ids if student_id not in marked]
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Attendance is still missing for {len(missing)} active student(s)",
+        )
 
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -632,6 +699,20 @@ async def list_lesson_occurrences(
         "generation_month": month,
         "superseded": {"$ne": True},
     }).sort("starts_at", 1).to_list(10_000)
+    memberships = await db.group_memberships.find({
+        "group_id": group_id,
+    }).to_list(10_000)
+    for row in rows:
+        row["active_student_ids"] = sorted({
+            membership["student_id"]
+            for membership in memberships
+            if _membership_active(
+                [membership],
+                group_id,
+                row["local_date"],
+                row.get("starts_at"),
+            )
+        })
     return finance_document_to_json(rows)
 
 
@@ -639,9 +720,10 @@ async def list_lesson_occurrences(
 async def resolve_lesson(
     occurrence_id: str,
     payload: LessonResolutionCreate,
+    request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    from server import db
+    from server import create_audit_log, db
 
     _require_role(current_user, FINANCE_ROLES | {"teacher"})
     occurrence = await db.lesson_occurrences.find_one({
@@ -655,10 +737,38 @@ async def resolve_lesson(
         teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
         if not teacher or occurrence.get("teacher_id") != str(teacher["_id"]):
             raise HTTPException(status_code=403, detail="Teachers can only resolve their own lessons")
+        if payload.resolution.value == "held":
+            await _require_teacher_attendance_completion(db, occurrence)
     try:
         result = await record_lesson_resolution(db, occurrence, payload, current_user)
     except ValueError as error:
         _service_error(error)
+    try:
+        rolling = await generate_draft_invoices(
+            db,
+            occurrence["generation_month"],
+            occurrence.get("branch_id"),
+            str(current_user["_id"]),
+        )
+        result["rolling_accrual"] = {"status": "updated", **rolling}
+    except ValueError as error:
+        # The lesson resolution is an immutable fact. Keep it committed and
+        # expose a visible repair state instead of pretending it rolled back.
+        result["rolling_accrual"] = {
+            "status": "needs_attention",
+            "detail": str(error),
+        }
+    await create_audit_log(
+        str(current_user["_id"]),
+        "resolve_and_refresh_accrual",
+        "lesson_occurrence",
+        occurrence_id,
+        {
+            "resolution": payload.resolution.value,
+            "rolling_accrual": result.get("rolling_accrual"),
+        },
+        request.client.host if request.client else None,
+    )
     return finance_document_to_json(result)
 
 
@@ -684,6 +794,19 @@ async def decide_lesson_exception(
         result = await approve_lesson_exception(db, event, occurrence, payload, current_user)
     except ValueError as error:
         _service_error(error)
+    try:
+        rolling = await generate_draft_invoices(
+            db,
+            occurrence["generation_month"],
+            occurrence.get("branch_id"),
+            str(current_user["_id"]),
+        )
+        result["rolling_accrual"] = {"status": "updated", **rolling}
+    except ValueError as error:
+        result["rolling_accrual"] = {
+            "status": "needs_attention",
+            "detail": str(error),
+        }
     return finance_document_to_json(result)
 
 
@@ -880,6 +1003,42 @@ async def list_invoices(
     rows = await db.finance_invoices.find(query).sort([
         ("due_date", -1), ("invoice_number", -1)
     ]).limit(limit).to_list(limit)
+    student_ids = sorted({row["student_id"] for row in rows})
+    available_by_student = {student_id: 0 for student_id in student_ids}
+    if student_ids:
+        credits = await db.finance_credit_lots.find({
+            "student_id": {"$in": student_ids},
+            "status": "active",
+            "remaining_amount_uzs": {"$gt": 0},
+        }).to_list(100_000)
+        for credit in credits:
+            available_by_student[credit["student_id"]] = (
+                available_by_student.get(credit["student_id"], 0)
+                + int(credit.get("remaining_amount_uzs", 0))
+            )
+
+    # A receipt never mutates a provisional invoice. Display how active credit
+    # would cover rolling drafts, oldest month first; finalization later posts
+    # the real immutable allocation.
+    coverage_by_invoice = {}
+    for row in sorted(
+        (item for item in rows if item.get("status") == "draft"),
+        key=lambda item: (item["student_id"], item["service_month"], str(item["_id"])),
+    ):
+        available = available_by_student.get(row["student_id"], 0)
+        covered = min(int(row.get("amount_due_uzs", 0)), available)
+        coverage_by_invoice[str(row["_id"])] = covered
+        available_by_student[row["student_id"]] = available - covered
+    for row in rows:
+        if row.get("status") == "draft":
+            covered = coverage_by_invoice.get(str(row["_id"]), 0)
+            row["prepayment_covered_uzs"] = covered
+            row["uncovered_balance_uzs"] = max(0, int(row.get("amount_due_uzs", 0)) - covered)
+            row["rolling_statement"] = True
+        else:
+            row["prepayment_covered_uzs"] = 0
+            row["uncovered_balance_uzs"] = int(row.get("balance_uzs", 0))
+            row["rolling_statement"] = False
     return finance_document_to_json(rows)
 
 
@@ -1024,18 +1183,11 @@ async def open_main_cash_shift(
 ):
     from server import db
 
-    _require_role(current_user, {"super_admin", "manager", "reception"})
-    try:
-        shift = await open_cash_shift(
-            db,
-            payload.opening_balance_uzs,
-            payload.notes,
-            payload.idempotency_key,
-            current_user,
-        )
-    except ValueError as error:
-        _service_error(error)
-    return finance_document_to_json(shift)
+    _require_role(current_user, {"super_admin", "manager"})
+    raise HTTPException(
+        status_code=409,
+        detail="The main cashbox opens automatically each Tashkent business day",
+    )
 
 
 @router.get("/cash-shifts/current")
@@ -1043,11 +1195,10 @@ async def get_current_cash_shift(current_user: dict = Depends(get_current_user_d
     from server import db
 
     _require_role(current_user, {"super_admin", "manager", "reception"})
-    shift = await db.cash_shifts.find_one({"cashbox_id": "main", "status": "open"})
-    if not shift:
-        return None
-    if current_user.get("role") == "reception" and shift.get("operator_id") != str(current_user["_id"]):
-        raise HTTPException(status_code=403, detail="Another operator owns the open shift")
+    try:
+        shift = await ensure_daily_cash_shift(db)
+    except ValueError as error:
+        _service_error(error)
     return finance_document_to_json(shift)
 
 
@@ -1060,6 +1211,7 @@ async def list_cash_shifts(
     from server import db
 
     _require_role(current_user, FINANCE_ROLES)
+    await ensure_daily_cash_shift(db)
     query = {}
     if status:
         query["status"] = status
@@ -1131,14 +1283,29 @@ async def close_main_cash_shift(
 ):
     from server import db
 
-    _require_role(current_user, {"super_admin", "manager", "reception"})
+    _require_role(current_user, {"super_admin", "manager"})
+    raise HTTPException(
+        status_code=409,
+        detail="Cash days close automatically; confirm the previous day's physical count instead",
+    )
+
+
+@router.post("/cash-shifts/{shift_id}/confirm")
+async def confirm_main_cash_day(
+    shift_id: str,
+    payload: CashShiftClose,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+
+    _require_role(current_user, {"super_admin", "manager"})
     shift = await db.cash_shifts.find_one({"_id": _valid_object_id(shift_id, "cash shift ID")})
     if not shift:
-        raise HTTPException(status_code=404, detail="Cash shift not found")
+        raise HTTPException(status_code=404, detail="Cash day not found")
     if current_user.get("role") == "manager":
         _enforce_branch(current_user, shift)
     try:
-        stored = await close_cash_shift(
+        stored = await confirm_cash_shift(
             db,
             shift,
             payload.actual_closing_balance_uzs,
@@ -1354,13 +1521,15 @@ async def list_card_payment_reports(
 ):
     from server import db
 
-    _require_role(current_user, FINANCE_ROLES | {"parent"})
+    _require_role(current_user, FINANCE_ROLES | {"parent", "student"})
     query = {}
     if status:
         query["status"] = status
     if current_user.get("role") == "manager":
         query["branch_id"] = current_user.get("branch_id")
     elif current_user.get("role") == "parent":
+        query["reported_by"] = str(current_user["_id"])
+    elif current_user.get("role") == "student":
         query["reported_by"] = str(current_user["_id"])
     rows = await db.finance_card_payment_reports.find(query).sort(
         "reported_at", -1
@@ -1376,12 +1545,20 @@ async def report_card_payment(
 ):
     from server import create_audit_log, db
 
-    _require_role(current_user, {"parent"})
-    parent = await db.parents.find_one({"user_id": str(current_user["_id"])})
-    if not parent:
-        raise HTTPException(status_code=403, detail="Parent profile is not linked")
-    if payload.student_id not in {str(value) for value in parent.get("student_ids", [])}:
-        raise HTTPException(status_code=403, detail="Parent can only report a payment for their child")
+    _require_role(current_user, {"parent", "student"})
+    if current_user.get("role") == "parent":
+        reporter_profile = await db.parents.find_one({"user_id": str(current_user["_id"])})
+        if not reporter_profile:
+            raise HTTPException(status_code=403, detail="Parent profile is not linked")
+        if payload.student_id not in {str(value) for value in reporter_profile.get("student_ids", [])}:
+            raise HTTPException(status_code=403, detail="Parent can only report a payment for their child")
+    else:
+        reporter_profile = await db.students.find_one({
+            "user_id": str(current_user["_id"]),
+            "status": {"$ne": "archived"},
+        })
+        if not reporter_profile or payload.student_id != str(reporter_profile["_id"]):
+            raise HTTPException(status_code=403, detail="Students can only report their own payment")
     student = await db.students.find_one({
         "_id": _valid_object_id(payload.student_id, "student ID"),
         "status": {"$ne": "archived"},
@@ -1400,7 +1577,7 @@ async def report_card_payment(
         report, replay = await create_card_payment_report(
             db,
             payload=payload,
-            parent=parent,
+            reporter_profile=reporter_profile,
             student=student,
             destination=destination,
             actor=current_user,
@@ -1502,9 +1679,12 @@ async def post_cash_receipt(
         raise HTTPException(status_code=404, detail="Student not found")
     if current_user.get("role") in {"manager", "reception"} and student.get("branch_id") != current_user.get("branch_id"):
         raise HTTPException(status_code=403, detail="Student belongs to another branch")
+    current_shift = await ensure_daily_cash_shift(db)
     shift = await db.cash_shifts.find_one({"_id": _valid_object_id(payload.cash_shift_id, "cash shift ID")})
     if not shift:
         raise HTTPException(status_code=404, detail="Cash shift not found")
+    if shift["_id"] != current_shift["_id"] or shift.get("status") != "open":
+        raise HTTPException(status_code=409, detail="Reload the current automatic cash day before recording payment")
     try:
         result = await record_cash_receipt(
             db,
@@ -1628,6 +1808,43 @@ async def list_teacher_earnings(
         query["service_month"] = service_month
     rows = await db.teacher_earnings.find(query).sort("service_month", -1).to_list(10_000)
     return finance_document_to_json(rows)
+
+
+@router.get("/teacher-earnings/summary")
+async def get_teacher_earnings_summary(
+    service_month: str = Query(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$"),
+    teacher_id: Optional[str] = None,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    from server import db
+
+    _require_role(current_user, FINANCE_ROLES | {"teacher"})
+    if current_user.get("role") == "teacher":
+        teacher = await db.teachers.find_one({
+            "user_id": str(current_user["_id"]),
+            "is_deleted": {"$ne": True},
+        })
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher profile is not linked")
+        selected_teacher_id = str(teacher["_id"])
+    else:
+        if not teacher_id:
+            raise HTTPException(status_code=400, detail="teacher_id is required for staff access")
+        teacher = await db.teachers.find_one({
+            "_id": _valid_object_id(teacher_id, "teacher ID"),
+            "is_deleted": {"$ne": True},
+        })
+        if not teacher:
+            raise HTTPException(status_code=404, detail="Teacher not found")
+        if current_user.get("role") == "manager":
+            _enforce_branch(current_user, teacher)
+        selected_teacher_id = teacher_id
+    try:
+        result = await teacher_earnings_snapshot(db, selected_teacher_id, service_month)
+    except ValueError as error:
+        _service_error(error)
+    result["teacher_name"] = f"{teacher.get('first_name', '')} {teacher.get('last_name', '')}".strip()
+    return finance_document_to_json(result)
 
 
 @router.post("/expenses/generate-recurring")

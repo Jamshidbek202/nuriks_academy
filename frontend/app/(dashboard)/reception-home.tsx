@@ -1,0 +1,252 @@
+import React, { useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
+
+import { Text } from '../../src/components/LocalizedText';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { api, apiErrorMessage } from '../../src/services/api';
+import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+
+type Dashboard = {
+  students?: { total?: number; active?: number; frozen?: number };
+  groups?: number;
+  payments?: { overdue_students?: number; paid_today_students?: number };
+  today?: { lessons?: number; support_bookings?: number };
+  cash_day?: { business_date?: string; status?: string; receipt_total_uzs?: number; removal_total_uzs?: number };
+};
+
+type CallItem = {
+  student_id: string;
+  student_name: string;
+  student_phone?: string;
+  parent_phone?: string;
+  balance_uzs: number;
+  urgency?: string;
+};
+
+type Booking = {
+  id: string;
+  booking_id: string;
+  student_name?: string;
+  support_name?: string;
+  booking_date: string;
+  start_time: string;
+  status: string;
+};
+
+const uzs = (value = 0) => `${new Intl.NumberFormat('ru-RU').format(value)} UZS`;
+
+export default function ReceptionHomeScreen() {
+  const { user } = useAuth();
+  const router = useRouter();
+  const [dashboard, setDashboard] = useState<Dashboard | null>(null);
+  const [callList, setCallList] = useState<CallItem[]>([]);
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [busyBooking, setBusyBooking] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const [dashboardResponse, callResponse, bookingResponse] = await Promise.all([
+        api.get('/dashboard'),
+        api.get('/finance/reception/call-list'),
+        api.get('/support-bookings'),
+      ]);
+      setDashboard(dashboardResponse.data || null);
+      setCallList(callResponse.data || []);
+      setBookings(bookingResponse.data || []);
+    } catch (error) {
+      console.error('Reception dashboard failed:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useLiveRefresh(load, user?.role === 'reception', `reception-home:${user?.branch_id || ''}`, 3000);
+
+  const upcomingBookings = useMemo(
+    () => bookings
+      .filter((row) => ['scheduled', 'confirmed'].includes(row.status))
+      .sort((a, b) => `${a.booking_date}T${a.start_time}`.localeCompare(`${b.booking_date}T${b.start_time}`))
+      .slice(0, 8),
+    [bookings],
+  );
+
+  const cancelBooking = (booking: Booking) => {
+    const execute = async () => {
+      setBusyBooking(booking.id);
+      try {
+        await api.put(`/support-bookings/${booking.id}/cancel`);
+        await load();
+      } catch (error) {
+        const message = apiErrorMessage(error, 'The booking could not be cancelled.');
+        if (Platform.OS === 'web') window.alert(message);
+        else Alert.alert('Cancellation failed', message);
+      } finally {
+        setBusyBooking(null);
+      }
+    };
+    const message = `Cancel ${booking.student_name || 'this student'}'s support booking on ${booking.booking_date} at ${booking.start_time}?`;
+    if (Platform.OS === 'web') {
+      if (window.confirm(message)) void execute();
+    } else {
+      Alert.alert('Cancel support booking?', message, [
+        { text: 'Keep booking', style: 'cancel' },
+        { text: 'Cancel booking', style: 'destructive', onPress: () => void execute() },
+      ]);
+    }
+  };
+
+  if (loading) {
+    return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.gold} /></View>;
+  }
+
+  return (
+    <View testID="reception-home" style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.eyebrow}>RECEPTION WORKSPACE</Text>
+        <Text style={styles.title}>Good day, {user?.full_name?.split(' ')[0] || 'Reception'}</Text>
+        <Text style={styles.subtitle}>Students, calls, payments, and today’s support bookings—without revenue or profit details.</Text>
+      </View>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void load(); }} />}
+      >
+        <View style={styles.actionGrid}>
+          <QuickAction testID="reception-new-lead" icon="person-add" label="New lead" onPress={() => router.push('/(dashboard)/leads')} />
+          <QuickAction testID="reception-students" icon="people" label="Students" onPress={() => router.push('/(dashboard)/students')} />
+          <QuickAction testID="reception-groups" icon="people-circle" label="Groups" onPress={() => router.push('/(dashboard)/groups')} />
+          <QuickAction testID="reception-record-payment" icon="cash" label="Record payment" onPress={() => router.push('/(dashboard)/finance')} />
+        </View>
+
+        <Text style={styles.sectionTitle}>Today at a glance</Text>
+        <View style={styles.metrics}>
+          <Metric icon="people" label="Students" value={dashboard?.students?.total || 0} />
+          <Metric icon="people-circle" label="Groups" value={dashboard?.groups || 0} />
+          <Metric icon="checkmark-circle" label="Paid today" value={dashboard?.payments?.paid_today_students || 0} good />
+          <Metric icon="alert-circle" label="Need payment call" value={dashboard?.payments?.overdue_students || 0} warning />
+        </View>
+
+        <TouchableOpacity testID="reception-cash-day" style={styles.cashCard} onPress={() => router.push('/(dashboard)/finance')}>
+          <View style={styles.cardIcon}><Ionicons name="wallet" size={22} color={COLORS.gold} /></View>
+          <View style={styles.flex}>
+            <Text style={styles.cardTitle}>Cashbox · {dashboard?.cash_day?.business_date || 'today'}</Text>
+            <Text style={styles.meta}>Opened automatically · cash received today {uzs(dashboard?.cash_day?.receipt_total_uzs)}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={22} color={COLORS.textTertiary} />
+        </TouchableOpacity>
+
+        <View style={styles.sectionHeader}>
+          <View style={styles.flex}><Text style={styles.sectionTitle}>Payment calls</Text><Text style={styles.sectionHint}>Oldest and most urgent first</Text></View>
+          <TouchableOpacity onPress={() => router.push('/(dashboard)/finance')}><Text style={styles.link}>See all</Text></TouchableOpacity>
+        </View>
+        {callList.length === 0 ? (
+          <Empty text="No students need a payment call." />
+        ) : callList.slice(0, 6).map((item) => (
+          <View key={item.student_id} testID={`reception-call-${item.student_id}`} style={styles.rowCard}>
+            <View style={styles.flex}>
+              <Text style={styles.cardTitle}>{item.student_name}</Text>
+              <Text style={styles.debt}>{uzs(item.balance_uzs)} outstanding</Text>
+            </View>
+            {!!item.student_phone && <CallButton label="Student" phone={item.student_phone} />}
+            {!!item.parent_phone && <CallButton label="Parent" phone={item.parent_phone} />}
+          </View>
+        ))}
+
+        <View style={styles.sectionHeader}>
+          <View style={styles.flex}><Text style={styles.sectionTitle}>Support bookings</Text><Text style={styles.sectionHint}>{dashboard?.today?.support_bookings || 0} scheduled today</Text></View>
+        </View>
+        {upcomingBookings.length === 0 ? (
+          <Empty text="No upcoming support bookings." />
+        ) : upcomingBookings.map((booking) => (
+          <View key={booking.id} testID={`reception-booking-${booking.id}`} style={styles.rowCard}>
+            <View style={styles.dateBox}><Text style={styles.dateText}>{booking.booking_date.slice(5)}</Text><Text style={styles.timeText}>{booking.start_time}</Text></View>
+            <View style={styles.flex}>
+              <Text style={styles.cardTitle}>{booking.student_name || booking.booking_id}</Text>
+              <Text style={styles.meta}>{booking.support_name || 'Support teacher'} · {booking.status}</Text>
+            </View>
+            <TouchableOpacity
+              testID={`reception-cancel-booking-${booking.id}`}
+              accessibilityRole="button"
+              disabled={busyBooking === booking.id}
+              style={styles.cancelButton}
+              onPress={() => cancelBooking(booking)}
+            >
+              {busyBooking === booking.id ? <ActivityIndicator size="small" color={COLORS.error} /> : <Text style={styles.cancelText}>Cancel</Text>}
+            </TouchableOpacity>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function QuickAction({ testID, icon, label, onPress }: { testID: string; icon: string; label: string; onPress: () => void }) {
+  return <TouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}><View style={styles.quickIcon}><Ionicons name={icon as any} size={23} color={COLORS.gold} /></View><Text style={styles.quickLabel}>{label}</Text><Ionicons name="arrow-forward" size={17} color={COLORS.textTertiary} /></TouchableOpacity>;
+}
+
+function Metric({ icon, label, value, good, warning }: { icon: string; label: string; value: number; good?: boolean; warning?: boolean }) {
+  const color = good ? COLORS.success : warning ? COLORS.warning : COLORS.gold;
+  return <View style={styles.metric}><Ionicons name={icon as any} size={21} color={color} /><Text style={styles.metricValue}>{value}</Text><Text style={styles.metricLabel}>{label}</Text></View>;
+}
+
+function CallButton({ label, phone }: { label: string; phone: string }) {
+  return <TouchableOpacity accessibilityRole="button" style={styles.callButton} onPress={() => void Linking.openURL(`tel:${phone}`)}><Ionicons name="call" size={15} color={COLORS.success} /><Text style={styles.callText}>{label}</Text></TouchableOpacity>;
+}
+
+function Empty({ text }: { text: string }) {
+  return <View style={styles.empty}><Ionicons name="checkmark-done-circle-outline" size={35} color={COLORS.textTertiary} /><Text style={styles.meta}>{text}</Text></View>;
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: COLORS.background },
+  loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
+  header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.marbleDark },
+  eyebrow: { color: COLORS.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
+  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', marginTop: SIZES.xs },
+  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20, marginTop: SIZES.xs, maxWidth: 720 },
+  scroll: { flex: 1 },
+  content: { padding: SIZES.md, paddingBottom: 90 },
+  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
+  quickAction: { flexGrow: 1, flexBasis: 210, minHeight: 64, padding: SIZES.sm, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, ...SHADOWS.small },
+  quickIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '18' },
+  quickLabel: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
+  sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
+  sectionHint: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: 2 },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.sm, marginBottom: SIZES.md },
+  metric: { flexGrow: 1, flexBasis: 130, minHeight: 105, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
+  metricValue: { color: COLORS.textPrimary, fontSize: 27, fontWeight: '800', marginTop: SIZES.xs },
+  metricLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
+  cashCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '0E', marginBottom: SIZES.lg },
+  cardIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '1C' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', marginTop: SIZES.sm, marginBottom: SIZES.sm },
+  link: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
+  rowCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm, ...SHADOWS.small },
+  flex: { flex: 1 },
+  cardTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
+  meta: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 2 },
+  debt: { color: COLORS.warning, fontSize: SIZES.fontXs, fontWeight: '700', marginTop: 3 },
+  callButton: { minHeight: 38, paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.success + '66', flexDirection: 'row', alignItems: 'center', gap: 5 },
+  callText: { color: COLORS.success, fontSize: 11, fontWeight: '700' },
+  dateBox: { width: 55, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusSm, alignItems: 'center', backgroundColor: COLORS.gold + '18' },
+  dateText: { color: COLORS.gold, fontSize: 11, fontWeight: '800' },
+  timeText: { color: COLORS.textPrimary, fontSize: SIZES.fontXs, marginTop: 2 },
+  cancelButton: { minWidth: 66, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
+  cancelText: { color: COLORS.error, fontSize: SIZES.fontXs, fontWeight: '700' },
+  empty: { alignItems: 'center', gap: SIZES.xs, paddingVertical: SIZES.lg, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm },
+});

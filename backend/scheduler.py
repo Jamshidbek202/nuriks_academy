@@ -13,7 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from finance_accounting import generate_recurring_expense_obligations
 from finance_controls import evaluate_finance_freezes, queue_due_reminders
-from finance_ledger import generate_draft_invoices
+from finance_ledger import ensure_daily_cash_shift, generate_draft_invoices
 from finance_models import ACADEMY_TIMEZONE
 from finance_service import generate_lesson_occurrences
 
@@ -37,6 +37,13 @@ async def run_daily_finance_controls(db):
         )
     except Exception:
         logger.exception("Daily finance freeze evaluation failed safely")
+
+
+async def roll_main_cashbox_day(db):
+    try:
+        await ensure_daily_cash_shift(db)
+    except Exception:
+        logger.exception("Automatic cashbox day rollover failed safely")
 
 
 async def generate_current_month_lesson_occurrences(db):
@@ -83,6 +90,15 @@ async def generate_previous_month_drafts_and_expenses(db):
 
 def start_scheduler(db):
     scheduler = AsyncIOScheduler(timezone=ACADEMY_TZ)
+    scheduler.add_job(
+        roll_main_cashbox_day,
+        "cron",
+        hour=0,
+        minute=0,
+        args=[db],
+        id="finance_cashbox_day_rollover",
+        replace_existing=True,
+    )
     scheduler.add_job(
         run_daily_finance_controls,
         "cron",

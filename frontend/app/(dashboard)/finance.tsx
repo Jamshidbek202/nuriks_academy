@@ -85,7 +85,9 @@ interface CardPaymentReport {
   student_id: string;
   student_number?: string;
   student_name: string;
-  parent_name: string;
+  parent_name?: string;
+  reporter_name?: string;
+  reporter_role?: 'parent' | 'student';
   amount_uzs: number;
   paid_at: string;
   reported_at: string;
@@ -149,6 +151,8 @@ interface CashShift {
   other_income_total_uzs?: number;
   removal_total_uzs: number;
   opened_at: string;
+  business_date?: string;
+  confirmation_status?: string;
   closed_at?: string;
   expected_closing_balance_uzs?: number;
   actual_closing_balance_uzs?: number;
@@ -240,14 +244,14 @@ interface Position {
 }
 
 const tabs: { key: FinanceTab; label: string; icon: string }[] = [
-  { key: 'overview', label: 'Position', icon: 'analytics' },
-  { key: 'receivables', label: 'Payments', icon: 'receipt' },
-  { key: 'online', label: 'Online', icon: 'card' },
+  { key: 'overview', label: 'Overview', icon: 'analytics' },
+  { key: 'receivables', label: 'Money in', icon: 'receipt' },
+  { key: 'online', label: 'Transfers to verify', icon: 'card' },
   { key: 'expenses', label: 'Expenses', icon: 'arrow-up-circle' },
   { key: 'payroll', label: 'Payroll', icon: 'people-circle' },
-  { key: 'cash', label: 'Cashbox', icon: 'cash' },
-  { key: 'pricing', label: 'Pricing', icon: 'pricetags' },
-  { key: 'closures', label: 'Closures', icon: 'calendar' },
+  { key: 'cash', label: 'Cash day', icon: 'cash' },
+  { key: 'pricing', label: 'Prices & rules', icon: 'pricetags' },
+  { key: 'closures', label: 'Lesson calendar', icon: 'calendar' },
 ];
 
 const PROGRAM_LABELS: Record<ProgramCode, string> = {
@@ -372,6 +376,8 @@ export default function FinanceScreen() {
   const [cardReportDecision, setCardReportDecision] = useState<'confirm' | 'reject'>('confirm');
   const [cardReportReason, setCardReportReason] = useState('');
   const [shiftForm, setShiftForm] = useState({ opening: '0', closing: '' });
+  const [cashConfirmationTarget, setCashConfirmationTarget] = useState<CashShift | null>(null);
+  const [cashConfirmationNotes, setCashConfirmationNotes] = useState('');
   const [cashRemovalForm, setCashRemovalForm] = useState({ amount: '', purpose: '' });
   const [otherIncomeForm, setOtherIncomeForm] = useState({
     source: '', amount: '', income_date: tashkentDate(), notes: '',
@@ -501,6 +507,7 @@ export default function FinanceScreen() {
   const selectedReceiptStudent = receiptForm.student_id ? studentMap[receiptForm.student_id] : null;
   const unresolvedCardReports = cardPaymentReports.filter((report) => report.status === 'unresolved');
   const resolvedCardReports = cardPaymentReports.filter((report) => report.status !== 'unresolved');
+  const pendingCashDays = cashShifts.filter((shift) => shift.status === 'awaiting_confirmation');
 
   const changeMonth = (nextMonth: string) => {
     if (nextMonth === month) return;
@@ -857,26 +864,19 @@ export default function FinanceScreen() {
     });
   };
 
-  const openShift = () => {
-    const opening = shiftForm.opening === '0' ? 0 : parseWholeUzs(shiftForm.opening);
-    if (opening == null) return Alert.alert('Invalid balance', 'Enter a whole UZS opening balance, including 0.');
-    void runAction('open-shift', () => api.post('/finance/cash-shifts/open', {
-      opening_balance_uzs: opening,
-      notes: null,
-      idempotency_key: idempotencyKey('open-shift'),
-    }), 'Main cashbox shift opened.');
-  };
-
-  const closeShift = () => {
+  const confirmCashDay = () => {
     const closing = shiftForm.closing === '0' ? 0 : parseWholeUzs(shiftForm.closing);
-    if (!cashShift || closing == null) return Alert.alert('Invalid balance', 'Enter the counted whole-UZS closing balance.');
-    void runAction('close-shift', () => api.post(`/finance/cash-shifts/${cashShift.id}/close`, {
+    if (!cashConfirmationTarget || closing == null) return Alert.alert('Invalid balance', 'Enter the counted whole-UZS closing balance.');
+    void runAction('confirm-cash-day', () => api.post(`/finance/cash-shifts/${cashConfirmationTarget.id}/confirm`, {
       actual_closing_balance_uzs: closing,
-      notes: null,
-      idempotency_key: idempotencyKey('close-shift'),
-    }), 'Cashbox shift closed; any discrepancy is retained for review.').then((success) =>
-      success && setShiftForm((current) => ({ ...current, closing: '' })),
-    );
+      notes: cashConfirmationNotes.trim() || null,
+      idempotency_key: idempotencyKey(`confirm-cash-day-${cashConfirmationTarget.id}`),
+    }), 'Cash day confirmed; any physical difference is retained for review.').then((success) => {
+      if (!success) return;
+      setShiftForm((current) => ({ ...current, closing: '' }));
+      setCashConfirmationNotes('');
+      setCashConfirmationTarget(null);
+    });
   };
 
   const recordCashRemoval = () => {
@@ -1259,6 +1259,15 @@ export default function FinanceScreen() {
           </Text>
         </View>
       </View>
+      <Section title="Needs attention" subtitle="Start here. These queues are ordered by work staff must resolve, not by accounting terminology.">
+        <View style={styles.workQueueGrid}>
+          <WorkQueueItem icon="card" label="Transfers to verify" value={unresolvedCardReports.length} tone="warning" onPress={() => setActiveTab('online')} />
+          <WorkQueueItem icon="call" label="Payment calls" value={callList.length} tone="warning" onPress={() => setActiveTab('receivables')} />
+          <WorkQueueItem icon="calculator" label="Cash days to confirm" value={pendingCashDays.length} tone="warning" onPress={() => setActiveTab('cash')} />
+          <WorkQueueItem icon="arrow-up-circle" label="Unpaid expenses" value={expenses.filter((row) => row.outstanding_amount_uzs > 0).length} onPress={() => setActiveTab('expenses')} />
+          <WorkQueueItem icon="people-circle" label="Unpaid payroll" value={earnings.filter((row) => row.outstanding_amount_uzs > 0).length} onPress={() => setActiveTab('payroll')} />
+        </View>
+      </Section>
       <Section title={`Month close · ${month}`} subtitle="Draft generation is repeatable. Finalization fails closed if any source changed or any scheduled lesson is unresolved.">
         <View style={styles.actionRow}>
           <Button
@@ -1372,7 +1381,7 @@ export default function FinanceScreen() {
         )}
         <Input testID={FINANCE.receiptAmount} label="Amount (whole UZS) *" keyboardType="number-pad" value={receiptForm.amount} onChangeText={(amount) => setReceiptForm({ ...receiptForm, amount })} placeholder="450000" />
         <Input testID={FINANCE.receiptNotes} label="Notes" value={receiptForm.notes} onChangeText={(notes) => setReceiptForm({ ...receiptForm, notes })} placeholder="Optional receipt note" />
-        <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Open cashbox before receiving payment'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
+        <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Automatic cashbox unavailable — refresh'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
       </Section>
       <Section
         title={`Financially frozen students (${frozenStudents.length})`}
@@ -1521,7 +1530,7 @@ export default function FinanceScreen() {
             <View style={styles.recordTop}>
               <View style={styles.flex}>
                 <Text style={styles.recordTitle}>{report.student_name} · {report.student_number || studentMap[report.student_id]?.student_id}</Text>
-                <Text style={styles.recordMeta}>Reported by {report.parent_name}</Text>
+                <Text style={styles.recordMeta}>Reported by {report.reporter_name || report.parent_name || report.student_name} ({report.reporter_role || 'parent'})</Text>
               </View>
               <Text style={styles.warningAmount}>{uzs(report.amount_uzs)}</Text>
             </View>
@@ -1559,7 +1568,7 @@ export default function FinanceScreen() {
       <Section title="Resolved card-payment history" subtitle="Confirmation creates an official receipt. Rejection leaves all financial balances unchanged.">
         {resolvedCardReports.length === 0 ? <Empty text="No card-payment reports have been resolved." /> : resolvedCardReports.slice(0, 250).map((report) => (
           <View key={report.id} testID={`finance-card-report-history-${report.id}`} style={styles.recordCard}>
-            <View style={styles.recordTop}><Text style={styles.recordTitle}>{report.student_name} · {report.parent_name}</Text><Status value={report.status} /></View>
+            <View style={styles.recordTop}><Text style={styles.recordTitle}>{report.student_name} · {report.reporter_name || report.parent_name || report.student_name}</Text><Status value={report.status} /></View>
             <Text style={report.status === 'confirmed' ? styles.goodAmount : styles.dangerAmount}>{uzs(report.amount_uzs)}</Text>
             <Text style={styles.recordMeta}>{report.provider.toUpperCase()} •••• {report.destination_last4} · paid {tashkentDateTime(report.paid_at)}</Text>
             <Text style={styles.recordMeta}>Resolved by {report.resolved_by_name || 'authorized staff'}{report.resolution_reason ? ` · ${report.resolution_reason}` : ''}</Text>
@@ -1587,7 +1596,7 @@ export default function FinanceScreen() {
         >
           <View style={styles.verificationSummary}>
             <MoneyRow label="Amount" value={cardReportTarget.amount_uzs} strong />
-            <Text style={styles.recordMeta}>Parent: {cardReportTarget.parent_name}</Text>
+            <Text style={styles.recordMeta}>Reported by: {cardReportTarget.reporter_name || cardReportTarget.parent_name || cardReportTarget.student_name} ({cardReportTarget.reporter_role || 'parent'})</Text>
             <Text style={styles.recordMeta}>Student: {cardReportTarget.student_name}</Text>
             <Text style={styles.recordMeta}>Paid: {tashkentDateTime(cardReportTarget.paid_at)}</Text>
             <Text style={styles.recordMeta}>Destination: {cardReportTarget.provider.toUpperCase()} •••• {cardReportTarget.destination_last4}</Text>
@@ -1648,7 +1657,7 @@ export default function FinanceScreen() {
 
   const renderCash = () => (
     <>
-      <Section title="Main cashbox" subtitle="One operator owns each open daily shift.">
+      <Section title="Today’s automatic cashbox" subtitle="The Tashkent business day opens and closes automatically. Reception records cash; managers confirm the physical count after the day closes.">
         {cashShift ? (
           <>
             <View style={styles.kpiGrid}>
@@ -1657,16 +1666,11 @@ export default function FinanceScreen() {
               <Kpi testID={FINANCE.cashRemovedKpi} label="Cash removed" value={cashShift.removal_total_uzs} icon="arrow-up" color={COLORS.warning} />
               <Kpi testID={FINANCE.cashExpectedKpi} label="Expected now" value={expectedCash} icon="cash" color={COLORS.gold} />
             </View>
-            <Text style={styles.recordMeta}>Opened {new Date(cashShift.opened_at).toLocaleString(getActiveLocale())}</Text>
-            <Input testID={FINANCE.cashClosingAmount} label="Counted closing balance (whole UZS)" keyboardType="number-pad" value={shiftForm.closing} onChangeText={(closing) => setShiftForm({ ...shiftForm, closing })} placeholder={String(expectedCash)} />
-            <Button testID={FINANCE.cashClose} title="Close shift and record discrepancy" variant="outline" onPress={closeShift} loading={busy === 'close-shift'} />
+            <Text style={styles.recordMeta}>Business date {cashShift.business_date || 'today'} · opened automatically {tashkentDateTime(cashShift.opened_at)}</Text>
+            <Text style={styles.goodText}>Ready for cash receipts. No opening or closing action is required from reception.</Text>
           </>
         ) : (
-          <>
-            <Text style={styles.muted}>No shift is open. Record the counted opening cash before receiving or paying cash.</Text>
-            <Input testID={FINANCE.cashOpeningAmount} label="Opening balance (whole UZS, 0 allowed)" keyboardType="number-pad" value={shiftForm.opening} onChangeText={(opening) => setShiftForm({ ...shiftForm, opening })} />
-            <Button testID={FINANCE.cashOpen} title="Open main cashbox" onPress={openShift} loading={busy === 'open-shift'} />
-          </>
+          <Text style={styles.warningText}>The automatic cash day is temporarily unavailable. Refresh before accepting cash.</Text>
         )}
       </Section>
       {!isReception && cashShift && (
@@ -1721,6 +1725,8 @@ export default function FinanceScreen() {
             <View key={shift.id} testID={`finance-cash-shift-row-${shift.id}`} style={styles.recordCard}>
               <View style={styles.recordTop}><Text style={styles.recordTitle}>{tashkentDateTime(shift.opened_at)}</Text><Status value={shift.discrepancy_status || shift.status} /></View>
               <Text style={styles.recordMeta}>Opening {uzs(shift.opening_balance_uzs)} · received {uzs(shift.receipt_total_uzs)} · removed {uzs(shift.removal_total_uzs)}</Text>
+              {shift.status === 'awaiting_confirmation' && <Text style={styles.warningText}>Expected {uzs(shift.expected_closing_balance_uzs)} · waiting for a manager or super admin to enter the physical count.</Text>}
+              {shift.status === 'awaiting_confirmation' && <Button testID={`finance-confirm-cash-day-${shift.id}`} title="Confirm end-of-day count" variant="outline" onPress={() => { setCashConfirmationTarget(shift); setShiftForm((current) => ({ ...current, closing: String(shift.expected_closing_balance_uzs || 0) })); setCashConfirmationNotes(''); }} />}
               {shift.status === 'closed' && <Text style={styles.recordMeta}>Expected {uzs(shift.expected_closing_balance_uzs)} · counted {uzs(shift.actual_closing_balance_uzs)} · difference {uzs(shift.discrepancy_uzs)}</Text>}
               {isSuperAdmin && shift.discrepancy_status === 'pending_review' && <Button title="Review discrepancy" variant="outline" onPress={() => { setDiscrepancyTarget(shift); setDiscrepancyReason(''); }} />}
             </View>
@@ -1735,6 +1741,13 @@ export default function FinanceScreen() {
             <Button testID={FINANCE.discrepancyInvestigate} title="Investigate" variant="outline" style={styles.flexButton} onPress={() => reviewDiscrepancy(false)} loading={busy === 'discrepancy-review'} />
             <Button testID={FINANCE.discrepancyAccept} title="Accept" style={styles.flexButton} onPress={() => reviewDiscrepancy(true)} loading={busy === 'discrepancy-review'} />
           </View>
+        </FinanceActionModal>
+      )}
+      {!isReception && cashConfirmationTarget && (
+        <FinanceActionModal title={`Confirm cashbox · ${cashConfirmationTarget.business_date || tashkentDateTime(cashConfirmationTarget.opened_at)}`} subtitle={`Expected ${uzs(cashConfirmationTarget.expected_closing_balance_uzs)}. Enter the amount physically counted; differences stay visible and auditable.`} onClose={() => setCashConfirmationTarget(null)}>
+          <Input testID={FINANCE.cashClosingAmount} label="Physical count (whole UZS)" keyboardType="number-pad" value={shiftForm.closing} onChangeText={(closing) => setShiftForm({ ...shiftForm, closing })} />
+          <Input label="Confirmation note" value={cashConfirmationNotes} onChangeText={setCashConfirmationNotes} placeholder="Optional handover note" multiline />
+          <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setCashConfirmationTarget(null)} /><Button testID={FINANCE.cashClose} title="Confirm count" style={styles.flexButton} onPress={confirmCashDay} loading={busy === 'confirm-cash-day'} /></View>
         </FinanceActionModal>
       )}
       {isSuperAdmin && cashReversalTarget && (
@@ -1987,6 +2000,17 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
   return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}<View style={styles.sectionBody}>{children}</View></View>;
 }
 
+function WorkQueueItem({ icon, label, value, tone, onPress }: { icon: string; label: string; value: number; tone?: 'warning'; onPress: () => void }) {
+  const color = tone === 'warning' && value > 0 ? COLORS.warning : COLORS.gold;
+  return (
+    <TouchableOpacity accessibilityRole="button" style={styles.workQueueItem} onPress={onPress}>
+      <View style={[styles.workQueueIcon, { backgroundColor: color + '18' }]}><Ionicons name={icon as any} size={20} color={color} /></View>
+      <View style={styles.flex}><Text style={styles.workQueueLabel}>{label}</Text><Text style={styles.workQueueHint}>{value > 0 ? 'Open queue' : 'Nothing waiting'}</Text></View>
+      <Text style={[styles.workQueueValue, { color }]}>{value}</Text>
+    </TouchableOpacity>
+  );
+}
+
 function FinanceActionModal({
   title,
   subtitle,
@@ -2077,6 +2101,12 @@ const styles = StyleSheet.create({
   modeBanner: { flexDirection: 'row', gap: SIZES.md, backgroundColor: COLORS.gold + '15', borderWidth: 1, borderColor: COLORS.gold + '55', borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md },
   modeTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   modeText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
+  workQueueGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
+  workQueueItem: { flexGrow: 1, flexBasis: 220, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray },
+  workQueueIcon: { width: 39, height: 39, alignItems: 'center', justifyContent: 'center', borderRadius: 12 },
+  workQueueLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
+  workQueueHint: { color: COLORS.textTertiary, fontSize: 11, marginTop: 2 },
+  workQueueValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontXl, fontWeight: '800' },
   flex: { flex: 1 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.md },
   kpi: { minWidth: '46%', flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, ...SHADOWS.small },
@@ -2101,6 +2131,7 @@ const styles = StyleSheet.create({
   goodAmount: { color: COLORS.success, fontSize: SIZES.fontSm, fontWeight: '800' },
   dangerAmount: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '800' },
   warningText: { color: COLORS.warning, fontSize: SIZES.fontXs, marginTop: SIZES.sm },
+  goodText: { color: COLORS.success, fontSize: SIZES.fontXs, marginTop: SIZES.sm },
   warningAmount: { color: COLORS.warning, fontSize: SIZES.fontSm, fontWeight: '800' },
   status: { paddingHorizontal: SIZES.sm, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusFull },
   statusText: { fontSize: SIZES.fontXs, fontWeight: '700', textTransform: 'capitalize' },

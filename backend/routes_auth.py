@@ -24,7 +24,11 @@ from phone_auth import (
     validate_password,
 )
 from telegram_auth import create_telegram_link, disconnect_telegram
-from telegram_service import bot_username
+from telegram_service import (
+    TelegramDeliveryError,
+    bot_username,
+    telegram_provider_health,
+)
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -397,6 +401,16 @@ async def telegram_connection_status(current_user: dict = Depends(get_current_us
         "telegram_username": current_user.get("telegram_username"),
         "linked_at": current_user.get("telegram_linked_at"),
     }
+
+
+@router.get("/telegram/provider-health")
+async def telegram_delivery_health(current_user: dict = Depends(get_current_user_dep)):
+    if current_user.get("role") != "super_admin":
+        raise HTTPException(status_code=403, detail="Super Admin access required")
+    try:
+        return await telegram_provider_health()
+    except TelegramDeliveryError as error:
+        raise HTTPException(status_code=503, detail=str(error)) from error
 
 
 @router.post("/telegram/link")

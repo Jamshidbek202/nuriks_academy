@@ -118,6 +118,12 @@ async def run() -> None:
             json={"update_id": 1},
         )
         check(invalid_webhook.status_code == 403, "Telegram webhook must reject an invalid secret")
+        provider_health = await json_ok(
+            await client.get("/api/auth/telegram/provider-health", headers=admin_headers),
+            200,
+            "Telegram provider health",
+        )
+        check(provider_health["healthy"] is True, "Mock Telegram provider must report healthy")
 
         # A never-activated test account may be removed completely. Its
         # Telegram identity and phone number must immediately become reusable.
@@ -172,6 +178,50 @@ async def run() -> None:
             await client.delete(f"/api/staff-accounts/{phone_reuse['id']}", headers=admin_headers),
             200,
             "delete phone reuse account",
+        )
+
+        role_phone = "+998909999993"
+        role_account = await json_ok(
+            await client.post(
+                "/api/staff-accounts",
+                headers=admin_headers,
+                json={"full_name": "Wrong Role Example", "phone": role_phone, "role": "manager"},
+            ),
+            201,
+            "create account for role correction",
+        )
+        support_role = await json_ok(
+            await client.patch(
+                f"/api/staff-accounts/{role_account['id']}/role",
+                headers=admin_headers,
+                json={"role": "support", "reason": "Created under the wrong operational role"},
+            ),
+            200,
+            "correct manager to support",
+        )
+        check(support_role["account"]["role"] == "support", "Role must change to support")
+        check(
+            await db.support_staff.count_documents({"user_id": role_account["id"]}) == 1,
+            "Support role correction must create exactly one support profile",
+        )
+        reception_role = await json_ok(
+            await client.patch(
+                f"/api/staff-accounts/{role_account['id']}/role",
+                headers=admin_headers,
+                json={"role": "reception", "reason": "Correct final reception assignment"},
+            ),
+            200,
+            "correct support to reception",
+        )
+        check(reception_role["account"]["role"] == "reception", "Role must change to reception")
+        check(
+            await db.support_staff.count_documents({"user_id": role_account["id"]}) == 0,
+            "Unused support profile must be removed after role correction",
+        )
+        await json_ok(
+            await client.delete(f"/api/staff-accounts/{role_account['id']}", headers=admin_headers),
+            200,
+            "delete role correction account",
         )
         delete_audit = await db.audit_logs.find_one({
             "action": "delete_unactivated", "resource_id": disposable["id"],
@@ -345,6 +395,58 @@ async def run() -> None:
         check(expired_attempt.status_code == 200, "Expired Telegram links must be safely acknowledged")
         reception_user = await db.users.find_one({"_id": reception_user["_id"]})
         check(not reception_user.get("telegram_user_id"), "Expired links must not connect an account")
+
+        parent_phone = "+998904444444"
+        lead = await json_ok(
+            await client.post(
+                "/api/leads",
+                headers=admin_headers,
+                json={
+                    "first_name": "ParentManaged",
+                    "last_name": "Student",
+                    "phone": parent_phone,
+                    "parent_name": "QA Parent",
+                    "parent_phone": parent_phone,
+                    "account_access_mode": "parent_only",
+                    "source": "walk_in",
+                },
+            ),
+            200,
+            "create parent-managed lead",
+        )
+        conversion = await json_ok(
+            await client.post(
+                f"/api/leads/{lead['id']}/convert", headers=admin_headers,
+            ),
+            200,
+            "convert parent-managed lead",
+        )
+        check(conversion["account_access_mode"] == "parent_only", "Parent ownership must be retained")
+        check(conversion["student_account_status"] == "phone_required", "Child must not share the parent login")
+        check(bool(conversion["telegram_invites"].get("parent")), "Parent Telegram link must be returned")
+        await connect_mock_telegram(client, parent_phone, 90044444444)
+        parent_code = await latest_code(parent_phone, "invite")
+        await json_ok(
+            await client.post(
+                "/api/auth/invitations/accept",
+                json={
+                    "phone": parent_phone,
+                    "code": parent_code,
+                    "password": "ParentAccess@2026!",
+                },
+            ),
+            200,
+            "activate parent account through Telegram",
+        )
+        parent_login = await json_ok(
+            await client.post(
+                "/api/auth/login",
+                json={"phone": parent_phone, "password": "ParentAccess@2026!"},
+            ),
+            200,
+            "parent login after Telegram code",
+        )
+        check(parent_login["user"]["role"] == "parent", "Activated parent must retain parent role")
 
         # Wait out no cooldown by using the original invite only; password
         # reset runs on the already activated manager and has a separate purpose.

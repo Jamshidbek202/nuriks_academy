@@ -442,8 +442,8 @@ async def get_dashboard_stats(
     current_user: dict = Depends(get_current_user_dependency)
 ):
     """Get dashboard statistics"""
-    if current_user.get("role") not in {"super_admin", "manager"}:
-        raise HTTPException(status_code=403, detail="Admin access required")
+    if current_user.get("role") not in {"super_admin", "manager", "reception"}:
+        raise HTTPException(status_code=403, detail="Staff dashboard access required")
     try:
         branch_query = {}
         if current_user["role"] != "super_admin":
@@ -499,6 +499,55 @@ async def get_dashboard_stats(
                 "$in": [str(student["_id"]) for student in visible_students]
             }
         today_bookings = await db.support_bookings.count_documents(booking_query)
+
+        if current_user["role"] == "reception":
+            from finance_ledger import ensure_daily_cash_shift
+
+            visible_student_ids = [str(student["_id"]) for student in visible_students]
+            overdue_students = await db.finance_invoices.distinct("student_id", {
+                "student_id": {"$in": visible_student_ids},
+                "status": "finalized",
+                "balance_uzs": {"$gt": 0},
+                "due_date": {"$lt": tashkent_today},
+            })
+            tashkent_zone = ZoneInfo("Asia/Tashkent")
+            local_start = datetime.now(tashkent_zone).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            utc_start = local_start.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            utc_end = (local_start + timedelta(days=1)).astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+            paid_today = await db.finance_receipts.distinct("student_id", {
+                "student_id": {"$in": visible_student_ids},
+                "status": "posted",
+                "received_at": {"$gte": utc_start, "$lt": utc_end},
+            })
+            active_groups = await db.groups.count_documents({
+                **branch_query,
+                "status": "active",
+            })
+            cash_day = await ensure_daily_cash_shift(db)
+            return {
+                "students": {
+                    "total": current_students,
+                    "active": active_students,
+                    "frozen": frozen_students,
+                },
+                "groups": active_groups,
+                "payments": {
+                    "overdue_students": len(overdue_students),
+                    "paid_today_students": len(paid_today),
+                },
+                "today": {
+                    "lessons": today_lessons,
+                    "support_bookings": today_bookings,
+                },
+                "cash_day": {
+                    "business_date": cash_day.get("business_date"),
+                    "status": cash_day.get("status"),
+                    "receipt_total_uzs": int(cash_day.get("receipt_total_uzs", 0)),
+                    "removal_total_uzs": int(cash_day.get("removal_total_uzs", 0)),
+                },
+            }
         
         return {
             "students": {

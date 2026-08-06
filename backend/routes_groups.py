@@ -209,7 +209,7 @@ async def get_groups(
     """Get all groups with filters"""
     from server import db, serialize_doc
 
-    if current_user.get("role") not in {"super_admin", "manager", "teacher", "student", "parent"}:
+    if current_user.get("role") not in {"super_admin", "manager", "reception", "teacher", "student", "parent"}:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
     
     try:
@@ -223,9 +223,9 @@ async def get_groups(
         if current_user["role"] == "super_admin":
             if branch_id:
                 query["branch_id"] = branch_id
-        elif current_user["role"] == "manager":
+        elif current_user["role"] in {"manager", "reception"}:
             if branch_id and branch_id != current_user.get("branch_id"):
-                raise HTTPException(status_code=403, detail="Managers can only access groups in their branch")
+                raise HTTPException(status_code=403, detail="Staff can only access groups in their branch")
             query["branch_id"] = current_user.get("branch_id")
         
         if current_user["role"] == "teacher":

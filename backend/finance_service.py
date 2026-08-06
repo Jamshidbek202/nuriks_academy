@@ -1061,7 +1061,16 @@ def finance_document_to_json(document):
     if isinstance(document, ObjectId):
         return str(document)
     if isinstance(document, datetime):
-        return document.isoformat()
+        # MongoDB returns UTC instants as naive datetimes.  A bare ISO value is
+        # interpreted by browsers in the device's local timezone, which can
+        # move lesson and cashbox controls several hours into the future.  The
+        # finance API contract is UTC, so always include an explicit offset.
+        instant = document
+        if instant.tzinfo is None:
+            instant = instant.replace(tzinfo=timezone.utc)
+        else:
+            instant = instant.astimezone(timezone.utc)
+        return instant.isoformat().replace("+00:00", "Z")
     if isinstance(document, date):
         return document.isoformat()
     return document

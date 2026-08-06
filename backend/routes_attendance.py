@@ -16,6 +16,7 @@ from academic_access import (
     require_student_academic_read_access,
 )
 from validation import require_date_window
+from finance_ledger import _membership_active
 
 router = APIRouter(prefix="/attendance", tags=["Attendance"])
 security = HTTPBearer()
@@ -137,25 +138,69 @@ async def mark_attendance(
         if not group_has_class_on_day(group, attendance_day):
             raise HTTPException(status_code=400, detail="This group does not have a class scheduled on this date")
 
+        occurrence = None
+        occurrences = await db.lesson_occurrences.find({
+            "group_id": attendance_data.group_id,
+            "local_date": attendance_day.date().isoformat(),
+            "counts_as_scheduled": True,
+            "superseded": {"$ne": True},
+        }).sort("starts_at", 1).to_list(100)
+        if attendance_data.occurrence_id:
+            if not ObjectId.is_valid(attendance_data.occurrence_id):
+                raise HTTPException(status_code=400, detail="Invalid lesson occurrence ID")
+            occurrence = next(
+                (row for row in occurrences if str(row["_id"]) == attendance_data.occurrence_id),
+                None,
+            )
+            if not occurrence:
+                raise HTTPException(
+                    status_code=409,
+                    detail="The selected lesson does not match this group and date",
+                )
+        elif len(occurrences) == 1:
+            occurrence = occurrences[0]
+        elif len(occurrences) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Select the exact lesson time before marking attendance",
+            )
+
         student = await db.students.find_one({
             "_id": ObjectId(attendance_data.student_id),
             "status": {"$ne": "archived"}
         })
+        historical_membership_active = False
+        if occurrence:
+            memberships = await db.group_memberships.find({
+                "student_id": attendance_data.student_id,
+                "group_id": attendance_data.group_id,
+            }).to_list(1_000)
+            historical_membership_active = _membership_active(
+                memberships,
+                attendance_data.group_id,
+                occurrence["local_date"],
+                occurrence.get("starts_at"),
+            )
         if (
             not student
             or (
                 attendance_data.group_id not in student.get("group_ids", [])
                 and attendance_data.student_id not in group.get("student_ids", [])
+                and not historical_membership_active
             )
         ):
             raise HTTPException(status_code=400, detail="Student is not active in this group")
 
         # Check if attendance already exists for this student on this calendar date
-        existing = await db.attendance.find_one({
+        attendance_query = {
             "student_id": attendance_data.student_id,
             "group_id": attendance_data.group_id,
-            "date": {"$gte": attendance_day, "$lt": next_day}
-        })
+        }
+        if occurrence:
+            attendance_query["occurrence_id"] = str(occurrence["_id"])
+        else:
+            attendance_query["date"] = {"$gte": attendance_day, "$lt": next_day}
+        existing = await db.attendance.find_one(attendance_query)
         
         if existing:
             # Update existing
@@ -164,6 +209,7 @@ async def mark_attendance(
                 {"$set": {
                     "status": attendance_data.status,
                     "notes": attendance_data.notes,
+                    **({"occurrence_id": str(occurrence["_id"])} if occurrence else {}),
                     "updated_at": datetime.utcnow()
                 }}
             )
@@ -173,6 +219,7 @@ async def mark_attendance(
             attendance = {
                 "student_id": attendance_data.student_id,
                 "group_id": attendance_data.group_id,
+                "occurrence_id": str(occurrence["_id"]) if occurrence else None,
                 "teacher_id": teacher_id,
                 "date": attendance_day,
                 "status": attendance_data.status,
@@ -212,6 +259,7 @@ async def get_group_attendance(
     group_id: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    occurrence_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Get attendance for a group"""
@@ -224,6 +272,10 @@ async def get_group_attendance(
         await require_group_academic_read_access(db, current_user, group)
 
         query = {"group_id": group_id}
+        if occurrence_id:
+            if not ObjectId.is_valid(occurrence_id):
+                raise HTTPException(status_code=400, detail="Invalid lesson occurrence ID")
+            query["occurrence_id"] = occurrence_id
 
         current_role = str(current_user.get("role", "")).lower()
         if current_role == "student":

@@ -19,6 +19,7 @@ const EXACT: Record<string, LocalizedPair> = {
   'Student': { ru: 'Ученик', uz: 'O‘quvchi' },
   'Teachers': { ru: 'Учителя', uz: 'O‘qituvchilar' },
   'Teacher': { ru: 'Учитель', uz: 'O‘qituvchi' },
+  'Earnings': { ru: 'Заработок', uz: 'Daromad' },
   'Groups': { ru: 'Группы', uz: 'Guruhlar' },
   'Group': { ru: 'Группа', uz: 'Guruh' },
   'Finance': { ru: 'Финансы', uz: 'Moliya' },

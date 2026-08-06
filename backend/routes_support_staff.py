@@ -177,10 +177,13 @@ async def get_all_support_staff(
             user = await db.users.find_one({"_id": ObjectId(staff["user_id"])})
             if user:
                 staff_data["is_active"] = user.get("is_active", True)
+                staff_data["role"] = "support"
                 staff_data["account_status"] = user.get("account_status", "active")
                 staff_data["phone_verified"] = bool(user.get("phone_verified", False))
                 staff_data["invite_delivery_status"] = user.get("invite_delivery_status")
                 staff_data["telegram_connected"] = user.get("telegram_link_status") == "linked"
+                staff_data["telegram_link_status"] = user.get("telegram_link_status", "not_connected")
+                staff_data["telegram_link_expires_at"] = user.get("telegram_link_expires_at")
                 staff_data["last_login"] = user.get("last_login")
                 
                 if not include_inactive and not user.get("is_active", True):

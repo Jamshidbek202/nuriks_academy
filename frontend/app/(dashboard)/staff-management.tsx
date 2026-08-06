@@ -39,6 +39,8 @@ interface StaffRecord {
   phone_verified?: boolean;
   invite_delivery_status?: string;
   telegram_connected?: boolean;
+  telegram_link_status?: 'linked' | 'awaiting_connection' | 'not_connected';
+  telegram_link_expires_at?: string;
   can_delete_permanently?: boolean;
   last_login?: string;
 }
@@ -81,6 +83,8 @@ export default function StaffManagementScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [selected, setSelected] = useState<StaffRecord | null>(null);
   const [telegramInvites, setTelegramInvites] = useState<TelegramInviteItem[]>([]);
+  const [roleChange, setRoleChange] = useState<AccountRole>('manager');
+  const [roleChangeReason, setRoleChangeReason] = useState('');
   const [form, setForm] = useState({
     first_name: '',
     last_name: '',
@@ -119,6 +123,49 @@ export default function StaffManagementScreen() {
   const openCreate = () => {
     resetForm();
     setCreateOpen(true);
+  };
+
+  const openDetails = (staff: StaffRecord) => {
+    setSelected(staff);
+    setRoleChange(staff.role || (tab === 'support' ? 'support' : 'manager'));
+    setRoleChangeReason('');
+  };
+
+  const checkTelegramHealth = async () => {
+    setActionLoading(true);
+    try {
+      const { data } = await api.get('/auth/telegram/provider-health');
+      showAlert(
+        data.healthy ? 'Telegram delivery is ready' : 'Telegram delivery needs attention',
+        `${data.message}\n\nBot: @${data.provider_bot_username || data.bot_username}\nWebhook matches: ${data.webhook_matches ? 'yes' : 'no'}\nPending updates: ${data.pending_update_count || 0}${data.last_error_message ? `\nLast provider error: ${data.last_error_message}` : ''}`,
+      );
+    } catch (error) {
+      showAlert('Telegram health check failed', apiErrorMessage(error, 'The backend could not reach Telegram.'));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const changeRole = async () => {
+    if (!selected || roleChange === selected.role) return;
+    if (roleChangeReason.trim().length < 5) {
+      showAlert('Reason required', 'Enter why this role is being corrected.');
+      return;
+    }
+    setActionLoading(true);
+    try {
+      await api.patch(`/staff-accounts/${selected.id}/role`, {
+        role: roleChange,
+        reason: roleChangeReason.trim(),
+      });
+      setSelected(null);
+      await loadStaff();
+      showAlert('Role corrected', 'The worker’s existing sessions ended and their account now uses the selected role.');
+    } catch (error) {
+      showAlert('Role could not be changed', apiErrorMessage(error));
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const createStaff = async () => {
@@ -271,13 +318,16 @@ export default function StaffManagementScreen() {
           <Text style={styles.title}>Staff Management</Text>
           <Text style={styles.subtitle}>Telegram invitations and account access</Text>
         </View>
-        <TouchableOpacity
-          testID={tab === 'support' ? 'support-staff-add-button' : 'staff-account-add-button'}
-          style={styles.addButton}
-          onPress={openCreate}
-        >
-          <Ionicons name="add" size={24} color={COLORS.marbleDark} />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          {isSuperAdmin && (
+            <TouchableOpacity testID="telegram-health-button" accessibilityLabel="Check Telegram delivery" style={styles.healthButton} disabled={actionLoading} onPress={() => void checkTelegramHealth()}>
+              <Ionicons name="pulse" size={22} color={COLORS.gold} />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity testID={tab === 'support' ? 'support-staff-add-button' : 'staff-account-add-button'} style={styles.addButton} onPress={openCreate}>
+            <Ionicons name="add" size={24} color={COLORS.marbleDark} />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {isSuperAdmin && (
@@ -325,7 +375,7 @@ export default function StaffManagementScreen() {
                 key={staff.id}
                 testID={tab === 'support' ? `support-staff-card-${staff.id}` : `staff-account-card-${staff.id}`}
                 style={styles.card}
-                onPress={() => setSelected(staff)}
+                onPress={() => openDetails(staff)}
               >
                 <View style={styles.avatar}>
                   <Ionicons name={staff.role === 'reception' ? 'call' : staff.role === 'manager' ? 'briefcase' : 'headset'} size={23} color={COLORS.gold} />
@@ -416,8 +466,30 @@ export default function StaffManagementScreen() {
                 <Text style={styles.detail}>{selected.phone}</Text>
                 {!!selected.email && <Text style={styles.detail}>{selected.email}</Text>}
                 <Text style={styles.detail}>Status: {statusLabel(selected)}</Text>
-                <Text style={styles.detail}>Telegram: {selected.telegram_connected ? 'Connected' : 'Not connected'}</Text>
+                <Text style={styles.detail}>Telegram: {selected.telegram_connected ? 'Connected' : selected.telegram_link_status === 'awaiting_connection' ? 'Waiting for user to open the private link' : 'Not connected'}</Text>
+                {selected.telegram_link_status === 'awaiting_connection' && <Text style={styles.telegramHelp}>A code cannot arrive until this person opens their personal t.me link and presses Start. Use the button below to create a fresh link if needed.</Text>}
                 {!!selected.last_login && <Text style={styles.detail}>Last sign in: {new Date(selected.last_login).toLocaleString()}</Text>}
+
+                {isSuperAdmin && (
+                  <View style={styles.roleCorrection}>
+                    <Text style={styles.label}>Correct assigned role</Text>
+                    <View style={styles.roleChoices}>
+                      {(['manager', 'reception', 'support'] as AccountRole[]).map((role) => (
+                        <TouchableOpacity key={role} testID={`change-role-${role}`} style={[styles.roleChoice, roleChange === role && styles.roleChoiceActive]} onPress={() => setRoleChange(role)}>
+                          <Text style={[styles.roleChoiceText, roleChange === role && styles.roleChoiceTextActive]}>{role === 'support' ? 'Support' : role === 'manager' ? 'Manager' : 'Reception'}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    {roleChange !== selected.role && (
+                      <>
+                        <TextInput testID="staff-role-change-reason" style={[styles.input, styles.roleReason]} value={roleChangeReason} onChangeText={setRoleChangeReason} placeholder="Why is the role being corrected?" />
+                        <TouchableOpacity testID="staff-role-change-submit" style={[styles.primary, styles.roleSubmit, actionLoading && styles.disabled]} disabled={actionLoading} onPress={() => void changeRole()}>
+                          <Text style={styles.primaryText}>Save role correction</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                )}
 
                 {selected.account_status !== 'deactivated' && (
                   <TouchableOpacity
@@ -427,7 +499,7 @@ export default function StaffManagementScreen() {
                     disabled={actionLoading}
                   >
                     <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.warning} />
-                    <Text style={styles.actionText}>{selected.account_status === 'pending_invite' ? 'Send invitation code' : 'Send password reset code'}</Text>
+                    <Text style={styles.actionText}>{selected.telegram_connected ? (selected.account_status === 'pending_invite' ? 'Send invitation code' : 'Send password reset code') : 'Create and share a new Telegram link'}</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -484,6 +556,8 @@ const styles = StyleSheet.create({
   header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 3 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+  healthButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '0D' },
   addButton: { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold },
   tabs: { flexDirection: 'row', padding: SIZES.sm, gap: SIZES.sm },
   tab: { flex: 1, minHeight: 44, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SIZES.sm },
@@ -524,6 +598,10 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.6 },
   detailName: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: 'bold', marginBottom: SIZES.sm },
   detail: { color: COLORS.textSecondary, fontSize: SIZES.fontMd, marginBottom: SIZES.sm },
+  telegramHelp: { color: COLORS.warning, fontSize: SIZES.fontXs, lineHeight: 18, padding: SIZES.sm, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.warning + '10', marginBottom: SIZES.sm },
+  roleCorrection: { paddingVertical: SIZES.sm, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray, marginVertical: SIZES.sm },
+  roleReason: { marginTop: SIZES.sm },
+  roleSubmit: { marginTop: SIZES.sm },
   action: { minHeight: 48, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, marginTop: SIZES.sm },
   actionText: { color: COLORS.textPrimary, fontWeight: '600' },
   destructiveAction: { borderColor: COLORS.error + '80', backgroundColor: COLORS.error + '0D' },

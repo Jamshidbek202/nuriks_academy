@@ -42,6 +42,9 @@ interface Invoice {
   amount_paid_uzs: number;
   balance_uzs: number;
   due_date: string;
+  prepayment_covered_uzs?: number;
+  uncovered_balance_uzs?: number;
+  rolling_statement?: boolean;
 }
 
 interface Receipt {
@@ -71,7 +74,9 @@ interface CardPaymentReport {
   id: string;
   student_id: string;
   student_name: string;
-  parent_name: string;
+  parent_name?: string;
+  reporter_name?: string;
+  reporter_role?: 'parent' | 'student';
   amount_uzs: number;
   paid_at: string;
   reported_at: string;
@@ -126,7 +131,7 @@ export default function PaymentsScreen() {
         api.get('/finance/invoices', { params: { limit: 2000 } }),
         api.get('/finance/receipts', { params: { limit: 500 } }),
         api.get('/finance/payment-destinations'),
-        user?.role === 'parent'
+        ['parent', 'student'].includes(user?.role || '')
           ? api.get('/finance/card-payment-reports', { params: { limit: 500 } })
           : Promise.resolve({ data: [] }),
       ]);
@@ -161,7 +166,11 @@ export default function PaymentsScreen() {
     setPaymentTarget(invoice);
     setReportForm({
       destination_id: destination.id,
-      amount: String(invoice.balance_uzs),
+      amount: String(
+        invoice.status === 'draft'
+          ? (invoice.uncovered_balance_uzs ?? invoice.balance_uzs)
+          : invoice.balance_uzs,
+      ),
       paid_at: tashkentNowInput(),
     });
   };
@@ -200,8 +209,18 @@ export default function PaymentsScreen() {
   };
 
   const finalized = invoices.filter((invoice) => invoice.status === 'finalized');
-  const totalBalance = finalized.reduce((sum, invoice) => sum + invoice.balance_uzs, 0);
-  const totalAdvance = receipts.reduce((sum, receipt) => sum + receipt.advance_amount_uzs, 0);
+  const rolling = invoices.filter((invoice) => invoice.status === 'draft');
+  const finalizedBalance = finalized.reduce((sum, invoice) => sum + invoice.balance_uzs, 0);
+  const rollingAccrued = rolling.reduce((sum, invoice) => sum + invoice.amount_due_uzs, 0);
+  const rollingUncovered = rolling.reduce(
+    (sum, invoice) => sum + (invoice.uncovered_balance_uzs ?? invoice.balance_uzs),
+    0,
+  );
+  const rollingCovered = rolling.reduce(
+    (sum, invoice) => sum + (invoice.prepayment_covered_uzs || 0),
+    0,
+  );
+  const totalToPay = finalizedBalance + rollingUncovered;
 
   if (loading) {
     return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.gold} /></View>;
@@ -215,7 +234,7 @@ export default function PaymentsScreen() {
     <View style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Payments</Text>
-        <Text style={styles.subtitle}>Official invoices, balances, due dates, and cash receipts</Text>
+        <Text style={styles.subtitle}>Live lesson charges, official invoices, payments, and receipts</Text>
       </View>
       <ScrollView
         style={styles.content}
@@ -224,33 +243,48 @@ export default function PaymentsScreen() {
       >
         <View style={styles.notice}>
           <Ionicons name="information-circle" size={22} color={COLORS.gold} />
-          <Text style={styles.noticeText}>Cash receipts and verified personal-card transfers appear in the official ledger. Reporting a transfer does not reduce the balance until the Manager or Super Admin confirms it in Click or Payme.</Text>
+          <Text style={styles.noticeText}>Current-month charges grow only after completed lessons. A verified payment first clears old finalized debt; any remainder is held as prepayment and covers the live current-month amount. The final invoice is locked only when staff finalize the month.</Text>
         </View>
         <View style={styles.stats}>
-          <Stat label="Outstanding" value={totalBalance} color={totalBalance > 0 ? COLORS.error : COLORS.success} icon="hourglass" />
-          <Stat label="Receipt advances" value={totalAdvance} color={COLORS.info} icon="wallet" />
+          <Stat label="Amount to pay" value={totalToPay} color={totalToPay > 0 ? COLORS.error : COLORS.success} icon="hourglass" />
+          <Stat label="Current month accrued" value={rollingAccrued} color={COLORS.gold} icon="school" />
+          <Stat label="Prepayment covering it" value={rollingCovered} color={COLORS.info} icon="wallet" />
         </View>
 
         <Text style={styles.sectionTitle}>Invoices</Text>
         {invoices.length === 0 ? <Empty text="No invoices have been issued yet." /> : invoices.map((invoice) => (
-          <View key={invoice.id} style={styles.card}>
+          <View key={invoice.id} testID={`${user?.role}-invoice-${invoice.id}`} style={styles.card}>
             <View style={styles.row}>
               <View style={styles.flex}>
                 <Text style={styles.cardTitle}>{studentName(invoice.student_id)}</Text>
-                <Text style={styles.meta}>{invoice.invoice_number || 'Draft invoice'} · lessons from {invoice.service_month}</Text>
+                <Text style={styles.meta}>{invoice.invoice_number || 'Live current-month statement'} · lessons from {invoice.service_month}</Text>
               </View>
               <Status value={invoice.status === 'draft' ? 'draft' : invoice.payment_status} />
             </View>
             <View style={styles.divider} />
             <MoneyRow label="Gross lessons" value={invoice.gross_tuition_uzs} />
             {invoice.discount_amount_uzs > 0 && <MoneyRow label="Centre-funded discount" value={-invoice.discount_amount_uzs} />}
-            <MoneyRow label="Invoice total" value={invoice.amount_due_uzs} strong />
-            <MoneyRow label="Paid" value={invoice.amount_paid_uzs} />
-            <MoneyRow label="Balance" value={invoice.balance_uzs} strong danger={invoice.balance_uzs > 0 && invoice.status === 'finalized'} />
-            <Text style={styles.dueText}>Due {invoice.due_date}</Text>
-            {user?.role === 'parent' && invoice.status === 'finalized' && invoice.balance_uzs > 0 && (
+            <MoneyRow testID={invoice.status === 'draft' ? `${user?.role}-rolling-accrued-${invoice.id}` : undefined} label={invoice.status === 'draft' ? 'Accrued after completed lessons' : 'Invoice total'} value={invoice.amount_due_uzs} strong />
+            {invoice.status === 'finalized' ? (
+              <>
+                <MoneyRow label="Paid" value={invoice.amount_paid_uzs} />
+                <MoneyRow label="Balance" value={invoice.balance_uzs} strong danger={invoice.balance_uzs > 0} />
+                <Text style={styles.dueText}>Due {invoice.due_date}</Text>
+              </>
+            ) : (
+              <>
+                <MoneyRow label="Covered by verified prepayment" value={invoice.prepayment_covered_uzs || 0} />
+                <MoneyRow testID={`${user?.role}-rolling-uncovered-${invoice.id}`} label="Available to pay now" value={invoice.uncovered_balance_uzs ?? invoice.balance_uzs} strong danger={(invoice.uncovered_balance_uzs ?? invoice.balance_uzs) > 0} />
+                <Text style={styles.liveText}>Live statement · recalculated after every completed class</Text>
+              </>
+            )}
+            {['parent', 'student'].includes(user?.role || '') && (
+              invoice.status === 'finalized'
+                ? invoice.balance_uzs > 0
+                : (invoice.uncovered_balance_uzs ?? invoice.balance_uzs) > 0
+            ) && (
               <Button
-                testID={`parent-report-payment-${invoice.id}`}
+                testID={`${user?.role}-report-payment-${invoice.id}`}
                 title="Pay by Click or Payme"
                 onPress={() => openPaymentReport(invoice)}
                 style={styles.payButton}
@@ -259,11 +293,11 @@ export default function PaymentsScreen() {
           </View>
         ))}
 
-        {user?.role === 'parent' && (
+        {['parent', 'student'].includes(user?.role || '') && (
           <>
             <Text style={styles.sectionTitle}>Reported card payments</Text>
             {paymentReports.length === 0 ? <Empty text="No card payments have been reported." /> : paymentReports.map((report) => (
-              <View key={report.id} testID={`parent-payment-report-${report.id}`} style={styles.card}>
+              <View key={report.id} testID={`${user?.role}-payment-report-${report.id}`} style={styles.card}>
                 <View style={styles.row}>
                   <View style={styles.flex}>
                     <Text style={styles.cardTitle}>{report.student_name}</Text>
@@ -295,7 +329,7 @@ export default function PaymentsScreen() {
 
       <Modal visible={Boolean(paymentTarget)} transparent animationType="fade" onRequestClose={() => !busy && setPaymentTarget(null)}>
         <View style={styles.modalOverlay}>
-          <View testID="parent-card-payment-modal" style={styles.modalCard}>
+          <View testID={`${user?.role}-card-payment-modal`} style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <View style={styles.flex}>
                 <Text style={styles.modalTitle}>Pay by personal card transfer</Text>
@@ -306,7 +340,7 @@ export default function PaymentsScreen() {
             <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
               <Text style={styles.inputLabel}>Receiving card</Text>
               <View style={styles.pickerBox}>
-                <Picker testID="parent-payment-destination" selectedValue={reportForm.destination_id} onValueChange={(destination_id) => setReportForm({ ...reportForm, destination_id })} style={styles.picker} dropdownIconColor={COLORS.gold}>
+                <Picker testID={`${user?.role}-payment-destination`} selectedValue={reportForm.destination_id} onValueChange={(destination_id) => setReportForm({ ...reportForm, destination_id })} style={styles.picker} dropdownIconColor={COLORS.gold}>
                   {destinations.filter((row) => row.status === 'active').map((row) => <LocalizedPickerItem key={row.id} label={`${row.provider.toUpperCase()} · •••• ${row.card_last4} · ${row.cardholder_name}`} value={row.id} />)}
                 </Picker>
               </View>
@@ -317,12 +351,12 @@ export default function PaymentsScreen() {
                   <Button title="Copy card number" variant="outline" onPress={() => void Clipboard.setStringAsync(selectedDestination.card_number).then(() => showAlert('Copied', 'Card number copied.'))} />
                 </View>
               )}
-              <Input testID="parent-payment-amount" label="Amount transferred (whole UZS)" keyboardType="number-pad" value={reportForm.amount} onChangeText={(amount) => setReportForm({ ...reportForm, amount })} />
-              <DateTimePicker testID="parent-payment-paid-at" label="When did you make the transfer? (Tashkent time)" value={reportForm.paid_at} onChange={(paid_at) => setReportForm({ ...reportForm, paid_at })} />
-              <View style={styles.confirmNotice}><Ionicons name="alert-circle" size={20} color={COLORS.warning} /><Text style={styles.noticeText}>Reported by {user?.full_name}. Pressing the button only notifies staff; it does not mark the invoice paid.</Text></View>
+              <Input testID={`${user?.role}-payment-amount`} label="Amount transferred (whole UZS)" keyboardType="number-pad" value={reportForm.amount} onChangeText={(amount) => setReportForm({ ...reportForm, amount })} />
+              <DateTimePicker testID={`${user?.role}-payment-paid-at`} label="When did you make the transfer? (Tashkent time)" value={reportForm.paid_at} onChange={(paid_at) => setReportForm({ ...reportForm, paid_at })} />
+              <View style={styles.confirmNotice}><Ionicons name="alert-circle" size={20} color={COLORS.warning} /><Text style={styles.noticeText}>Reported by {user?.full_name}. Staff must verify the transfer. If this is a live current-month statement, the verified amount is held as prepayment until month finalization.</Text></View>
               <View style={styles.modalActions}>
                 <Button title="Cancel" variant="outline" onPress={() => setPaymentTarget(null)} disabled={busy} style={styles.flexButton} />
-                <Button testID="parent-payment-submit" title="I have paid — notify staff" onPress={reportPayment} loading={busy} style={styles.flexButton} />
+                <Button testID={`${user?.role}-payment-submit`} title="I have paid — notify staff" onPress={reportPayment} loading={busy} style={styles.flexButton} />
               </View>
             </ScrollView>
           </View>
@@ -336,8 +370,8 @@ function Stat({ label, value, color, icon }: { label: string; value: number; col
   return <View style={styles.stat}><Ionicons name={icon as any} size={22} color={color} /><Text style={styles.statValue}>{uzs(value)}</Text><Text style={styles.statLabel}>{label}</Text></View>;
 }
 
-function MoneyRow({ label, value, strong, danger }: { label: string; value: number; strong?: boolean; danger?: boolean }) {
-  return <View style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, danger && styles.danger]}>{value < 0 ? '−' : ''}{uzs(Math.abs(value))}</Text></View>;
+function MoneyRow({ testID, label, value, strong, danger }: { testID?: string; label: string; value: number; strong?: boolean; danger?: boolean }) {
+  return <View testID={testID} style={styles.moneyRow}><Text style={[styles.moneyLabel, strong && styles.strong]}>{label}</Text><Text style={[styles.moneyValue, strong && styles.strong, danger && styles.danger]}>{value < 0 ? '−' : ''}{uzs(Math.abs(value))}</Text></View>;
 }
 
 function Status({ value }: { value: string }) {
@@ -359,8 +393,8 @@ const styles = StyleSheet.create({
   contentInset: { padding: SIZES.md },
   notice: { flexDirection: 'row', gap: SIZES.sm, backgroundColor: COLORS.gold + '15', borderWidth: 1, borderColor: COLORS.gold + '55', padding: SIZES.md, borderRadius: SIZES.radiusMd, marginBottom: SIZES.md },
   noticeText: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 18 },
-  stats: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  stat: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, ...SHADOWS.small },
+  stats: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
+  stat: { flexGrow: 1, flexBasis: 180, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, ...SHADOWS.small },
   statValue: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', marginTop: SIZES.sm },
   statLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs },
   sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800', marginTop: SIZES.sm, marginBottom: SIZES.sm },
@@ -376,6 +410,7 @@ const styles = StyleSheet.create({
   strong: { color: COLORS.textPrimary, fontWeight: '800' },
   danger: { color: COLORS.error },
   dueText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.sm, textAlign: 'right' },
+  liveText: { color: COLORS.gold, fontSize: SIZES.fontXs, marginTop: SIZES.sm, textAlign: 'right', fontWeight: '700' },
   badge: { paddingHorizontal: SIZES.sm, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusFull },
   badgeText: { fontSize: SIZES.fontXs, fontWeight: '700', textTransform: 'capitalize' },
   receiptIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.gold + '22', alignItems: 'center', justifyContent: 'center' },

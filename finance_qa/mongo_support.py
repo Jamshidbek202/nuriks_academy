@@ -384,9 +384,27 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
     }).sort("starts_at", 1).to_list(100)
     if len(occurrences) < 3:
         raise RuntimeError("Browser fixture requires at least three scheduled lessons")
-    # Leave exactly two lessons unresolved. The browser campaign closes one via
-    # an official closure and resolves the other as held before finalization.
-    for occurrence in occurrences[2:]:
+    # Leave exactly three lessons unresolved, always including today's class.
+    # The browser campaign completes today's through attendance (proving
+    # rolling student/teacher UI accrual), then closes one and resolves the
+    # last before finalization.
+    academy_today = datetime.now(ZoneInfo("Asia/Tashkent")).date().isoformat()
+    today_occurrence = next(
+        (row for row in occurrences if row["local_date"] == academy_today),
+        None,
+    )
+    if not today_occurrence:
+        raise RuntimeError("Browser fixture requires a scheduled lesson today")
+    unresolved_occurrences = [today_occurrence]
+    unresolved_occurrences.extend(
+        row for row in occurrences
+        if row["_id"] != today_occurrence["_id"]
+    )
+    unresolved_occurrences = unresolved_occurrences[:3]
+    unresolved_ids = {row["_id"] for row in unresolved_occurrences}
+    for occurrence in occurrences:
+        if occurrence["_id"] in unresolved_ids:
+            continue
         if occurrence.get("resolution_status") == "unresolved":
             await record_lesson_resolution(
                 db,
@@ -406,7 +424,7 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
         "teacher_id": str(teacher["_id"]),
         "parent_id": str(parent["_id"]),
         "support_staff_id": str(support["_id"]),
-        "unresolved_occurrence_ids": [str(row["_id"]) for row in occurrences[:2]],
+        "unresolved_occurrence_ids": [str(row["_id"]) for row in unresolved_occurrences],
     }
 
 

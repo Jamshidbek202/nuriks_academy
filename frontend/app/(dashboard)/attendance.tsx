@@ -58,6 +58,18 @@ interface Schedule {
   room?: string;
 }
 
+interface LessonOccurrence {
+  id: string;
+  local_date: string;
+  starts_at: string;
+  ends_at: string;
+  resolution_status: string;
+  lesson_status: string;
+  counts_as_scheduled: boolean;
+  locked_at?: string;
+  active_student_ids?: string[];
+}
+
 interface AttendanceStats {
   total: number;
   present: number;
@@ -93,9 +105,36 @@ export default function AttendanceScreen() {
   const [todayAttendance, setTodayAttendance] = useState<Record<string, string>>({});
   const [markingStudentIds, setMarkingStudentIds] = useState<Set<string>>(new Set());
   const [isBulkMarking, setIsBulkMarking] = useState(false);
+  const [occurrences, setOccurrences] = useState<LessonOccurrence[]>([]);
+  const [selectedOccurrence, setSelectedOccurrence] = useState<LessonOccurrence | null>(null);
+  const [completingLesson, setCompletingLesson] = useState(false);
   const markingStudentIdsRef = useRef<Set<string>>(new Set());
   const attendanceContextRef = useRef('');
   const selectedGroupId = selectedGroup?.id;
+
+  const loadOccurrences = useCallback(async () => {
+    if (!selectedGroupId || !canMarkAttendance) {
+      setOccurrences([]);
+      setSelectedOccurrence(null);
+      return;
+    }
+    try {
+      const response = await api.get('/finance/lesson-occurrences', {
+        params: { group_id: selectedGroupId, month: selectedDate.slice(0, 7) },
+      });
+      const rows = (response.data || []).filter((row: LessonOccurrence) => (
+        row.local_date === selectedDate && row.counts_as_scheduled
+      ));
+      setOccurrences(rows);
+      setSelectedOccurrence((current) => (
+        rows.find((row: LessonOccurrence) => row.id === current?.id) || rows[0] || null
+      ));
+    } catch (error) {
+      console.error('Error loading scheduled lesson occurrences:', error);
+      setOccurrences([]);
+      setSelectedOccurrence(null);
+    }
+  }, [canMarkAttendance, selectedDate, selectedGroupId]);
 
   const loadGroups = async () => {
     try {
@@ -126,13 +165,15 @@ export default function AttendanceScreen() {
 
   const loadGroupAttendance = useCallback(async () => {
     if (!selectedGroupId) return;
-    const requestedContext = `${selectedGroupId}:${selectedDate}`;
+    if (occurrences.length > 1 && !selectedOccurrence) return;
+    const requestedContext = `${selectedGroupId}:${selectedDate}:${selectedOccurrence?.id || 'legacy'}`;
 
     try {
       const response = await api.get(`/attendance/group/${selectedGroupId}`, {
         params: {
           start_date: `${selectedDate}T00:00:00`,
           end_date: `${selectedDate}T23:59:59`,
+          occurrence_id: selectedOccurrence?.id,
         },
       });
       const attendanceMap: Record<string, string> = {};
@@ -147,7 +188,7 @@ export default function AttendanceScreen() {
     } finally {
       setRefreshing(false);
     }
-  }, [selectedDate, selectedGroupId]);
+  }, [occurrences.length, selectedDate, selectedGroupId, selectedOccurrence]);
 
   useEffect(() => {
     loadGroups();
@@ -155,12 +196,16 @@ export default function AttendanceScreen() {
   }, [loadStudents]);
 
   useEffect(() => {
-    attendanceContextRef.current = selectedGroupId ? `${selectedGroupId}:${selectedDate}` : '';
+    attendanceContextRef.current = selectedGroupId ? `${selectedGroupId}:${selectedDate}:${selectedOccurrence?.id || 'legacy'}` : '';
     setTodayAttendance({});
     if (selectedGroupId) {
       void loadGroupAttendance();
     }
-  }, [loadGroupAttendance, selectedDate, selectedGroupId]);
+  }, [loadGroupAttendance, selectedDate, selectedGroupId, selectedOccurrence]);
+
+  useEffect(() => {
+    void loadOccurrences();
+  }, [loadOccurrences]);
 
   // Tabs stay mounted. Refresh records whenever the attendance screen becomes
   // active so student/parent accounts immediately see marks made elsewhere.
@@ -178,11 +223,12 @@ export default function AttendanceScreen() {
       await Promise.all([
         loadGroups(),
         loadStudents(),
+        loadOccurrences(),
         selectedGroupId ? loadGroupAttendance() : Promise.resolve(),
       ]);
     },
     true,
-    `attendance:${selectedGroupId || ''}:${selectedDate}`,
+    `attendance:${selectedGroupId || ''}:${selectedDate}:${selectedOccurrence?.id || ''}`,
     3000,
   );
 
@@ -228,7 +274,12 @@ export default function AttendanceScreen() {
 
     const submittedGroupId = selectedGroup.id;
     const submittedDate = selectedDate;
-    const submittedContext = `${submittedGroupId}:${submittedDate}`;
+    const submittedOccurrenceId = selectedOccurrence?.id;
+    if (occurrences.length > 1 && !submittedOccurrenceId) {
+      if (showError) Alert.alert('Select lesson time', 'Choose the exact scheduled lesson before marking attendance.');
+      return false;
+    }
+    const submittedContext = `${submittedGroupId}:${submittedDate}:${submittedOccurrenceId || 'legacy'}`;
     const previousStatus = todayAttendance[studentId];
     markingStudentIdsRef.current.add(studentId);
     setMarkingStudentIds(new Set(markingStudentIdsRef.current));
@@ -239,6 +290,7 @@ export default function AttendanceScreen() {
         student_id: studentId,
         group_id: submittedGroupId,
         date: submittedDate + 'T00:00:00',
+        occurrence_id: submittedOccurrenceId,
         status,
       });
       return true;
@@ -263,6 +315,10 @@ export default function AttendanceScreen() {
 
   const getGroupStudents = () => {
     if (!selectedGroup) return [];
+    if (selectedOccurrence?.active_student_ids) {
+      const activeIds = new Set(selectedOccurrence.active_student_ids);
+      return students.filter((student) => activeIds.has(student.id));
+    }
     return students.filter((student) => (
       selectedGroup.student_ids.includes(student.id)
       || student.group_ids?.includes(selectedGroup.id)
@@ -305,6 +361,32 @@ export default function AttendanceScreen() {
     if (!selectedGroup) return [];
     const selectedDay = getSelectedDateDay().toLowerCase();
     return (selectedGroup.schedule || []).filter((session) => session.day.toLowerCase() === selectedDay);
+  };
+
+  const completeSelectedLesson = async () => {
+    if (!selectedOccurrence || completingLesson) return;
+    if (markedCount !== todayStats.total || todayStats.total === 0) {
+      Alert.alert('Attendance incomplete', 'Mark every active student before completing the lesson.');
+      return;
+    }
+    setCompletingLesson(true);
+    try {
+      const response = await api.post(`/finance/lesson-occurrences/${selectedOccurrence.id}/resolve`, {
+        resolution: 'held',
+        reason: 'Attendance submitted for completed lesson',
+        idempotency_key: `attendance-complete:${selectedOccurrence.id}`,
+      });
+      if (response.data?.rolling_accrual?.status === 'needs_attention') {
+        Alert.alert('Lesson completed', `The lesson was saved, but finance needs attention: ${response.data.rolling_accrual.detail}`);
+      } else {
+        Alert.alert('Lesson completed', 'Student charges and teacher earnings were updated.');
+      }
+      await loadOccurrences();
+    } catch (error: any) {
+      Alert.alert('Could not complete lesson', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setCompletingLesson(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -367,6 +449,12 @@ export default function AttendanceScreen() {
   const unmarkedCount = Math.max(0, todayStats.total - markedCount);
   const hasClassToday = hasClassOnSelectedDate();
   const selectedDateSessions = getSelectedDateSessions();
+  const lessonEnded = Boolean(
+    selectedOccurrence && new Date(selectedOccurrence.ends_at).getTime() <= Date.now(),
+  );
+  const occurrenceTime = (value: string) => new Date(value).toLocaleTimeString(getActiveLocale(), {
+    timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false,
+  });
 
   return (
     <View style={styles.container}>
@@ -438,15 +526,28 @@ export default function AttendanceScreen() {
 
       {selectedGroup && hasClassToday && selectedDateSessions.length > 0 && (
         <View style={styles.sessionStrip}>
-          {selectedDateSessions.map((session, index) => (
-            <View key={`${session.day}-${session.start_time}-${index}`} style={styles.sessionChip}>
+          {occurrences.length > 0 ? occurrences.map((occurrence) => (
+            <TouchableOpacity
+              key={occurrence.id}
+              testID={`attendance-occurrence-${occurrence.id}`}
+              style={[styles.sessionChip, selectedOccurrence?.id === occurrence.id && styles.sessionChipSelected]}
+              onPress={() => setSelectedOccurrence(occurrence)}
+            >
               <Ionicons name="time-outline" size={14} color={COLORS.gold} />
               <Text style={styles.sessionChipText}>
-                {session.start_time} - {session.end_time}
-                {session.room ? ` • Room ${session.room}` : ''}
+                {occurrenceTime(occurrence.starts_at)} - {occurrenceTime(occurrence.ends_at)}
               </Text>
-            </View>
-          ))}
+              {occurrence.resolution_status === 'resolved' && <Ionicons name="checkmark-circle" size={16} color={COLORS.success} />}
+            </TouchableOpacity>
+          )) : selectedDateSessions.map((session, index) => (
+              <View key={`${session.day}-${session.start_time}-${index}`} style={styles.sessionChip}>
+                <Ionicons name="time-outline" size={14} color={COLORS.gold} />
+                <Text style={styles.sessionChipText}>
+                  {session.start_time} - {session.end_time}
+                  {session.room ? ` • Room ${session.room}` : ''}
+                </Text>
+              </View>
+            ))}
         </View>
       )}
 
@@ -515,6 +616,34 @@ export default function AttendanceScreen() {
               <Text style={styles.allMarkedText}>All students are marked</Text>
             </View>
           ) : null}
+        </View>
+      )}
+
+      {canMarkAttendance && selectedOccurrence && (
+        <View testID="attendance-lesson-completion" style={styles.completionCard}>
+          <View style={styles.completionCopy}>
+            <Text style={styles.completionTitle}>
+              {selectedOccurrence.resolution_status === 'resolved' ? 'Lesson completed' : 'Post this lesson to finance'}
+            </Text>
+            <Text style={styles.completionHint}>
+              {selectedOccurrence.resolution_status === 'resolved'
+                ? 'Student charges and teacher earnings already include this lesson.'
+                : !lessonEnded
+                  ? `Available after ${occurrenceTime(selectedOccurrence.ends_at)}.`
+                  : markedCount !== todayStats.total
+                    ? `Attendance missing for ${Math.max(0, todayStats.total - markedCount)} student(s).`
+                    : 'This adds one lesson charge per active student and updates your earnings.'}
+            </Text>
+          </View>
+          {selectedOccurrence.resolution_status !== 'resolved' && (
+            <Button
+              testID={`attendance-complete-lesson-${selectedOccurrence.id}`}
+              title={completingLesson ? 'Completing…' : 'Complete lesson'}
+              onPress={() => void completeSelectedLesson()}
+              disabled={!lessonEnded || markedCount !== todayStats.total || todayStats.total === 0 || completingLesson}
+              style={styles.completeButton}
+            />
+          )}
         </View>
       )}
 
@@ -932,6 +1061,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.marbleGray,
     gap: SIZES.xs,
   },
+  sessionChipSelected: {
+    borderColor: COLORS.gold,
+    backgroundColor: COLORS.gold + '18',
+  },
   sessionChipText: {
     fontSize: SIZES.fontSm,
     color: COLORS.textPrimary,
@@ -1003,6 +1136,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: SIZES.sm,
+  },
+  completionCard: {
+    marginHorizontal: SIZES.md,
+    marginBottom: SIZES.md,
+    padding: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    borderColor: COLORS.gold + '66',
+    backgroundColor: COLORS.backgroundCard,
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: SIZES.md,
+    ...SHADOWS.small,
+  },
+  completionCopy: {
+    flex: 1,
+    minWidth: 220,
+  },
+  completionTitle: {
+    color: COLORS.textPrimary,
+    fontSize: SIZES.fontMd,
+    fontWeight: '700',
+  },
+  completionHint: {
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontSm,
+    lineHeight: 19,
+    marginTop: SIZES.xs,
+  },
+  completeButton: {
+    minWidth: 170,
   },
   markingProgress: {
     flexDirection: 'row',
