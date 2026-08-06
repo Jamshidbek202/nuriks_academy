@@ -844,11 +844,20 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   if (!resumeAfterFinalization) await test.step('tariff, share, recurring policy, and billing calendar versions update managers live', async () => {
     for (const page of [manager.page, superAdmin.page]) await page.getByTestId(ids.pricingTab).click();
 
+    const submitPolicyAndWaitForCommit = async (endpoint: string, submitTestId: string) => {
+      const [response] = await Promise.all([
+        superAdmin.page.waitForResponse((candidate) => candidate.request().method() === 'POST'
+          && candidate.url().endsWith(`${API_URL}${endpoint}`)),
+        superAdmin.page.getByTestId(submitTestId).click(),
+      ]);
+      expect(response.ok(), await response.text()).toBeTruthy();
+    };
+
     await expect(superAdmin.page.getByTestId('finance-course-pricing-general')).toContainText('QA General English');
     await superAdmin.page.getByTestId('finance-edit-tariff-general-normal').click();
     await superAdmin.page.getByTestId(ids.tariffAmount).fill('460000');
     await superAdmin.page.getByTestId(ids.tariffReason).fill('Finance live tariff version');
-    await superAdmin.page.getByTestId(ids.tariffSubmit).click();
+    await submitPolicyAndWaitForCommit('/finance/policies/tariffs', ids.tariffSubmit);
     await expect(manager.page.getByTestId('finance-tariff-row-tariff:general:normal')).toContainText(
       '460,000',
       { timeout: LIVE_TIMEOUT_MS },
@@ -857,7 +866,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await superAdmin.page.getByTestId('finance-edit-teacher-share-normal').click();
     await superAdmin.page.getByTestId(ids.teacherSharePercentage).fill('41');
     await superAdmin.page.getByTestId(ids.teacherShareReason).fill('Finance live share version');
-    await superAdmin.page.getByTestId(ids.teacherShareSubmit).click();
+    await submitPolicyAndWaitForCommit('/finance/policies/teacher-shares', ids.teacherShareSubmit);
     await expect(manager.page.getByTestId('finance-teacher-share-row-teacher_share:normal')).toContainText(
       '41%',
       { timeout: LIVE_TIMEOUT_MS },
@@ -867,7 +876,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await superAdmin.page.getByTestId(ids.recurringName).fill('Security');
     await superAdmin.page.getByTestId(ids.recurringAmount).fill('600000');
     await superAdmin.page.getByTestId(ids.recurringReason).fill('Finance live recurring policy');
-    await superAdmin.page.getByTestId(ids.recurringSubmit).click();
+    await submitPolicyAndWaitForCommit('/finance/policies/recurring-expenses', ids.recurringSubmit);
     await expect(manager.page.getByTestId('finance-recurring-row-expense:security')).toContainText(
       '600,000',
       { timeout: LIVE_TIMEOUT_MS },
@@ -877,7 +886,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await superAdmin.page.getByTestId(ids.billingFreeze).fill('13');
     await superAdmin.page.getByTestId(ids.billingSalary).fill('6');
     await superAdmin.page.getByTestId(ids.billingReason).fill('Finance live billing calendar');
-    await superAdmin.page.getByTestId(ids.billingSubmit).click();
+    await submitPolicyAndWaitForCommit('/finance/policies/billing-rules', ids.billingSubmit);
     await expect.poll(() => manager.page.getByTestId(ids.billingDue).inputValue(), { timeout: LIVE_TIMEOUT_MS }).toBe('12');
     await expect.poll(() => manager.page.getByTestId(ids.billingFreeze).inputValue(), { timeout: LIVE_TIMEOUT_MS }).toBe('13');
     await expect.poll(() => manager.page.getByTestId(ids.billingSalary).inputValue(), { timeout: LIVE_TIMEOUT_MS }).toBe('6');
