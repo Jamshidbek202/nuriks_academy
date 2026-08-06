@@ -29,6 +29,36 @@ from finance_service import active_policy
 from finance_models import ACADEMY_TIMEZONE
 
 
+async def _ensure_automatic_cash_day_index(db) -> None:
+    """Keep automatic cash days unique without rejecting legacy shift history.
+
+    MongoDB's ``sparse`` compound indexes still include a document when one
+    indexed field (``cashbox_id``) exists and the other is null or missing.
+    Older manual cash shifts therefore collide on ``business_date = null``.
+    Only shifts created by the automatic daily workflow need this invariant;
+    historical manual shifts must remain untouched and auditable.
+    """
+    index_name = "cashbox_id_1_business_date_1"
+    keys = [("cashbox_id", ASCENDING), ("business_date", ASCENDING)]
+    partial_filter = {"opening_mode": "automatic"}
+    existing = (await db.cash_shifts.index_information()).get(index_name)
+    if existing:
+        is_current = (
+            existing.get("key") == keys
+            and bool(existing.get("unique"))
+            and existing.get("partialFilterExpression") == partial_filter
+        )
+        if is_current:
+            return
+        await db.cash_shifts.drop_index(index_name)
+    await db.cash_shifts.create_index(
+        keys,
+        name=index_name,
+        unique=True,
+        partialFilterExpression=partial_filter,
+    )
+
+
 async def ensure_finance_ledger_indexes(db) -> None:
     await db.finance_invoices.create_index(
         [
@@ -90,11 +120,7 @@ async def ensure_finance_ledger_indexes(db) -> None:
         unique=True,
         partialFilterExpression={"status": "open"},
     )
-    await db.cash_shifts.create_index(
-        [("cashbox_id", ASCENDING), ("business_date", ASCENDING)],
-        unique=True,
-        sparse=True,
-    )
+    await _ensure_automatic_cash_day_index(db)
     await db.cash_events.create_index("idempotency_key", unique=True)
     await db.cash_discrepancy_reviews.create_index("idempotency_key", unique=True)
 

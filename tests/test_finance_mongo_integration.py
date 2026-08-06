@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 
 from bson import ObjectId
 from httpx import ASGITransport, AsyncClient
+from pymongo.errors import DuplicateKeyError
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +36,7 @@ from finance_accounting import (  # noqa: E402
     financial_position,
     pay_expense_obligation,
 )
-from finance_ledger import open_cash_shift  # noqa: E402
+from finance_ledger import ensure_finance_ledger_indexes, open_cash_shift  # noqa: E402
 from finance_live import FINANCE_LIVE_COLLECTIONS, finance_change_is_visible  # noqa: E402
 from finance_live import consume_finance_live_ticket  # noqa: E402
 from finance_models import (  # noqa: E402
@@ -97,6 +98,57 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    async def test_finance_indexes_preserve_legacy_cash_shifts_without_business_dates(self):
+        index_name = "cashbox_id_1_business_date_1"
+        await self.db.cash_shifts.drop_index(index_name)
+        legacy_ids = [ObjectId(), ObjectId()]
+        await self.db.cash_shifts.insert_many([
+            {
+                "_id": legacy_ids[0],
+                "cashbox_id": "main",
+                "business_date": None,
+                "status": "closed",
+                "opening_mode": "manual",
+                "idempotency_key": "qa:legacy-cash:one",
+            },
+            {
+                "_id": legacy_ids[1],
+                "cashbox_id": "main",
+                "status": "closed",
+                "opening_mode": "manual",
+                "idempotency_key": "qa:legacy-cash:two",
+            },
+        ])
+
+        await ensure_finance_ledger_indexes(self.db)
+
+        self.assertEqual(
+            await self.db.cash_shifts.count_documents({"_id": {"$in": legacy_ids}}),
+            2,
+        )
+        index = (await self.db.cash_shifts.index_information())[index_name]
+        self.assertTrue(index["unique"])
+        self.assertEqual(
+            index["partialFilterExpression"],
+            {"opening_mode": "automatic"},
+        )
+
+        automatic = {
+            "cashbox_id": "main",
+            "business_date": "2026-08-06",
+            "status": "closed",
+            "opening_mode": "automatic",
+        }
+        await self.db.cash_shifts.insert_one({
+            **automatic,
+            "idempotency_key": "qa:auto-cash:one",
+        })
+        with self.assertRaises(DuplicateKeyError):
+            await self.db.cash_shifts.insert_one({
+                **automatic,
+                "idempotency_key": "qa:auto-cash:two",
+            })
 
     async def test_automatic_cash_day_reception_boundary_and_manager_confirmation(self):
         reception_headers = await self.login(QA_USERS["reception_a"])
