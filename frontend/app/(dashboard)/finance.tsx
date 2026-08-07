@@ -40,6 +40,12 @@ interface Student {
   parent_phone?: string;
   status?: string;
   finance_frozen?: boolean;
+  payment_status?: 'overdue' | 'partial' | 'unpaid' | 'paid' | 'advance' | 'no_bill';
+  amount_due_uzs?: number;
+  amount_paid_uzs?: number;
+  outstanding_uzs?: number;
+  invoice_numbers?: string[];
+  latest_payment_at?: string | null;
 }
 
 interface Invoice {
@@ -348,9 +354,12 @@ export default function FinanceScreen() {
   const [occurrences, setOccurrences] = useState<LessonOccurrence[]>([]);
   const refreshRequestRef = useRef(0);
   const actionLocksRef = useRef(new Set<string>());
+  const pendingReceiptRef = useRef<{ key: string; fingerprint: string } | null>(null);
 
   const [receiptForm, setReceiptForm] = useState({ student_id: '', amount: '', notes: '' });
   const [financeSearch, setFinanceSearch] = useState('');
+  const [receptionPaymentFilter, setReceptionPaymentFilter] = useState<'all' | 'unpaid' | 'paid'>('all');
+  const [receiptNotice, setReceiptNotice] = useState<{ tone: 'success' | 'error' | 'warning'; text: string } | null>(null);
   const [invoiceCorrection, setInvoiceCorrection] = useState<{
     invoice: Invoice; kind: 'debit' | 'credit';
   } | null>(null);
@@ -504,6 +513,28 @@ export default function FinanceScreen() {
       .sort((left, right) => `${left.first_name} ${left.last_name}`.localeCompare(`${right.first_name} ${right.last_name}`))
       .slice(0, 12);
   })();
+  const receptionVisibleStudents = students
+    .filter((student) => {
+      const matchesSearch = !normalizedSearch || [
+        student.student_id,
+        student.first_name,
+        student.last_name,
+        `${student.first_name} ${student.last_name}`,
+        student.phone,
+        student.parent_name,
+        student.parent_phone,
+        ...(student.invoice_numbers || []),
+      ].some((value) => String(value || '').toLowerCase().includes(normalizedSearch));
+      if (!matchesSearch) return false;
+      if (receptionPaymentFilter === 'unpaid') {
+        return ['overdue', 'partial', 'unpaid'].includes(student.payment_status || '');
+      }
+      if (receptionPaymentFilter === 'paid') {
+        return ['paid', 'advance'].includes(student.payment_status || '');
+      }
+      return true;
+    })
+    .sort((left, right) => `${left.first_name} ${left.last_name}`.localeCompare(`${right.first_name} ${right.last_name}`));
   const selectedReceiptStudent = receiptForm.student_id ? studentMap[receiptForm.student_id] : null;
   const unresolvedCardReports = cardPaymentReports.filter((report) => report.status === 'unresolved');
   const resolvedCardReports = cardPaymentReports.filter((report) => report.status !== 'unresolved');
@@ -521,16 +552,30 @@ export default function FinanceScreen() {
   };
 
   const visibleTabs = isReception
-    ? tabs.filter((tab) => ['receivables', 'cash'].includes(tab.key))
+    ? tabs.filter((tab) => tab.key === 'receivables').map((tab) => ({ ...tab, label: 'Student payments' }))
     : tabs;
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (options?: { silent?: boolean }): Promise<boolean> => {
     const requestId = ++refreshRequestRef.current;
     if (!role || !['super_admin', 'manager', 'reception'].includes(role)) {
       if (requestId === refreshRequestRef.current) setLoading(false);
-      return;
+      return false;
     }
     try {
+      if (isReception) {
+        const reception = await Promise.all([
+          api.get('/finance/reception/students'),
+          api.get('/finance/reception/call-list'),
+          api.get('/finance/cash-shifts/current').catch(() => ({ data: null })),
+        ]);
+        if (requestId !== refreshRequestRef.current) return false;
+        setStudents(reception[0].data || []);
+        setCallList(reception[1].data || []);
+        setCashShift(reception[2].data || null);
+        setInvoices([]);
+        setReceipts([]);
+        return true;
+      }
       const commonPromise = Promise.all([
         api.get('/students', { params: { limit: 1000 } }),
         api.get('/finance/invoices', { params: { limit: 2000 } }),
@@ -546,7 +591,7 @@ export default function FinanceScreen() {
           })
           .catch(() => null)
         : Promise.resolve(null);
-      const adminPromise = isReception ? Promise.resolve(null) : Promise.all([
+      const adminPromise = Promise.all([
         soleActiveBranchPromise.then((soleActiveBranchId) => api.get('/finance/position', {
           params: { service_month: month, ...(soleActiveBranchId ? { branch_id: soleActiveBranchId } : {}) },
         })),
@@ -567,45 +612,47 @@ export default function FinanceScreen() {
       const [common, admin] = await Promise.all([commonPromise, adminPromise]);
       // A newer invalidation owns the screen. Never let an older, slower set of
       // financial requests overwrite its snapshot.
-      if (requestId !== refreshRequestRef.current) return;
+      if (requestId !== refreshRequestRef.current) return false;
       setStudents(common[0].data || []);
       setInvoices(common[1].data || []);
       setReceipts(common[2].data || []);
       setCallList(common[3].data || []);
       setCashShift(common[4].data || null);
-      if (admin) {
-        setPosition(admin[0].data);
-        setExpenses(admin[1].data || []);
-        setEarnings(admin[2].data || []);
-        setTariffs(admin[3].data.tariffs || []);
-        setTeacherShares(admin[3].data.teacher_shares || []);
-        setRecurringPolicies(admin[3].data.recurring_expenses || []);
-        setBillingPolicy(admin[3].data.billing_rules || null);
-        setClosures(admin[4].data || []);
-        setGroups(admin[5].data || []);
-        setTeachers(admin[6].data || []);
-        setCashShifts(admin[7].data || []);
-        setCashEvents(admin[8].data || []);
-        setOtherIncomeRows(admin[9].data || []);
-        setOutgoingPayments(admin[10].data || []);
-        setFinanceCourses(admin[11].data || []);
-        setPaymentDestinations(admin[12].data || []);
-        setCardPaymentReports(admin[13].data || []);
-        setSelectedGroupId((current) => current || admin[5].data?.[0]?.id || '');
-        const billing = admin[3].data.billing_rules?.value;
-        if (billing) {
-          setBillingForm((current) => ({
-            ...current,
-            due: String(billing.student_due_day),
-            freeze: String(billing.freeze_day),
-            salary: String(billing.teacher_salary_due_day),
-          }));
-        }
+      setPosition(admin[0].data);
+      setExpenses(admin[1].data || []);
+      setEarnings(admin[2].data || []);
+      setTariffs(admin[3].data.tariffs || []);
+      setTeacherShares(admin[3].data.teacher_shares || []);
+      setRecurringPolicies(admin[3].data.recurring_expenses || []);
+      setBillingPolicy(admin[3].data.billing_rules || null);
+      setClosures(admin[4].data || []);
+      setGroups(admin[5].data || []);
+      setTeachers(admin[6].data || []);
+      setCashShifts(admin[7].data || []);
+      setCashEvents(admin[8].data || []);
+      setOtherIncomeRows(admin[9].data || []);
+      setOutgoingPayments(admin[10].data || []);
+      setFinanceCourses(admin[11].data || []);
+      setPaymentDestinations(admin[12].data || []);
+      setCardPaymentReports(admin[13].data || []);
+      setSelectedGroupId((current) => current || admin[5].data?.[0]?.id || '');
+      const billing = admin[3].data.billing_rules?.value;
+      if (billing) {
+        setBillingForm((current) => ({
+          ...current,
+          due: String(billing.student_due_day),
+          freeze: String(billing.freeze_day),
+          salary: String(billing.teacher_salary_due_day),
+        }));
       }
+      return true;
     } catch (error: any) {
       if (requestId === refreshRequestRef.current) {
-        Alert.alert('Finance data unavailable', error.response?.data?.detail || 'Could not load financial records.');
+        if (!options?.silent) {
+          Alert.alert('Finance data unavailable', error.response?.data?.detail || 'Could not load financial records.');
+        }
       }
+      return false;
     } finally {
       if (requestId === refreshRequestRef.current) {
         setLoading(false);
@@ -662,19 +709,70 @@ export default function FinanceScreen() {
     }
   };
 
-  const recordReceipt = () => {
+  const recordReceipt = async () => {
     const amount = parseWholeUzs(receiptForm.amount);
-    if (!cashShift) return Alert.alert('Open the cashbox first', 'Cash receipts require an open shift.');
-    if (!receiptForm.student_id || amount == null) return Alert.alert('Check payment', 'Select a student and enter whole UZS.');
-    void runAction('receipt', () => api.post('/finance/receipts/cash', {
+    if (!cashShift) {
+      setReceiptNotice({ tone: 'error', text: 'The automatic cash day is unavailable. Refresh before accepting cash.' });
+      return;
+    }
+    if (!receiptForm.student_id || amount == null) {
+      setReceiptNotice({ tone: 'error', text: 'Select a student and enter a positive whole-UZS amount.' });
+      return;
+    }
+    if (actionLocksRef.current.has('receipt')) return;
+    const fingerprint = JSON.stringify({
       student_id: receiptForm.student_id,
       amount_uzs: amount,
       cash_shift_id: cashShift.id,
       notes: receiptForm.notes || null,
-      idempotency_key: idempotencyKey('receipt'),
-    }), 'Cash receipt posted and allocated to the oldest debt first.').then((success) =>
-      success && setReceiptForm({ student_id: '', amount: '', notes: '' }),
-    );
+    });
+    if (pendingReceiptRef.current?.fingerprint !== fingerprint) {
+      pendingReceiptRef.current = { key: idempotencyKey('receipt'), fingerprint };
+    }
+    const receiptKey = pendingReceiptRef.current.key;
+    actionLocksRef.current.add('receipt');
+    setBusy('receipt');
+    setReceiptNotice({ tone: 'warning', text: 'Recording and verifying this payment…' });
+    try {
+      try {
+        await api.post('/finance/receipts/cash', {
+          student_id: receiptForm.student_id,
+          amount_uzs: amount,
+          cash_shift_id: cashShift.id,
+          notes: receiptForm.notes || null,
+          idempotency_key: receiptKey,
+        }, { timeout: 60_000, suppressNetworkErrorLog: true } as any);
+      } catch (error: any) {
+        if (error?.response) throw error;
+        try {
+          await api.get('/finance/receipts/idempotency-status', {
+            params: { idempotency_key: receiptKey },
+            timeout: 15_000,
+          });
+        } catch {
+          const uncertainError = new Error('The connection ended before the payment could be verified. Press “Post cash receipt” again to retry the same payment safely; do not create a second entry.');
+          (uncertainError as any).paymentUncertain = true;
+          throw uncertainError;
+        }
+      }
+      const refreshed = await loadData({ silent: true });
+      pendingReceiptRef.current = null;
+      setReceiptForm({ student_id: '', amount: '', notes: '' });
+      setReceiptNotice({
+        tone: refreshed ? 'success' : 'warning',
+        text: refreshed
+          ? 'Payment recorded once and allocated to the oldest debt.'
+          : 'Payment recorded once. The student list is reconnecting and will update automatically.',
+      });
+    } catch (error: any) {
+      setReceiptNotice({
+        tone: error?.paymentUncertain ? 'warning' : 'error',
+        text: error?.response?.data?.detail || error?.message || 'The payment could not be recorded.',
+      });
+    } finally {
+      actionLocksRef.current.delete('receipt');
+      setBusy(null);
+    }
   };
 
   const openUnfreezeStudent = (student: Student) => {
@@ -1320,6 +1418,61 @@ export default function FinanceScreen() {
 
   const renderReceivables = () => (
     <>
+      {isReception ? (
+        <Section title="Student payment status" subtitle="Find any current student and see only the payment information needed for reception work. Centre revenue, profit, payroll, expenses, and cash totals are not available here.">
+          <View style={styles.searchRow}>
+            <View style={styles.flex}>
+              <Input testID={FINANCE.studentSearch} value={financeSearch} onChangeText={setFinanceSearch} placeholder="Student, phone, parent, ID, or invoice..." autoCapitalize="none" />
+            </View>
+            {financeSearch.length > 0 && (
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear student search" style={styles.searchClear} onPress={() => setFinanceSearch('')}>
+                <Ionicons name="close" size={22} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <View style={styles.filterChips}>
+            {(['all', 'unpaid', 'paid'] as const).map((filter) => (
+              <TouchableOpacity
+                key={filter}
+                testID={`finance-reception-filter-${filter}`}
+                accessibilityRole="button"
+                style={[styles.filterChip, receptionPaymentFilter === filter && styles.filterChipActive]}
+                onPress={() => setReceptionPaymentFilter(filter)}
+              >
+                <Text style={[styles.filterChipText, receptionPaymentFilter === filter && styles.filterChipTextActive]}>
+                  {filter === 'all' ? 'All students' : filter === 'unpaid' ? 'Unpaid / partial' : 'Paid'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <View testID={FINANCE.studentSearchResults} style={styles.searchResults}>
+            {receptionVisibleStudents.length === 0 ? <Empty text="No students match this search and payment filter." /> : receptionVisibleStudents.map((student) => {
+              const selected = receiptForm.student_id === student.id;
+              const outstanding = student.outstanding_uzs || 0;
+              return (
+                <TouchableOpacity
+                  key={student.id}
+                  testID={`finance-student-result-${student.id}`}
+                  accessibilityRole="button"
+                  style={[styles.studentResult, selected && styles.studentResultSelected]}
+                  onPress={() => {
+                    setReceiptForm((current) => ({ ...current, student_id: student.id }));
+                    setFinanceSearch(student.student_id);
+                  }}
+                >
+                  <View style={styles.studentResultIcon}><Ionicons name={selected ? 'checkmark' : 'person'} size={18} color={selected ? COLORS.marbleDark : COLORS.gold} /></View>
+                  <View style={styles.flex}>
+                    <Text style={styles.recordTitle}>{student.first_name} {student.last_name}</Text>
+                    <Text style={styles.recordMeta}>{student.student_id} · {student.phone || 'no student phone'}{student.parent_phone ? ` · parent ${student.parent_phone}` : ''}</Text>
+                    <Text style={styles.recordMeta}>{student.payment_status === 'no_bill' ? 'No finalized bill yet' : `Status: ${String(student.payment_status || 'unknown').replace('_', ' ')}`}</Text>
+                  </View>
+                  <Text style={outstanding > 0 ? styles.dangerAmount : styles.goodAmount}>{outstanding > 0 ? uzs(outstanding) : 'No debt'}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Section>
+      ) : (
       <Section title="Search student finances" subtitle="Search by student, phone, parent, invoice, or receipt number, then choose the student for a payment.">
         <View style={styles.searchRow}>
           <View style={styles.flex}>
@@ -1361,7 +1514,20 @@ export default function FinanceScreen() {
           </View>
         ) : <Text style={styles.searchHint}>Start typing to find and select a student.</Text>}
       </Section>
+      )}
       <Section title="Record cash payment" subtitle="Cash only. Payment is allocated to the oldest debt; any remainder becomes an advance.">
+        {receiptNotice && (
+          <View
+            testID="finance-receipt-notice"
+            style={[
+              styles.receiptNotice,
+              receiptNotice.tone === 'success' ? styles.receiptNoticeSuccess : receiptNotice.tone === 'error' ? styles.receiptNoticeError : styles.receiptNoticeWarning,
+            ]}
+          >
+            <Ionicons name={receiptNotice.tone === 'success' ? 'checkmark-circle' : receiptNotice.tone === 'error' ? 'alert-circle' : 'time'} size={20} color={receiptNotice.tone === 'success' ? COLORS.success : receiptNotice.tone === 'error' ? COLORS.error : COLORS.warning} />
+            <Text style={styles.receiptNoticeText}>{receiptNotice.text}</Text>
+          </View>
+        )}
         <Text style={styles.inputLabel}>Selected student *</Text>
         {selectedReceiptStudent ? (
           <View testID={FINANCE.receiptStudent} style={styles.selectedStudentCard}>
@@ -1381,9 +1547,9 @@ export default function FinanceScreen() {
         )}
         <Input testID={FINANCE.receiptAmount} label="Amount (whole UZS) *" keyboardType="number-pad" value={receiptForm.amount} onChangeText={(amount) => setReceiptForm({ ...receiptForm, amount })} placeholder="450000" />
         <Input testID={FINANCE.receiptNotes} label="Notes" value={receiptForm.notes} onChangeText={(notes) => setReceiptForm({ ...receiptForm, notes })} placeholder="Optional receipt note" />
-        <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Automatic cashbox unavailable — refresh'} onPress={recordReceipt} loading={busy === 'receipt'} disabled={!cashShift} />
+        <Button testID={FINANCE.receiptSubmit} title={cashShift ? 'Post cash receipt' : 'Automatic cashbox unavailable — refresh'} onPress={() => void recordReceipt()} loading={busy === 'receipt'} disabled={!cashShift} />
       </Section>
-      <Section
+      {!isReception && <Section
         title={`Financially frozen students (${frozenStudents.length})`}
         subtitle="Record the payment first. Automatic debt freezes clear when all overdue debt is paid; if a student remains frozen after review, only the super admin can release access here."
       >
@@ -1414,7 +1580,7 @@ export default function FinanceScreen() {
             </View>
           );
         })}
-      </Section>
+      </Section>}
       {isSuperAdmin && unfreezeTarget && (
         <FinanceActionModal
           title={`Unfreeze ${unfreezeTarget.first_name} ${unfreezeTarget.last_name}`}
@@ -1462,7 +1628,7 @@ export default function FinanceScreen() {
           </View>
         ))}
       </Section>
-      <Section title="Invoice ledger" subtitle="Draft, finalized, partial, paid, and overdue balances">
+      {!isReception && <Section title="Invoice ledger" subtitle="Draft, finalized, partial, paid, and overdue balances">
         {visibleInvoices.length === 0 ? <Empty text="No matching invoices." /> : visibleInvoices.slice(0, 250).map((invoice) => (
           <View key={invoice.id} testID={`finance-invoice-row-${invoice.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{studentName(invoice.student_id)}</Text><Status value={invoice.payment_status || invoice.status} /></View>
@@ -1478,7 +1644,7 @@ export default function FinanceScreen() {
             )}
           </View>
         ))}
-      </Section>
+      </Section>}
       {!isReception && invoiceCorrection && (
         <FinanceActionModal title={`${invoiceCorrection.kind === 'debit' ? 'Debit' : 'Credit'} correction · ${invoiceCorrection.invoice.invoice_number}`} subtitle="The original invoice remains auditable. Teacher earnings are intentionally unchanged." onClose={() => setInvoiceCorrection(null)}>
           <Input testID={FINANCE.invoiceCorrectionAmount} label="Amount (whole UZS)" keyboardType="number-pad" value={invoiceCorrectionAmount} onChangeText={setInvoiceCorrectionAmount} />
@@ -1492,7 +1658,7 @@ export default function FinanceScreen() {
           <View style={styles.actionRow}><Button title="Cancel" variant="outline" style={styles.flexButton} onPress={() => setInvoiceReversalTarget(null)} /><Button testID={FINANCE.invoiceReversalSubmit} title="Reverse and replace" style={styles.flexButton} onPress={reverseInvoiceValue} loading={busy === 'invoice-reversal'} /></View>
         </FinanceActionModal>
       )}
-      <Section title="Recent receipts" subtitle="Posted receipts are immutable; corrections use a reversal record">
+      {!isReception && <Section title="Recent receipts" subtitle="Posted receipts are immutable; corrections use a reversal record">
         {visibleReceipts.length === 0 ? <Empty text="No matching receipts." /> : visibleReceipts.slice(0, 50).map((receipt) => (
           <View key={receipt.id} testID={`finance-receipt-row-${receipt.id}`} style={styles.recordCard}>
             <View style={styles.recordTop}><Text style={styles.recordTitle}>{receipt.receipt_number}</Text><Text style={styles.goodAmount}>{uzs(receipt.amount_uzs)}</Text></View>
@@ -1502,7 +1668,7 @@ export default function FinanceScreen() {
             {isSuperAdmin && receipt.status === 'posted' && <Button title="Reverse receipt" variant="outline" onPress={() => { setReceiptReversalTarget(receipt); setReceiptReversalReason(''); }} />}
           </View>
         ))}
-      </Section>
+      </Section>}
       {isSuperAdmin && receiptReversalTarget && (
         <FinanceActionModal title={`Reverse ${receiptReversalTarget.receipt_number}`} subtitle={receiptReversalTarget.payment_method === 'personal_card_transfer' ? 'The receipt and allocations are reversed atomically. The personal-card transfer remains in the provider history and must be handled separately if a refund is needed.' : 'The receipt and allocations are reversed atomically. A closed shift keeps its physical count and recalculates its discrepancy for review.'} onClose={() => setReceiptReversalTarget(null)}>
           <Input testID={FINANCE.receiptReversalReason} label="Audit reason" value={receiptReversalReason} onChangeText={setReceiptReversalReason} multiline />
@@ -1975,7 +2141,7 @@ export default function FinanceScreen() {
   return (
     <View testID={FINANCE.screen} style={styles.container}>
       <View style={styles.header}>
-        <View><Text style={styles.title}>{isReception ? 'Reception finance' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Cash receipts, balances, and calls' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
+        <View><Text style={styles.title}>{isReception ? 'Student payments' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Find students, check paid/unpaid status, contact families, and record cash—without centre financial totals.' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
         {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={styles.monthInput} />}
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
@@ -1987,7 +2153,7 @@ export default function FinanceScreen() {
         {activeTab === 'online' && renderOnlinePayments()}
         {activeTab === 'expenses' && renderExpenses()}
         {activeTab === 'payroll' && renderPayroll()}
-        {activeTab === 'cash' && renderCash()}
+        {!isReception && activeTab === 'cash' && renderCash()}
         {activeTab === 'pricing' && renderPricing()}
         {activeTab === 'closures' && renderClosures()}
         <View style={styles.bottomSpace} />
@@ -2143,6 +2309,11 @@ const styles = StyleSheet.create({
   flexButton: { flex: 1, minWidth: 120 },
   searchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm },
   searchClear: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, backgroundColor: COLORS.backgroundLight },
+  filterChips: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs, marginBottom: SIZES.md },
+  filterChip: { minHeight: 40, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusFull, borderWidth: 1, borderColor: COLORS.marbleGray, backgroundColor: COLORS.backgroundLight },
+  filterChipActive: { borderColor: COLORS.gold, backgroundColor: COLORS.gold },
+  filterChipText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, fontWeight: '700' },
+  filterChipTextActive: { color: COLORS.marbleDark },
   searchResults: { borderWidth: 1, borderColor: COLORS.marbleGray, borderRadius: SIZES.radiusMd, overflow: 'hidden' },
   searchHint: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: -SIZES.xs },
   studentResult: { minHeight: 62, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, backgroundColor: COLORS.backgroundLight, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
@@ -2151,6 +2322,11 @@ const styles = StyleSheet.create({
   selectedStudentCard: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold, backgroundColor: COLORS.gold + '15' },
   unselectedStudentCard: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.gold + '88', backgroundColor: COLORS.backgroundLight },
   changeStudentButton: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
+  receiptNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1 },
+  receiptNoticeSuccess: { backgroundColor: COLORS.success + '15', borderColor: COLORS.success + '77' },
+  receiptNoticeError: { backgroundColor: COLORS.error + '15', borderColor: COLORS.error + '77' },
+  receiptNoticeWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '77' },
+  receiptNoticeText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontXs, lineHeight: 18 },
   modalOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SIZES.md, backgroundColor: '#000000B8' },
   modalCard: { width: '100%', maxWidth: 540, maxHeight: '90%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', ...SHADOWS.large },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },

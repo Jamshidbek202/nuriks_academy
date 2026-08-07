@@ -128,6 +128,7 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
   ],
   reception: [
     { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Students', path: /\/students/ },
     { name: 'Leads', path: /\/leads/ },
     { name: 'Payments', path: /\/finance/ },
     { name: 'Profile', path: /\/profile/ },
@@ -147,6 +148,7 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
     { name: 'Chats', path: /\/chats/ },
     { name: 'Homework', path: /\/homework/ },
     { name: 'Tests', path: /\/tests/ },
+    { name: 'Payments', path: /\/payments/ },
     { name: 'Grades', path: /\/progress/ },
     { name: 'Profile', path: /\/profile/ },
   ],
@@ -286,6 +288,8 @@ for (const viewport of ['desktop', 'phone'] as const) {
     for (const role of Object.keys(roleTabs) as RoleKey[]) {
       const session = await loginUi(browser, role, viewport === 'phone');
       try {
+        await expect(session.page.getByRole('tab')).toHaveCount(roleTabs[role].length);
+        await expect(session.page.getByRole('tab', { name: /reception-home/i })).toHaveCount(0);
         for (const tab of roleTabs[role]) {
           const locator = session.page.getByRole('tab', { name: tab.name }).first();
           await expect(locator, `${role} is missing the ${tab.name} tab`).toBeVisible();
@@ -294,6 +298,14 @@ for (const viewport of ['desktop', 'phone'] as const) {
           await assertHealthy(session, `${role}/${tab.name}/${viewport}`);
           if (viewport === 'phone') await assertPhoneGeometry(session.page, `${role}/${tab.name}`);
         }
+        const refreshTarget = roleTabs[role][1];
+        const refreshLocator = session.page.getByRole('tab', { name: refreshTarget.name }).first();
+        await refreshLocator.click();
+        await expect(session.page).toHaveURL(refreshTarget.path);
+        await session.page.reload();
+        await expect(session.page.getByRole('tab', { name: refreshTarget.name }).first()).toBeVisible({ timeout: 15_000 });
+        await expect(session.page).toHaveURL(refreshTarget.path);
+        await assertHealthy(session, `${role}/${refreshTarget.name}/${viewport}/direct-refresh`);
         await testInfo.attach(`${viewport}-${role}`, {
           body: await session.page.screenshot({ fullPage: true }),
           contentType: 'image/png',
@@ -973,10 +985,31 @@ test('API roles, linked profiles, and principal read models agree', async ({ req
     ['student', '/finance/position?service_month=2026-07'],
     ['reception', '/finance/position?service_month=2026-07'],
     ['reception', '/finance/policies'],
+    ['super_admin', '/finance/reception/students'],
+    ['manager', '/finance/reception/students'],
   ];
   for (const [role, path] of forbiddenChecks) {
     const response = await apiCall(request, tokens[role], 'get', path);
     expect(response.status(), `${role} unexpectedly accessed ${path}`).toBe(403);
+  }
+
+  const receptionDashboard = await expectApiOk(
+    await apiCall(request, tokens.reception, 'get', '/dashboard'),
+    'reception-safe dashboard',
+  );
+  expect(Object.keys(receptionDashboard.cash_day || {}).sort()).toEqual(['business_date', 'status']);
+  expect(receptionDashboard).not.toHaveProperty('revenue');
+  expect(receptionDashboard).not.toHaveProperty('profit');
+  const receptionStudents = await expectApiOk(
+    await apiCall(request, tokens.reception, 'get', '/finance/reception/students'),
+    'reception-safe student payment list',
+  );
+  expect(receptionStudents.length).toBeGreaterThan(0);
+  for (const row of receptionStudents) {
+    expect(row).not.toHaveProperty('cashbox_position_uzs');
+    expect(row).not.toHaveProperty('profit_uzs');
+    expect(row).not.toHaveProperty('expenses_uzs');
+    expect(row).not.toHaveProperty('payroll_uzs');
   }
 
   const month = academyDate().slice(0, 7);
@@ -1891,19 +1924,32 @@ test('support booking can be received, accepted, and reflected live', async ({ b
     await expect(reception.page.getByTestId('reception-students')).toBeVisible();
     await expect(reception.page.getByTestId('reception-groups')).toBeVisible();
     await expect(reception.page.getByTestId('reception-record-payment')).toBeVisible();
-    await expect(reception.page.getByTestId('reception-cash-day')).toContainText('Opened automatically');
+    await expect(reception.page.getByTestId('reception-cash-day')).toContainText('Centre cash totals are restricted');
+    await reception.page.getByRole('tab', { name: 'Students' }).first().click();
+    await expect(reception.page.getByPlaceholder('Search students...')).toBeVisible();
+    await expect(reception.page.getByText('read-only payment view', { exact: false })).toBeVisible();
+    await expect(reception.page.getByText('Update Student', { exact: true })).toHaveCount(0);
+    await reception.page.getByRole('tab', { name: 'Payments' }).first().click();
+    await expect(reception.page.getByText('Student payments', { exact: true }).first()).toBeVisible();
+    await expect(reception.page.getByText('Accrued revenue', { exact: true })).toHaveCount(0);
+    await expect(reception.page.getByText('Accrued profit', { exact: true })).toHaveCount(0);
+    await expect(reception.page.getByText('Cashbox position', { exact: true })).toHaveCount(0);
+    await reception.page.getByRole('tab', { name: 'Home' }).first().click();
     const receptionBooking = reception.page.getByTestId(`reception-booking-${booking.id}`);
     await expect(receptionBooking).toContainText('confirmed', { timeout: 7_000 });
-    await reception.page.getByTestId(`reception-cancel-booking-${booking.id}`).click();
+    await expect(reception.page.getByTestId(`reception-cancel-booking-${booking.id}`)).toHaveCount(0);
+    const receptionCancel = await apiCall(request, receptionToken, 'put', `/support-bookings/${booking.id}/cancel`);
+    expect(receptionCancel.status(), await receptionCancel.text()).toBe(403);
+    await student.page.getByTestId(`student-cancel-booking-${booking.id}`).click();
     await expect.poll(async () => {
-      const rows = await expectApiOk(await apiCall(request, receptionToken, 'get', '/support-bookings'), 'poll reception cancellation');
+      const rows = await expectApiOk(await apiCall(request, studentToken, 'get', '/support-bookings'), 'poll student cancellation');
       return rows.find((row: any) => row.id === booking.id)?.status;
     }, { timeout: 7_000 }).toBe('cancelled');
     await expect(receptionBooking).toHaveCount(0, { timeout: 7_000 });
     await expect(student.page.getByText('confirmed', { exact: true })).toHaveCount(0, { timeout: 7_000 });
     await assertHealthy(student, 'student booking observer');
     await assertHealthy(support, 'support booking actor');
-    await assertHealthy(reception, 'reception booking cancellation');
+    await assertHealthy(reception, 'reception booking observer');
   } finally {
     await student.context.close();
     await support.context.close();

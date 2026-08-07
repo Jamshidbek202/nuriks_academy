@@ -403,7 +403,7 @@ async def cancel_booking(
                 raise HTTPException(status_code=403, detail="You can only cancel your own bookings")
         elif current_user["role"] == "support":
             await require_booking_staff_access(db, current_user, booking)
-        elif current_user["role"] not in ["super_admin", "manager", "reception"]:
+        elif current_user["role"] not in ["super_admin", "manager"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         else:
             await require_booking_staff_access(db, current_user, booking)

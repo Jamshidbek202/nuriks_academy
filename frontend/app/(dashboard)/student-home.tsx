@@ -20,6 +20,7 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 
 interface StudentProfile {
   id: string;
@@ -100,6 +101,7 @@ export default function StudentHomeScreen() {
   const [bookingTopic, setBookingTopic] = useState('');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
+  const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
   
   // Notification modal
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
@@ -254,6 +256,25 @@ export default function StudentHomeScreen() {
     } finally {
       setBookingLoading(false);
     }
+  };
+
+  const cancelOwnBooking = (booking: Booking) => {
+    showConfirm(
+      'Cancel support booking?',
+      'Are you sure you want to cancel this booking?',
+      async () => {
+        setCancellingBookingId(booking.id);
+        try {
+          await api.put(`/support-bookings/${booking.id}/cancel`);
+          setUpcomingBookings((current) => current.filter((row) => row.id !== booking.id));
+        } catch (error: any) {
+          showAlert('Cancellation failed', error.response?.data?.detail || 'The booking could not be cancelled.');
+        } finally {
+          setCancellingBookingId(null);
+        }
+      },
+      'Cancel booking',
+    );
   };
 
   const resetBookingForm = () => {
@@ -420,7 +441,7 @@ export default function StudentHomeScreen() {
           <>
             <Text style={styles.sectionTitle}>Upcoming Support Sessions</Text>
             {upcomingBookings.map((booking) => (
-              <View key={booking.id} style={styles.bookingCard}>
+              <View key={booking.id} testID={`student-booking-${booking.id}`} style={styles.bookingCard}>
                 <View style={styles.bookingTime}>
                   <Ionicons name="time" size={18} color={COLORS.gold} />
                   <Text style={styles.bookingTimeText}>{booking.start_time} - {booking.end_time}</Text>
@@ -434,6 +455,17 @@ export default function StudentHomeScreen() {
                     {booking.status}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  testID={`student-cancel-booking-${booking.id}`}
+                  accessibilityRole="button"
+                  disabled={cancellingBookingId === booking.id}
+                  style={styles.bookingCancelButton}
+                  onPress={() => cancelOwnBooking(booking)}
+                >
+                  {cancellingBookingId === booking.id
+                    ? <ActivityIndicator size="small" color={COLORS.error} />
+                    : <Text style={styles.bookingCancelText}>Cancel booking</Text>}
+                </TouchableOpacity>
               </View>
             ))}
           </>
@@ -647,6 +679,8 @@ const styles = StyleSheet.create({
   bookingSupportName: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: 2 },
   bookingStatus: { alignSelf: 'flex-start', paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: SIZES.xs },
   bookingStatusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
+  bookingCancelButton: { alignSelf: 'flex-start', minHeight: 38, marginTop: SIZES.sm, paddingHorizontal: SIZES.md, justifyContent: 'center', borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
+  bookingCancelText: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '700' },
   
   // Modal styles
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },

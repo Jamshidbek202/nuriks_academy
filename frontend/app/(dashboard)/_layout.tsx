@@ -82,6 +82,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
         <Tabs.Screen name="journal" options={{ href: null }} />
       </Tabs>
     );
@@ -122,6 +123,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -134,7 +136,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="leads" options={{ title: t('Leads'), tabBarIcon: createTabIcon('people-circle') }} />
         <Tabs.Screen name="finance" options={{ title: t('Payments'), tabBarIcon: createTabIcon('cash') }} />
         <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
+        <Tabs.Screen name="students" options={{ title: t('Students'), tabBarIcon: createTabIcon('people') }} />
         <Tabs.Screen name="payments" options={{ href: null }} />
         <Tabs.Screen name="earnings" options={{ href: null }} />
         <Tabs.Screen name="groups" options={{ href: null }} />
@@ -160,6 +162,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -199,6 +202,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -238,6 +242,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -277,6 +282,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -316,6 +322,7 @@ export default function DashboardLayout() {
         <Tabs.Screen name="teacher-home" options={{ href: null }} />
         <Tabs.Screen name="support-home" options={{ href: null }} />
         <Tabs.Screen name="student-home" options={{ href: null }} />
+        <Tabs.Screen name="reception-home" options={{ href: null }} />
       </Tabs>
     );
   }
@@ -354,6 +361,7 @@ export default function DashboardLayout() {
       <Tabs.Screen name="teacher-home" options={{ href: null }} />
       <Tabs.Screen name="support-home" options={{ href: null }} />
       <Tabs.Screen name="student-home" options={{ href: null }} />
+      <Tabs.Screen name="reception-home" options={{ href: null }} />
     </Tabs>
   );
 }

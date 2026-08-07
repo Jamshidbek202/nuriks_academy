@@ -544,8 +544,6 @@ async def get_dashboard_stats(
                 "cash_day": {
                     "business_date": cash_day.get("business_date"),
                     "status": cash_day.get("status"),
-                    "receipt_total_uzs": int(cash_day.get("receipt_total_uzs", 0)),
-                    "removal_total_uzs": int(cash_day.get("removal_total_uzs", 0)),
                 },
             }
         

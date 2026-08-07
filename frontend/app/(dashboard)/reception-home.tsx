@@ -1,9 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   Linking,
-  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -11,12 +9,12 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 
 import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
-import { api, apiErrorMessage } from '../../src/services/api';
+import { api } from '../../src/services/api';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 
 type Dashboard = {
@@ -24,7 +22,7 @@ type Dashboard = {
   groups?: number;
   payments?: { overdue_students?: number; paid_today_students?: number };
   today?: { lessons?: number; support_bookings?: number };
-  cash_day?: { business_date?: string; status?: string; receipt_total_uzs?: number; removal_total_uzs?: number };
+  cash_day?: { business_date?: string; status?: string };
 };
 
 type CallItem = {
@@ -56,7 +54,6 @@ export default function ReceptionHomeScreen() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [busyBooking, setBusyBooking] = useState<string | null>(null);
 
   const load = async () => {
     try {
@@ -86,30 +83,9 @@ export default function ReceptionHomeScreen() {
     [bookings],
   );
 
-  const cancelBooking = (booking: Booking) => {
-    const execute = async () => {
-      setBusyBooking(booking.id);
-      try {
-        await api.put(`/support-bookings/${booking.id}/cancel`);
-        await load();
-      } catch (error) {
-        const message = apiErrorMessage(error, 'The booking could not be cancelled.');
-        if (Platform.OS === 'web') window.alert(message);
-        else Alert.alert('Cancellation failed', message);
-      } finally {
-        setBusyBooking(null);
-      }
-    };
-    const message = `Cancel ${booking.student_name || 'this student'}'s support booking on ${booking.booking_date} at ${booking.start_time}?`;
-    if (Platform.OS === 'web') {
-      if (window.confirm(message)) void execute();
-    } else {
-      Alert.alert('Cancel support booking?', message, [
-        { text: 'Keep booking', style: 'cancel' },
-        { text: 'Cancel booking', style: 'destructive', onPress: () => void execute() },
-      ]);
-    }
-  };
+  if (user?.role !== 'reception') {
+    return <Redirect href="/(dashboard)" />;
+  }
 
   if (loading) {
     return <View style={styles.loading}><ActivityIndicator size="large" color={COLORS.gold} /></View>;
@@ -146,7 +122,7 @@ export default function ReceptionHomeScreen() {
           <View style={styles.cardIcon}><Ionicons name="wallet" size={22} color={COLORS.gold} /></View>
           <View style={styles.flex}>
             <Text style={styles.cardTitle}>Cashbox · {dashboard?.cash_day?.business_date || 'today'}</Text>
-            <Text style={styles.meta}>Opened automatically · cash received today {uzs(dashboard?.cash_day?.receipt_total_uzs)}</Text>
+            <Text style={styles.meta}>Available automatically for recording student cash payments. Centre cash totals are restricted.</Text>
           </View>
           <Ionicons name="chevron-forward" size={22} color={COLORS.textTertiary} />
         </TouchableOpacity>
@@ -180,15 +156,6 @@ export default function ReceptionHomeScreen() {
               <Text style={styles.cardTitle}>{booking.student_name || booking.booking_id}</Text>
               <Text style={styles.meta}>{booking.support_name || 'Support teacher'} · {booking.status}</Text>
             </View>
-            <TouchableOpacity
-              testID={`reception-cancel-booking-${booking.id}`}
-              accessibilityRole="button"
-              disabled={busyBooking === booking.id}
-              style={styles.cancelButton}
-              onPress={() => cancelBooking(booking)}
-            >
-              {busyBooking === booking.id ? <ActivityIndicator size="small" color={COLORS.error} /> : <Text style={styles.cancelText}>Cancel</Text>}
-            </TouchableOpacity>
           </View>
         ))}
       </ScrollView>
@@ -246,7 +213,5 @@ const styles = StyleSheet.create({
   dateBox: { width: 55, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusSm, alignItems: 'center', backgroundColor: COLORS.gold + '18' },
   dateText: { color: COLORS.gold, fontSize: 11, fontWeight: '800' },
   timeText: { color: COLORS.textPrimary, fontSize: SIZES.fontXs, marginTop: 2 },
-  cancelButton: { minWidth: 66, minHeight: 38, alignItems: 'center', justifyContent: 'center', paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
-  cancelText: { color: COLORS.error, fontSize: SIZES.fontXs, fontWeight: '700' },
   empty: { alignItems: 'center', gap: SIZES.xs, paddingVertical: SIZES.lg, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm },
 });

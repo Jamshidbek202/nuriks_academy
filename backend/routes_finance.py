@@ -1199,6 +1199,13 @@ async def get_current_cash_shift(current_user: dict = Depends(get_current_user_d
         shift = await ensure_daily_cash_shift(db)
     except ValueError as error:
         _service_error(error)
+    if current_user.get("role") == "reception":
+        return finance_document_to_json({
+            "_id": shift["_id"],
+            "status": shift.get("status"),
+            "business_date": shift.get("business_date"),
+            "opening_mode": shift.get("opening_mode"),
+        })
     return finance_document_to_json(shift)
 
 
@@ -1699,16 +1706,17 @@ async def post_cash_receipt(
         _service_error(error)
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error))
-    await queue_receipt_notification(db, result["receipt"])
-    result["freeze_reconciliation"] = await reconcile_student_finance_freeze(
-        db, payload.student_id, _academy_today(), str(current_user["_id"])
-    )
-    await create_audit_log(
-        str(current_user["_id"]), "record_cash_receipt", "finance_receipt",
-        str(result["receipt"]["_id"]),
-        {"student_id": payload.student_id, "amount_uzs": payload.amount_uzs},
-        request.client.host if request.client else None,
-    )
+    if not result.get("idempotent_replay"):
+        await queue_receipt_notification(db, result["receipt"])
+        result["freeze_reconciliation"] = await reconcile_student_finance_freeze(
+            db, payload.student_id, _academy_today(), str(current_user["_id"])
+        )
+        await create_audit_log(
+            str(current_user["_id"]), "record_cash_receipt", "finance_receipt",
+            str(result["receipt"]["_id"]),
+            {"student_id": payload.student_id, "amount_uzs": payload.amount_uzs},
+            request.client.host if request.client else None,
+        )
     return finance_document_to_json(result)
 
 
@@ -1731,6 +1739,36 @@ async def list_receipts(
         query["student_id"] = student_id
     rows = await db.finance_receipts.find(query).sort("received_at", -1).limit(limit).to_list(limit)
     return finance_document_to_json(rows)
+
+
+@router.get("/receipts/idempotency-status")
+async def get_receipt_idempotency_status(
+    idempotency_key: str = Query(min_length=8, max_length=200),
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Confirm whether an uncertain cash-payment request committed.
+
+    This endpoint lets a mobile client recover safely after a connection is
+    interrupted without inventing a second idempotency key and posting the
+    same physical payment twice.
+    """
+    from server import db
+
+    _require_role(current_user, {"super_admin", "manager", "reception"})
+    query = {"idempotency_key": idempotency_key, "status": "posted"}
+    if current_user.get("role") in {"manager", "reception"}:
+        query["branch_id"] = current_user.get("branch_id")
+    receipt = await db.finance_receipts.find_one(query)
+    if not receipt:
+        raise HTTPException(status_code=404, detail="Payment has not been recorded")
+    return finance_document_to_json({
+        "posted": True,
+        "receipt_id": str(receipt["_id"]),
+        "receipt_number": receipt.get("receipt_number"),
+        "student_id": receipt.get("student_id"),
+        "amount_uzs": int(receipt.get("amount_uzs", 0)),
+        "received_at": receipt.get("received_at"),
+    })
 
 
 @router.post("/receipts/{receipt_id}/reverse")
@@ -2393,3 +2431,95 @@ async def reception_finance_call_list(
             "notification_attention_count": failed_jobs,
         })
     return result
+
+
+@router.get("/reception/students")
+async def reception_student_payment_statuses(
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Reception-safe student directory with per-student payment state only.
+
+    The projection intentionally excludes centre revenue, profit, payroll,
+    expenses, aggregate collections, cashbox balances, and raw ledger rows.
+    """
+    from server import db
+
+    _require_role(current_user, {"reception"})
+    students = await db.students.find({
+        "branch_id": current_user.get("branch_id"),
+        "status": {"$ne": "archived"},
+    }).sort([("first_name", 1), ("last_name", 1)]).to_list(100_000)
+    student_ids = [str(student["_id"]) for student in students]
+    if not student_ids:
+        return []
+
+    invoices = await db.finance_invoices.find({
+        "student_id": {"$in": student_ids},
+        "status": "finalized",
+    }).to_list(100_000)
+    receipts = await db.finance_receipts.find({
+        "student_id": {"$in": student_ids},
+        "status": "posted",
+    }).sort("received_at", -1).to_list(100_000)
+    parent_ids = [
+        ObjectId(str(student["parent_id"]))
+        for student in students
+        if ObjectId.is_valid(str(student.get("parent_id", "")))
+    ]
+    parents = await db.parents.find({"_id": {"$in": parent_ids}}).to_list(len(parent_ids)) if parent_ids else []
+    parent_map = {str(parent["_id"]): parent for parent in parents}
+    today = _academy_today().isoformat()
+
+    invoices_by_student: dict[str, list[dict]] = {}
+    for invoice in invoices:
+        invoices_by_student.setdefault(invoice["student_id"], []).append(invoice)
+    receipts_by_student: dict[str, list[dict]] = {}
+    for receipt in receipts:
+        receipts_by_student.setdefault(receipt["student_id"], []).append(receipt)
+
+    result = []
+    for student in students:
+        student_id = str(student["_id"])
+        student_invoices = invoices_by_student.get(student_id, [])
+        student_receipts = receipts_by_student.get(student_id, [])
+        amount_due = sum(int(row.get("amount_due_uzs", 0)) for row in student_invoices)
+        amount_paid = sum(int(row.get("amount_paid_uzs", 0)) for row in student_invoices)
+        outstanding = sum(int(row.get("balance_uzs", 0)) for row in student_invoices)
+        overdue = any(
+            int(row.get("balance_uzs", 0)) > 0 and str(row.get("due_date", "")) < today
+            for row in student_invoices
+        )
+        if overdue:
+            payment_status = "overdue"
+        elif outstanding > 0 and amount_paid > 0:
+            payment_status = "partial"
+        elif outstanding > 0:
+            payment_status = "unpaid"
+        elif student_invoices:
+            payment_status = "paid"
+        elif student_receipts:
+            payment_status = "advance"
+        else:
+            payment_status = "no_bill"
+        parent = parent_map.get(str(student.get("parent_id")), {})
+        latest_receipt = student_receipts[0] if student_receipts else None
+        result.append({
+            "id": student_id,
+            "student_id": student.get("student_id"),
+            "first_name": student.get("first_name"),
+            "last_name": student.get("last_name"),
+            "phone": student.get("phone"),
+            "parent_name": f"{parent.get('first_name', '')} {parent.get('last_name', '')}".strip(),
+            "parent_phone": parent.get("phone"),
+            "status": student.get("status"),
+            "finance_frozen": bool(student.get("finance_frozen")),
+            "payment_status": payment_status,
+            "amount_due_uzs": amount_due,
+            "amount_paid_uzs": amount_paid,
+            "outstanding_uzs": outstanding,
+            "invoice_numbers": [
+                row.get("invoice_number") for row in student_invoices if row.get("invoice_number")
+            ],
+            "latest_payment_at": latest_receipt.get("received_at") if latest_receipt else None,
+        })
+    return finance_document_to_json(result)

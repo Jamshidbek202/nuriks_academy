@@ -549,10 +549,12 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   });
 
   if (process.env.FINANCE_SKIP_FREEZE_WORKFLOW !== '1') await test.step('financial freeze is visible to staff and only super admin can unfreeze after payment review', async () => {
-    for (const session of [manager, superAdmin, reception]) {
+    for (const session of [manager, superAdmin]) {
       await session.page.getByTestId(ids.receivablesTab).click();
       await expect(session.page.getByText(/Financially frozen students/)).toBeVisible();
     }
+    await reception.page.getByTestId(ids.receivablesTab).click();
+    await expect(reception.page.getByText(/Financially frozen students/)).toHaveCount(0);
 
     const freezeReason = `QA overdue freeze ${Date.now()}`;
     const freezeStartedAt = Date.now();
@@ -567,7 +569,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     });
     expect(freezeResponse.ok(), await freezeResponse.text()).toBeTruthy();
 
-    for (const session of [manager, superAdmin, reception]) {
+    for (const session of [manager, superAdmin]) {
       await expect(session.page.getByTestId(`finance-frozen-student-${student.id}`)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
     }
     const freezeObserverRenderedMs = Date.now() - freezeStartedAt;
@@ -628,7 +630,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       resource_id: student.id,
     })).toBeGreaterThanOrEqual(2);
 
-    for (const session of [manager, superAdmin, reception]) {
+    for (const session of [manager, superAdmin]) {
       await expect(session.page.getByTestId(`finance-frozen-student-${student.id}`)).toHaveCount(0, { timeout: LIVE_TIMEOUT_MS });
     }
     const unfreezeObserverRenderedMs = Date.now() - unfreezeStartedAt;
@@ -906,13 +908,15 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       (rows) => rows.some((row) => row.student_id === student.id && row.status === 'draft'),
     );
     const draft = draftRows.find((row) => row.student_id === student.id && row.status === 'draft');
-    for (const page of [manager.page, superAdmin.page, reception.page]) {
+    for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-invoice-row-${draft.id}`)).toContainText(
         'DRAFT',
         { timeout: LIVE_TIMEOUT_MS },
       );
     }
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('No finalized bill yet');
     await managerB.page.getByTestId(ids.receivablesTab).click();
     await expect(managerB.page.getByTestId(`finance-invoice-row-${draft.id}`)).toHaveCount(0);
 
@@ -941,13 +945,15 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       (rows) => rows.some((row) => row.id === draft.id && row.status === 'finalized'),
     );
     finalizedInvoice = invoiceRows.find((row) => row.id === draft.id);
-    for (const page of [manager.page, superAdmin.page, reception.page]) {
+    for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`)).toContainText(
         finalizedInvoice.invoice_number,
         { timeout: LIVE_TIMEOUT_MS },
       );
     }
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('Status: unpaid', { timeout: LIVE_TIMEOUT_MS });
     const earnings = await apiGet<any[]>(
       request,
       managerToken,
@@ -1248,15 +1254,15 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   });
 
   await test.step('reception cash receipts update debt, cash, overpayment advance, and all roles live', async () => {
-    await reception.page.getByTestId(ids.cashTab).click();
     await expect.poll(async () => {
       shift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
       return shift?.status;
     }, { timeout: LIVE_TIMEOUT_MS }).toBe('open');
+    expect(shift).not.toHaveProperty('receipt_total_uzs');
+    expect(shift).not.toHaveProperty('opening_balance_uzs');
     await manager.page.getByTestId(ids.cashTab).click();
     await expect(manager.page.getByText('Opened automatically', { exact: false })).toBeVisible();
-    await expect(reception.page.getByTestId(ids.cashOpen)).toHaveCount(0);
-    await expect(reception.page.getByTestId(ids.cashClose)).toHaveCount(0);
+    await expect(reception.page.getByTestId(ids.cashTab)).toHaveCount(0);
 
     await reception.page.getByTestId(ids.receivablesTab).click();
     await selectFinanceStudent(reception.page, student, `${student.first_name} ${student.last_name}`);
@@ -1267,18 +1273,36 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await reception.page.getByTestId(`finance-student-result-${student.id}`).click();
     await reception.page.getByTestId(ids.receiptAmount).fill('100000');
     await reception.page.getByTestId(ids.receiptNotes).fill('First live partial payment');
+    let interruptedReceiptRequests = 0;
+    await reception.page.route('**/api/finance/receipts/cash', async (route) => {
+      if (route.request().method() !== 'POST' || interruptedReceiptRequests > 0) {
+        await route.continue();
+        return;
+      }
+      interruptedReceiptRequests += 1;
+      const committedResponse = await route.fetch();
+      expect(committedResponse.ok(), await committedResponse.text()).toBeTruthy();
+      await route.abort('connectionreset');
+    });
+    reception.dialogs.length = 0;
     await reception.page.getByTestId(ids.receiptSubmit).click();
+    await expect(reception.page.getByTestId('finance-receipt-notice')).toContainText('Payment recorded once', { timeout: LIVE_TIMEOUT_MS });
+    await reception.page.unroute('**/api/finance/receipts/cash');
+    expect(interruptedReceiptRequests).toBe(1);
+    expect(reception.dialogs.some((message) => message.includes('Network Error'))).toBe(false);
     let receipts = await waitForRows<any>(
       request,
-      receptionToken,
+      managerToken,
       '/finance/receipts?limit=100',
       (rows) => rows.filter((row) => (row.payment_method || 'cash') === 'cash').length === 1,
     );
     const firstReceipt = receipts.find((row) => (row.payment_method || 'cash') === 'cash');
-    for (const page of [manager.page, superAdmin.page, reception.page]) {
+    for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-receipt-row-${firstReceipt.id}`)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
     }
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('Status: partial', { timeout: LIVE_TIMEOUT_MS });
     let managerPosition = await apiGet<Position>(request, managerToken, `/finance/position?service_month=${month}`);
     await expectPosition(manager.page, managerPosition);
     await expectPosition(superAdmin.page, await apiGet<Position>(request, superToken, `/finance/position?service_month=${month}`));
@@ -1293,9 +1317,10 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await reception.page.getByTestId(ids.receiptAmount).fill(String(overpayment));
     await reception.page.getByTestId(ids.receiptNotes).fill('Live overpayment creates advance');
     await reception.page.getByTestId(ids.receiptSubmit).click();
+    await expect(reception.page.getByTestId('finance-receipt-notice')).toContainText('Payment recorded once', { timeout: LIVE_TIMEOUT_MS });
     receipts = await waitForRows<any>(
       request,
-      receptionToken,
+      managerToken,
       '/finance/receipts?limit=100',
       (rows) => rows.filter((row) => (row.payment_method || 'cash') === 'cash').length === 2,
     );
@@ -1305,6 +1330,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(managerPosition.receivables_uzs).toBe(0);
     await expectPosition(manager.page, managerPosition);
     await expectPosition(superAdmin.page, await apiGet<Position>(request, superToken, `/finance/position?service_month=${month}`));
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('Status: paid', { timeout: LIVE_TIMEOUT_MS });
 
     await superAdmin.page.getByTestId(ids.receivablesTab).click();
     const receiptRow = superAdmin.page.getByTestId(`finance-receipt-row-${secondReceipt.id}`);
@@ -1319,7 +1346,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(managerPosition.advance_balances_uzs).toBe(0);
     await expectPosition(manager.page, managerPosition);
     await reception.page.getByTestId(ids.receivablesTab).click();
-    await expect(reception.page.getByTestId(`finance-receipt-row-${secondReceipt.id}`)).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText(/Status: (partial|unpaid)/, { timeout: LIVE_TIMEOUT_MS });
   });
 
   await test.step('invoice adjustments update revenue and balances live without changing payroll', async () => {
@@ -1672,14 +1700,15 @@ test('every finance-page domain synchronizes live across authorized sessions', a
         idempotency_key: 'qa:cash-day:old-browser-fixture',
       } },
     );
-    const nextDayShift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
+    const receptionNextDayShift = await apiGet<any>(request, receptionToken, '/finance/cash-shifts/current');
+    const nextDayShift = await apiGet<any>(request, managerToken, '/finance/cash-shifts/current');
+    expect(receptionNextDayShift.id).toBe(nextDayShift.id);
+    expect(receptionNextDayShift).not.toHaveProperty('opening_balance_uzs');
     expect(nextDayShift.id).not.toBe(closingShift.id);
     expect(nextDayShift.status).toBe('open');
     expect(nextDayShift.opening_balance_uzs).toBe(expectedAtRollover);
 
-    await reception.page.getByTestId(ids.cashTab).click();
-    await expect(reception.page.getByTestId(ids.cashOpen)).toHaveCount(0);
-    await expect(reception.page.getByTestId(ids.cashClose)).toHaveCount(0);
+    await expect(reception.page.getByTestId(ids.cashTab)).toHaveCount(0);
 
     await manager.page.getByTestId(ids.cashTab).click();
     const managerPendingRow = manager.page.getByTestId(`finance-cash-shift-row-${closingShift.id}`);
@@ -1928,7 +1957,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
         && rows.some((row) => row.replaces_invoice_id === finalizedInvoice.id && row.status === 'draft'),
     );
     const replacement = invoices.find((row) => row.replaces_invoice_id === finalizedInvoice.id);
-    for (const page of [manager.page, superAdmin.page, reception.page]) {
+    for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.receivablesTab).click();
       await expect(page.getByTestId(`finance-invoice-row-${finalizedInvoice.id}`)).toContainText(
         'reversed',
@@ -1939,6 +1968,9 @@ test('every finance-page domain synchronizes live across authorized sessions', a
         { timeout: LIVE_TIMEOUT_MS },
       );
     }
+    await reception.page.getByTestId(ids.studentSearch).fill(student.student_id);
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('Status: advance', { timeout: LIVE_TIMEOUT_MS });
+    await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toContainText('No debt', { timeout: LIVE_TIMEOUT_MS });
     const earnedAfter = (await apiGet<any[]>(
       request,
       managerToken,

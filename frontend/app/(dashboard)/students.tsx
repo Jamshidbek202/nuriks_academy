@@ -29,6 +29,7 @@ export default function StudentsScreen() {
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('current');
+  const isReception = user?.role === 'reception';
   
   const [formData, setFormData] = useState({
     first_name: '',
@@ -42,9 +43,11 @@ export default function StudentsScreen() {
 
   const loadStudents = useCallback(async () => {
     try {
-      const response = await api.get('/students', {
-        params: statusFilter === 'current' ? undefined : { status: statusFilter },
-      });
+      const response = isReception
+        ? await api.get('/finance/reception/students')
+        : await api.get('/students', {
+          params: statusFilter === 'current' ? undefined : { status: statusFilter },
+        });
       setStudents(response.data);
     } catch (error) {
       console.error('Error loading students:', error);
@@ -53,7 +56,7 @@ export default function StudentsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [statusFilter]);
+  }, [isReception, statusFilter]);
 
   // Keep converted leads and lifecycle changes synchronized across staff sessions.
   useLiveRefresh(loadStudents, true, statusFilter, 3000);
@@ -207,11 +210,15 @@ export default function StudentsScreen() {
     setSelectedStudent(null);
   };
 
-  const filteredStudents = students.filter((student: any) =>
-    `${student.first_name} ${student.last_name} ${student.student_id}`
+  const filteredStudents = students.filter((student: any) => {
+    const matchesSearch = `${student.first_name} ${student.last_name} ${student.student_id} ${student.phone || ''} ${student.parent_name || ''} ${student.parent_phone || ''}`
       .toLowerCase()
-      .includes(searchQuery.toLowerCase())
-  );
+      .includes(searchQuery.toLowerCase());
+    if (!matchesSearch || !isReception || statusFilter === 'current') return matchesSearch;
+    if (statusFilter === 'unpaid') return ['overdue', 'partial', 'unpaid'].includes(student.payment_status);
+    if (statusFilter === 'paid') return ['paid', 'advance'].includes(student.payment_status);
+    return true;
+  });
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -237,7 +244,7 @@ export default function StudentsScreen() {
         <View>
           <Text style={styles.headerTitle}>Students</Text>
           <Text style={styles.headerSubtitle}>
-            {students.length} {statusFilter === 'current' ? 'current' : statusFilter} students
+            {students.length} {isReception ? 'students · read-only payment view' : `${statusFilter === 'current' ? 'current' : statusFilter} students`}
           </Text>
         </View>
       </View>
@@ -260,11 +267,21 @@ export default function StudentsScreen() {
           style={styles.filterPicker}
           dropdownIconColor={COLORS.gold}
         >
-          <LocalizedPickerItem label="Current students" value="current" />
-          <LocalizedPickerItem label="Active" value="active" />
-          <LocalizedPickerItem label="Frozen" value="frozen" />
-          <LocalizedPickerItem label="Graduated" value="graduated" />
-          <LocalizedPickerItem label="Archived" value="archived" />
+          {isReception ? (
+            <>
+              <LocalizedPickerItem label="All students" value="current" />
+              <LocalizedPickerItem label="Unpaid or partial" value="unpaid" />
+              <LocalizedPickerItem label="Paid" value="paid" />
+            </>
+          ) : (
+            <>
+              <LocalizedPickerItem label="Current students" value="current" />
+              <LocalizedPickerItem label="Active" value="active" />
+              <LocalizedPickerItem label="Frozen" value="frozen" />
+              <LocalizedPickerItem label="Graduated" value="graduated" />
+              <LocalizedPickerItem label="Archived" value="archived" />
+            </>
+          )}
         </Picker>
       </View>
 
@@ -279,7 +296,8 @@ export default function StudentsScreen() {
             key={student.id}
             testID={`student-card-${student.id}`}
             style={styles.studentCard}
-            onPress={() => openEditModal(student)}
+            disabled={isReception}
+            onPress={() => !isReception && openEditModal(student)}
           >
             <View style={styles.studentHeader}>
               <View style={styles.studentAvatar}>
@@ -292,15 +310,23 @@ export default function StudentsScreen() {
                   {student.first_name} {student.last_name}
                 </Text>
                 <Text style={styles.studentId}>{student.student_id}</Text>
+                {isReception && <Text style={styles.studentId}>{student.phone || 'No student phone'}{student.parent_phone ? ` · parent ${student.parent_phone}` : ''}</Text>}
                 <View style={styles.studentMeta}>
                   <View style={[styles.statusBadge, { backgroundColor: getStatusColor(student.status) + '20' }]}>
                     <Text style={[styles.statusText, { color: getStatusColor(student.status) }]}>
                       {student.status}
                     </Text>
                   </View>
+                  {isReception && (
+                    <View style={[styles.statusBadge, { backgroundColor: (student.outstanding_uzs > 0 ? COLORS.error : COLORS.success) + '20' }]}>
+                      <Text style={[styles.statusText, { color: student.outstanding_uzs > 0 ? COLORS.error : COLORS.success }]}>
+                        {student.payment_status === 'no_bill' ? 'no bill' : `${student.payment_status}${student.outstanding_uzs > 0 ? ` · ${new Intl.NumberFormat('ru-RU').format(student.outstanding_uzs)} UZS` : ''}`}
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
-              {student.status !== 'archived' && (
+              {!isReception && student.status !== 'archived' && (
                 <TouchableOpacity
                   style={styles.deleteButton}
                   onPress={(e) => {
@@ -311,7 +337,7 @@ export default function StudentsScreen() {
                   <Ionicons name="archive-outline" size={20} color={COLORS.error} />
                 </TouchableOpacity>
               )}
-              {student.status === 'archived' && (
+              {!isReception && student.status === 'archived' && (
                 <View style={styles.archivedActions}>
                   <TouchableOpacity
                     style={styles.restoreButton}

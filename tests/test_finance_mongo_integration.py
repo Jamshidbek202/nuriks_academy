@@ -161,6 +161,13 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(current["status"], "open")
         self.assertEqual(current["opening_mode"], "automatic")
         self.assertTrue(current.get("business_date"))
+        for restricted_field in (
+            "opening_balance_uzs",
+            "receipt_total_uzs",
+            "removal_total_uzs",
+            "expected_closing_balance_uzs",
+        ):
+            self.assertNotIn(restricted_field, current)
 
         forbidden_open = await self.http.post(
             "/api/finance/cash-shifts/open",
@@ -193,9 +200,14 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 "removal_total_uzs": 25_000,
             }},
         )
-        next_day = (await self.http.get(
+        reception_next_day = (await self.http.get(
             "/api/finance/cash-shifts/current", headers=reception_headers
         )).json()
+        next_day = (await self.http.get(
+            "/api/finance/cash-shifts/current", headers=manager_headers
+        )).json()
+        self.assertEqual(reception_next_day["id"], next_day["id"])
+        self.assertNotIn("opening_balance_uzs", reception_next_day)
         self.assertNotEqual(next_day["id"], current["id"])
         self.assertEqual(next_day["opening_balance_uzs"], 575_000)
         pending = await self.db.cash_shifts.find_one({"_id": ObjectId(current["id"])})
@@ -250,7 +262,7 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(forbidden_removal.status_code, 403, forbidden_removal.text)
 
-    async def test_reception_can_view_and_cancel_own_branch_support_booking(self):
+    async def test_student_can_cancel_own_booking_but_reception_cannot(self):
         browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
         student_headers = await self.login(QA_USERS["student_a"])
         reception_headers = await self.login(QA_USERS["reception_a"])
@@ -272,13 +284,17 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(reception_rows.status_code, 200, reception_rows.text)
         self.assertIn(booking_id, {row["id"] for row in reception_rows.json()})
-        cancelled = await self.http.put(
+        forbidden = await self.http.put(
             f"/api/support-bookings/{booking_id}/cancel", headers=reception_headers
+        )
+        self.assertEqual(forbidden.status_code, 403, forbidden.text)
+        cancelled = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel", headers=student_headers
         )
         self.assertEqual(cancelled.status_code, 200, cancelled.text)
         self.assertEqual(cancelled.json()["status"], "cancelled")
         second_cancel = await self.http.put(
-            f"/api/support-bookings/{booking_id}/cancel", headers=reception_headers
+            f"/api/support-bookings/{booking_id}/cancel", headers=student_headers
         )
         self.assertEqual(second_cancel.status_code, 409, second_cancel.text)
 
@@ -455,6 +471,7 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def test_full_lesson_invoice_payroll_piece_payment_and_advance_lifecycle(self):
         manager = await self.db.users.find_one({"login": QA_USERS["manager_a"]})
         manager_headers = await self.login(QA_USERS["manager_a"])
+        reception_headers = await self.login(QA_USERS["reception_a"])
         branch_id = self.fixture["branch_a_id"]
         service_month = date.today().strftime("%Y-%m")
         month_start = date.fromisoformat(f"{service_month}-01")
@@ -634,6 +651,39 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(shift["receipt_total_uzs"], 500_000)
         self.assertEqual(await self.db.finance_receipts.count_documents({}), 2)
         self.assertEqual(await self.db.finance_notification_jobs.count_documents({}), 3)
+        self.assertEqual(
+            await self.db.audit_logs.count_documents({"action": "record_cash_receipt"}),
+            2,
+        )
+
+        recovered = await self.http.get(
+            "/api/finance/receipts/idempotency-status",
+            params={"idempotency_key": "qa:receipt:piece-1"},
+            headers=reception_headers,
+        )
+        self.assertEqual(recovered.status_code, 200, recovered.text)
+        self.assertTrue(recovered.json()["posted"])
+        self.assertEqual(recovered.json()["amount_uzs"], 200_000)
+
+        reception_students = await self.http.get(
+            "/api/finance/reception/students", headers=reception_headers
+        )
+        self.assertEqual(reception_students.status_code, 200, reception_students.text)
+        reception_student = next(
+            row for row in reception_students.json() if row["id"] == str(student["_id"])
+        )
+        self.assertEqual(reception_student["payment_status"], "paid")
+        self.assertEqual(reception_student["amount_due_uzs"], 450_000)
+        self.assertEqual(reception_student["amount_paid_uzs"], 450_000)
+        self.assertEqual(reception_student["outstanding_uzs"], 0)
+        for restricted_field in (
+            "centre_revenue_uzs",
+            "profit_uzs",
+            "cashbox_position_uzs",
+            "expenses_uzs",
+            "payroll_uzs",
+        ):
+            self.assertNotIn(restricted_field, reception_student)
 
         position_response = await self.http.get(
             "/api/finance/position",
