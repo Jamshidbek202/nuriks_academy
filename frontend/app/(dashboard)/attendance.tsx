@@ -68,6 +68,8 @@ interface LessonOccurrence {
   counts_as_scheduled: boolean;
   locked_at?: string;
   active_student_ids?: string[];
+  attendance_open: boolean;
+  attendance_state: 'upcoming' | 'in_progress' | 'ended_unresolved' | 'closed' | 'unavailable';
 }
 
 interface AttendanceStats {
@@ -88,7 +90,8 @@ export default function AttendanceScreen() {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
   const isPhoneLayout = width < 600;
-  const canMarkAttendance = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
+  const canMarkAttendance = user?.role === 'teacher';
+  const canViewLessonOccurrences = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
   const [groups, setGroups] = useState<Group[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -113,7 +116,7 @@ export default function AttendanceScreen() {
   const selectedGroupId = selectedGroup?.id;
 
   const loadOccurrences = useCallback(async () => {
-    if (!selectedGroupId || !canMarkAttendance) {
+    if (!selectedGroupId || !canViewLessonOccurrences) {
       setOccurrences([]);
       setSelectedOccurrence(null);
       return;
@@ -127,14 +130,18 @@ export default function AttendanceScreen() {
       ));
       setOccurrences(rows);
       setSelectedOccurrence((current) => (
-        rows.find((row: LessonOccurrence) => row.id === current?.id) || rows[0] || null
+        rows.find((row: LessonOccurrence) => row.attendance_state === 'in_progress')
+        || rows.find((row: LessonOccurrence) => row.id === current?.id)
+        || rows.find((row: LessonOccurrence) => row.attendance_state === 'ended_unresolved')
+        || rows[0]
+        || null
       ));
     } catch (error) {
       console.error('Error loading scheduled lesson occurrences:', error);
       setOccurrences([]);
       setSelectedOccurrence(null);
     }
-  }, [canMarkAttendance, selectedDate, selectedGroupId]);
+  }, [canViewLessonOccurrences, selectedDate, selectedGroupId]);
 
   const loadGroups = async () => {
     try {
@@ -264,7 +271,7 @@ export default function AttendanceScreen() {
   ): Promise<boolean> => {
     if (!selectedGroup || markingStudentIdsRef.current.has(studentId)) return false;
     if (!canMarkAttendance) {
-      if (showError) Alert.alert('Access denied', 'Only teachers, managers, and admins can mark attendance.');
+      if (showError) Alert.alert('Access denied', 'Only the teacher assigned to this lesson can mark attendance.');
       return false;
     }
     if (!hasClassOnSelectedDate()) {
@@ -275,8 +282,19 @@ export default function AttendanceScreen() {
     const submittedGroupId = selectedGroup.id;
     const submittedDate = selectedDate;
     const submittedOccurrenceId = selectedOccurrence?.id;
-    if (occurrences.length > 1 && !submittedOccurrenceId) {
-      if (showError) Alert.alert('Select lesson time', 'Choose the exact scheduled lesson before marking attendance.');
+    if (!submittedOccurrenceId) {
+      if (showError) Alert.alert('Lesson unavailable', 'Attendance needs an exact scheduled lesson. Refresh and try again.');
+      return false;
+    }
+    if (!selectedOccurrence.attendance_open) {
+      if (showError) {
+        Alert.alert(
+          'Attendance is closed',
+          selectedOccurrence.attendance_state === 'upcoming'
+            ? `Attendance opens at ${new Date(selectedOccurrence.starts_at).toLocaleTimeString(getActiveLocale(), { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false })}.`
+            : 'This lesson is already completed or financially locked.',
+        );
+      }
       return false;
     }
     const submittedContext = `${submittedGroupId}:${submittedDate}:${submittedOccurrenceId || 'legacy'}`;
@@ -455,6 +473,48 @@ export default function AttendanceScreen() {
   const occurrenceTime = (value: string) => new Date(value).toLocaleTimeString(getActiveLocale(), {
     timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false,
   });
+  const attendanceOpen = Boolean(canMarkAttendance && selectedOccurrence?.attendance_open);
+  const attendanceWindowCopy = (() => {
+    if (!selectedOccurrence) return null;
+    if (!canMarkAttendance) {
+      return {
+        icon: 'eye-outline' as const,
+        title: 'Attendance is read-only',
+        detail: 'Only the teacher assigned to this lesson can change the register.',
+        color: COLORS.info,
+      };
+    }
+    switch (selectedOccurrence.attendance_state) {
+      case 'upcoming':
+        return {
+          icon: 'lock-closed-outline' as const,
+          title: `Opens at ${occurrenceTime(selectedOccurrence.starts_at)}`,
+          detail: 'Attendance unlocks automatically when the lesson begins.',
+          color: COLORS.warning,
+        };
+      case 'in_progress':
+        return {
+          icon: 'radio-button-on' as const,
+          title: 'Attendance is open',
+          detail: `You can update late arrivals until the lesson ends at ${occurrenceTime(selectedOccurrence.ends_at)}.`,
+          color: COLORS.success,
+        };
+      case 'ended_unresolved':
+        return {
+          icon: 'alert-circle-outline' as const,
+          title: 'Lesson ended — finish the register',
+          detail: 'Recovery access remains open until every student is marked and the lesson is completed.',
+          color: COLORS.warning,
+        };
+      default:
+        return {
+          icon: 'lock-closed-outline' as const,
+          title: 'Attendance is closed',
+          detail: 'This lesson is completed or financially locked. Its attendance is now read-only.',
+          color: COLORS.textSecondary,
+        };
+    }
+  })();
 
   return (
     <View style={styles.container}>
@@ -551,6 +611,21 @@ export default function AttendanceScreen() {
         </View>
       )}
 
+      {selectedGroup && hasClassToday && attendanceWindowCopy && (
+        <View
+          testID="attendance-window-status"
+          style={[styles.windowStatus, { borderColor: attendanceWindowCopy.color + '88' }]}
+        >
+          <Ionicons name={attendanceWindowCopy.icon} size={22} color={attendanceWindowCopy.color} />
+          <View style={styles.windowStatusCopy}>
+            <Text style={[styles.windowStatusTitle, { color: attendanceWindowCopy.color }]}>
+              {attendanceWindowCopy.title}
+            </Text>
+            <Text style={styles.windowStatusDetail}>{attendanceWindowCopy.detail}</Text>
+          </View>
+        </View>
+      )}
+
       {/* Today's Stats */}
       {selectedGroup && hasClassToday && (
         <View style={styles.statsCard}>
@@ -593,7 +668,7 @@ export default function AttendanceScreen() {
             <Text style={styles.markingProgressLabel}>Marked:</Text>
             <Text style={styles.markingProgressValue}>{markedCount}/{todayStats.total}</Text>
           </View>
-          {canMarkAttendance && unmarkedCount > 0 ? (
+          {attendanceOpen && unmarkedCount > 0 ? (
             <TouchableOpacity
               style={styles.markRemainingButton}
               onPress={() => void markRemainingPresent()}
@@ -616,34 +691,6 @@ export default function AttendanceScreen() {
               <Text style={styles.allMarkedText}>All students are marked</Text>
             </View>
           ) : null}
-        </View>
-      )}
-
-      {canMarkAttendance && selectedOccurrence && (
-        <View testID="attendance-lesson-completion" style={styles.completionCard}>
-          <View style={styles.completionCopy}>
-            <Text style={styles.completionTitle}>
-              {selectedOccurrence.resolution_status === 'resolved' ? 'Lesson completed' : 'Post this lesson to finance'}
-            </Text>
-            <Text style={styles.completionHint}>
-              {selectedOccurrence.resolution_status === 'resolved'
-                ? 'Student charges and teacher earnings already include this lesson.'
-                : !lessonEnded
-                  ? `Available after ${occurrenceTime(selectedOccurrence.ends_at)}.`
-                  : markedCount !== todayStats.total
-                    ? `Attendance missing for ${Math.max(0, todayStats.total - markedCount)} student(s).`
-                    : 'This adds one lesson charge per active student and updates your earnings.'}
-            </Text>
-          </View>
-          {selectedOccurrence.resolution_status !== 'resolved' && (
-            <Button
-              testID={`attendance-complete-lesson-${selectedOccurrence.id}`}
-              title={completingLesson ? 'Completing…' : 'Complete lesson'}
-              onPress={() => void completeSelectedLesson()}
-              disabled={!lessonEnded || markedCount !== todayStats.total || todayStats.total === 0 || completingLesson}
-              style={styles.completeButton}
-            />
-          )}
         </View>
       )}
 
@@ -694,9 +741,10 @@ export default function AttendanceScreen() {
                             backgroundColor: status.color,
                             borderColor: status.color,
                           },
+                          !attendanceOpen && styles.statusButtonDisabled,
                         ]}
                         onPress={() => void markAttendance(student.id, status.value)}
-                        disabled={markingStudentIds.has(student.id) || isBulkMarking}
+                        disabled={!attendanceOpen || markingStudentIds.has(student.id) || isBulkMarking}
                         accessibilityRole="button"
                         accessibilityLabel={`${student.first_name} ${student.last_name}: ${status.label}`}
                         hitSlop={isPhoneLayout ? 2 : 6}
@@ -764,6 +812,34 @@ export default function AttendanceScreen() {
           </View>
         )}
       </View>
+
+      {canMarkAttendance && selectedOccurrence && (
+        <View testID="attendance-lesson-completion" style={styles.completionCard}>
+          <View style={styles.completionCopy}>
+            <Text style={styles.completionTitle}>
+              {selectedOccurrence.resolution_status === 'resolved' ? 'Lesson completed' : 'Post this lesson to finance'}
+            </Text>
+            <Text style={styles.completionHint}>
+              {selectedOccurrence.resolution_status === 'resolved'
+                ? 'Student charges and teacher earnings already include this lesson.'
+                : !lessonEnded
+                  ? `Available after ${occurrenceTime(selectedOccurrence.ends_at)}.`
+                  : markedCount !== todayStats.total
+                    ? `Attendance missing for ${Math.max(0, todayStats.total - markedCount)} student(s).`
+                    : 'This adds one lesson charge per active student and updates your earnings.'}
+            </Text>
+          </View>
+          {selectedOccurrence.resolution_status !== 'resolved' && (
+            <Button
+              testID={`attendance-complete-lesson-${selectedOccurrence.id}`}
+              title={completingLesson ? 'Completing…' : 'Complete lesson'}
+              onPress={() => void completeSelectedLesson()}
+              disabled={!lessonEnded || markedCount !== todayStats.total || todayStats.total === 0 || completingLesson}
+              style={styles.completeButton}
+            />
+          )}
+        </View>
+      )}
       </ScrollView>
 
       {/* Student Stats Modal */}
@@ -1070,6 +1146,30 @@ const styles = StyleSheet.create({
     color: COLORS.textPrimary,
     fontWeight: '600',
   },
+  windowStatus: {
+    marginHorizontal: SIZES.md,
+    marginBottom: SIZES.md,
+    padding: SIZES.md,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    backgroundColor: COLORS.backgroundCard,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: SIZES.sm,
+  },
+  windowStatusCopy: {
+    flex: 1,
+  },
+  windowStatusTitle: {
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
+  },
+  windowStatusDetail: {
+    marginTop: 2,
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontSm,
+    lineHeight: 19,
+  },
   todayBadge: {
     backgroundColor: COLORS.gold,
     paddingHorizontal: SIZES.sm,
@@ -1307,6 +1407,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     gap: 6,
+  },
+  statusButtonDisabled: {
+    opacity: 0.45,
   },
   statusButtonLabel: {
     fontSize: SIZES.fontSm,

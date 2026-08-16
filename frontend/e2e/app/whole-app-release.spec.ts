@@ -39,6 +39,34 @@ async function rawMongoRecord(collection: string, id: string) {
   }
 }
 
+async function openQaAttendanceWindow(groupId: string, localDateValue: string) {
+  const mongoUrl = process.env.MONGO_URL;
+  const databaseName = process.env.DB_NAME;
+  if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
+  const client = new MongoClient(mongoUrl);
+  try {
+    await client.connect();
+    const result = await client.db(databaseName).collection('lesson_occurrences').updateOne(
+      {
+        group_id: groupId,
+        local_date: localDateValue,
+        resolution_status: 'unresolved',
+        superseded: { $ne: true },
+      },
+      {
+        $set: {
+          starts_at: new Date(Date.now() - 30 * 60_000),
+          ends_at: new Date(Date.now() + 60 * 60_000),
+          locked_at: null,
+        },
+      },
+    );
+    if (result.matchedCount !== 1) throw new Error('Missing unresolved lesson occurrence for today');
+  } finally {
+    await client.close();
+  }
+}
+
 async function connectMockTelegram(request: APIRequestContext, phone: string) {
   const mongoUrl = process.env.MONGO_URL;
   const databaseName = process.env.DB_NAME;
@@ -1610,9 +1638,20 @@ test('teacher can mark attendance comfortably on a phone and the backend updates
   const student = students.find((row: any) => row.student_id === 'QA-LIVE-001');
   expect(group).toBeTruthy();
   expect(student).toBeTruthy();
+  if (!REMOTE_LIVE_AUDIT) await openQaAttendanceWindow(group.id, localDate());
   const session = await loginUi(browser, 'teacher', true);
   try {
     await session.page.getByRole('tab', { name: 'Attendance' }).first().click();
+    if (REMOTE_LIVE_AUDIT) {
+      const openStatus = session.page.getByText('Attendance is open', { exact: true });
+      if (!await openStatus.isVisible().catch(() => false)) {
+        await expect(session.page.getByTestId('attendance-window-status')).toBeVisible();
+        await assertHealthy(session, 'teacher scheduled attendance state');
+        return;
+      }
+    } else {
+      await expect(session.page.getByText('Attendance is open', { exact: true })).toBeVisible({ timeout: 8_000 });
+    }
     const present = session.page.getByRole('button', { name: 'Live Student: Present' });
     await expect(present).toBeVisible({ timeout: 8_000 });
     await present.scrollIntoViewIfNeeded();
@@ -1628,6 +1667,12 @@ test('teacher can mark attendance comfortably on a phone and the backend updates
       );
       return rows.find((row: any) => row.student_id === student.id)?.status;
     }, { timeout: 8_000 }).toBe('present');
+    const completion = session.page.getByTestId('attendance-lesson-completion');
+    await completion.scrollIntoViewIfNeeded();
+    await expect(completion).toBeVisible();
+    const completionBox = await completion.boundingBox();
+    expect(completionBox).not.toBeNull();
+    expect(completionBox!.height).toBeGreaterThanOrEqual(44);
     await assertPhoneGeometry(session.page, 'teacher attendance controls');
     await assertHealthy(session, 'teacher phone attendance');
   } finally {

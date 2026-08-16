@@ -657,7 +657,14 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
     const unresolved = occurrences.filter((row) => row.resolution_status === 'unresolved');
     expect(unresolved).toHaveLength(2);
-    lockedOccurrenceForClosure = unresolved[1];
+    // Today's attendance-completed lesson is the one that will be financially
+    // locked by finalization.  Keep that exact row for the later fail-closed
+    // closure check; the remaining unresolved lesson is cancelled below and
+    // must never be treated as a locked, billable lesson.
+    lockedOccurrenceForClosure = occurrences.find((row) => (
+      row.resolution_status === 'resolved' && row.lesson_status === 'held'
+    ));
+    expect(lockedOccurrenceForClosure, 'attendance-completed held lesson is required').toBeTruthy();
     for (const page of [manager.page, managerB.page, superAdmin.page]) {
       await page.getByTestId(ids.closuresTab).click();
     }
@@ -819,8 +826,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     }
 
     await apiPost(request, managerToken, `/finance/lesson-occurrences/${unresolved[1].id}/resolve`, {
-      resolution: 'held',
-      reason: null,
+      resolution: 'teacher_cancelled',
+      reason: 'QA manager records a cancelled scheduled lesson without inventing attendance',
       substitute_teacher_id: null,
       idempotency_key: `qa:browser:resolve:${unresolved[1].id}`,
     });

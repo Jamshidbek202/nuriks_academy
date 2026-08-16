@@ -113,6 +113,7 @@ from finance_card_payments import (
     serialize_payment_destination,
     update_payment_destination,
 )
+from routes_attendance import attendance_is_open, attendance_window_state
 
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
@@ -125,7 +126,7 @@ def _academy_today() -> date:
     return datetime.now(ZoneInfo(ACADEMY_TIMEZONE)).date()
 
 
-async def _require_teacher_attendance_completion(db, occurrence: dict) -> None:
+async def _require_attendance_completion(db, occurrence: dict) -> None:
     """Require the scheduled end and a mark for every active class member."""
     ends_at = occurrence.get("ends_at")
     if not isinstance(ends_at, datetime):
@@ -713,6 +714,8 @@ async def list_lesson_occurrences(
                 row.get("starts_at"),
             )
         })
+        row["attendance_state"] = attendance_window_state(row)
+        row["attendance_open"] = attendance_is_open(row)
     return finance_document_to_json(rows)
 
 
@@ -737,8 +740,10 @@ async def resolve_lesson(
         teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
         if not teacher or occurrence.get("teacher_id") != str(teacher["_id"]):
             raise HTTPException(status_code=403, detail="Teachers can only resolve their own lessons")
-        if payload.resolution.value == "held":
-            await _require_teacher_attendance_completion(db, occurrence)
+    if payload.resolution.value == "held":
+        # No role can bypass the register and create student/teacher money from
+        # an unmarked lesson. Managers/admins may resolve after teacher entry.
+        await _require_attendance_completion(db, occurrence)
     try:
         result = await record_lesson_resolution(db, occurrence, payload, current_user)
     except ValueError as error:

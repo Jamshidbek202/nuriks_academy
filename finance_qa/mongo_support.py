@@ -405,7 +405,11 @@ async def seed_finance_browser_fixture(db, fixture: dict) -> dict:
     for occurrence in occurrences:
         if occurrence["_id"] in unresolved_ids:
             continue
-        if occurrence.get("resolution_status") == "unresolved":
+        # Older/generated occurrences may omit the field because unresolved is
+        # the API model default.  Treat a missing value as unresolved so this
+        # disposable fixture really leaves exactly the three rows promised
+        # above instead of making the browser test depend on storage shape.
+        if occurrence.get("resolution_status", "unresolved") == "unresolved":
             await record_lesson_resolution(
                 db,
                 occurrence,

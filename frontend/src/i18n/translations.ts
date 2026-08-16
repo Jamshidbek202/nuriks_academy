@@ -1016,7 +1016,17 @@ const MESSAGE_EXACT: Record<string, LocalizedPair> = {
   'News deleted successfully': { ru: 'Новость успешно удалена', uz: 'Yangilik muvaffaqiyatli o‘chirildi' },
   'News updated successfully': { ru: 'Новость успешно обновлена', uz: 'Yangilik muvaffaqiyatli yangilandi' },
   'Online Lessons': { ru: 'Онлайн-уроки', uz: 'Onlayn darslar' },
-  'Only teachers, managers, and admins can mark attendance.': { ru: 'Отмечать посещаемость могут только учителя, менеджеры и администраторы.', uz: 'Davomatni faqat o‘qituvchilar, menejerlar va administratorlar belgilashi mumkin.' },
+  'Only the teacher assigned to this lesson can mark attendance.': { ru: 'Посещаемость может отмечать только учитель, назначенный на этот урок.', uz: 'Davomatni faqat shu darsga biriktirilgan o‘qituvchi belgilashi mumkin.' },
+  'Only the teacher assigned to this lesson can change the register.': { ru: 'Изменять журнал может только учитель, назначенный на этот урок.', uz: 'Davomat jurnalini faqat shu darsga biriktirilgan o‘qituvchi o‘zgartira oladi.' },
+  'Attendance is read-only': { ru: 'Посещаемость доступна только для просмотра', uz: 'Davomat faqat ko‘rish uchun' },
+  'Attendance is open': { ru: 'Посещаемость открыта', uz: 'Davomat ochiq' },
+  'Attendance is closed': { ru: 'Посещаемость закрыта', uz: 'Davomat yopiq' },
+  'Attendance unlocks automatically when the lesson begins.': { ru: 'Посещаемость откроется автоматически в начале урока.', uz: 'Davomat dars boshlanganda avtomatik ochiladi.' },
+  'Lesson ended — finish the register': { ru: 'Урок закончился — завершите журнал', uz: 'Dars tugadi — davomatni yakunlang' },
+  'Recovery access remains open until every student is marked and the lesson is completed.': { ru: 'Доступ останется открытым, пока не будут отмечены все ученики и урок не будет завершён.', uz: 'Barcha o‘quvchilar belgilanib, dars yakunlanmaguncha kirish ochiq qoladi.' },
+  'This lesson is completed or financially locked. Its attendance is now read-only.': { ru: 'Урок завершён или финансово заблокирован. Посещаемость доступна только для просмотра.', uz: 'Dars yakunlangan yoki moliyaviy qulflangan. Davomat endi faqat ko‘rish uchun.' },
+  'This lesson is already completed or financially locked.': { ru: 'Этот урок уже завершён или финансово заблокирован.', uz: 'Bu dars allaqachon yakunlangan yoki moliyaviy qulflangan.' },
+  'Attendance needs an exact scheduled lesson. Refresh and try again.': { ru: 'Для посещаемости нужен точный урок из расписания. Обновите страницу и повторите попытку.', uz: 'Davomat uchun jadvaldagi aniq dars kerak. Sahifani yangilab, qayta urinib ko‘ring.' },
   'Mark and track student attendance': { ru: 'Отмечайте и отслеживайте посещаемость', uz: 'O‘quvchilar davomatini belgilang va kuzating' },
   'View attendance records': { ru: 'Просмотр записей посещаемости', uz: 'Davomat yozuvlarini ko‘rish' },
   'Some marks were not saved': { ru: 'Некоторые отметки не сохранены', uz: 'Ayrim belgilar saqlanmadi' },
@@ -1078,6 +1088,21 @@ const PATTERNS: {
   ru: (...matches: string[]) => string;
   uz: (...matches: string[]) => string;
 }[] = [
+  {
+    pattern: /^Opens at (.+)$/,
+    ru: (time) => `Откроется в ${time}`,
+    uz: (time) => `${time} da ochiladi`,
+  },
+  {
+    pattern: /^Attendance opens at (.+)\.$/,
+    ru: (time) => `Посещаемость откроется в ${time}.`,
+    uz: (time) => `Davomat ${time} da ochiladi.`,
+  },
+  {
+    pattern: /^You can update late arrivals until the lesson ends at (.+)\.$/,
+    ru: (time) => `Опоздавших можно отмечать до конца урока в ${time}.`,
+    uz: (time) => `Kechikkanlarni dars ${time} da tugaguncha belgilash mumkin.`,
+  },
   {
     pattern: /^Levels: (.+)$/,
     ru: (levels) => `Уровни: ${levels}`,

@@ -631,6 +631,11 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         first_replay = await receipt(200_000, "qa:receipt:piece-1")
         second_piece = await receipt(300_000, "qa:receipt:piece-2")
         self.assertEqual(first_piece.status_code, 200, first_piece.text)
+        first_receipt = first_piece.json()["receipt"]
+        self.assertEqual(first_receipt["amount_uzs"], 200_000)
+        self.assertEqual(first_receipt["received_by"], str(manager["_id"]))
+        self.assertTrue(first_receipt["received_at"])
+        self.assertTrue(first_receipt["receipt_number"].startswith("RCP-"))
         self.assertEqual(first_replay.status_code, 200, first_replay.text)
         self.assertTrue(first_replay.json()["idempotent_replay"])
         self.assertEqual(second_piece.status_code, 200, second_piece.text)
@@ -760,6 +765,29 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.db.teachers.insert_one(teacher)
         await self.db.students.insert_one(student)
         await self.db.groups.insert_one(group)
+        other_teacher_user = {
+            "_id": ObjectId(),
+            "login": f"qa_other_teacher_{uuid4().hex[:8]}",
+            "password_hash": teacher_user["password_hash"],
+            "full_name": "Other QA Teacher",
+            "role": "teacher",
+            "branch_id": branch_id,
+            "is_active": True,
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        }
+        await self.db.users.insert_one(other_teacher_user)
+        await self.db.teachers.insert_one({
+            "_id": ObjectId(),
+            "user_id": str(other_teacher_user["_id"]),
+            "first_name": "Other",
+            "last_name": "Teacher",
+            "branch_id": branch_id,
+            "group_ids": [str(group["_id"])],
+            "status": "active",
+            "created_at": datetime.utcnow(),
+        })
+        other_teacher_headers = await self.login(other_teacher_user["login"])
 
         await create_group_finance_version(
             self.db,
@@ -800,8 +828,8 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.db.lesson_occurrences.update_one(
             {"_id": occurrence["_id"]},
             {"$set": {
-                "starts_at": datetime.utcnow(),
-                "ends_at": datetime.utcnow() + timedelta(minutes=90),
+                "starts_at": datetime.utcnow() + timedelta(minutes=5),
+                "ends_at": datetime.utcnow() + timedelta(minutes=95),
             }},
         )
         occurrence_id = str(occurrence["_id"])
@@ -814,6 +842,27 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(occurrence_list.status_code, 200, occurrence_list.text)
         listed = next(row for row in occurrence_list.json() if row["id"] == occurrence_id)
         self.assertEqual(listed["active_student_ids"], [str(student["_id"])])
+        self.assertEqual(listed["attendance_state"], "upcoming")
+        self.assertFalse(listed["attendance_open"])
+
+        attendance_payload = {
+            "student_id": str(student["_id"]),
+            "group_id": str(group["_id"]),
+            "occurrence_id": occurrence_id,
+            "date": f"{academy_today.isoformat()}T00:00:00",
+            "status": "absent",
+        }
+        manager_mark = await self.http.post(
+            "/api/attendance", json=attendance_payload, headers=manager_headers,
+        )
+        self.assertEqual(manager_mark.status_code, 403, manager_mark.text)
+        self.assertIn("assigned teacher", manager_mark.json()["detail"])
+
+        before_start_mark = await self.http.post(
+            "/api/attendance", json=attendance_payload, headers=teacher_headers,
+        )
+        self.assertEqual(before_start_mark.status_code, 409, before_start_mark.text)
+        self.assertIn("scheduled lesson start", before_start_mark.json()["detail"])
 
         resolution_payload = {
             "resolution": "held",
@@ -841,15 +890,23 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(missing_attendance.status_code, 409, missing_attendance.text)
 
+        manager_missing_attendance = await self.http.post(
+            f"/api/finance/lesson-occurrences/{occurrence_id}/resolve",
+            json={**resolution_payload, "idempotency_key": f"qa:manager-no-attendance:{occurrence_id}"},
+            headers=manager_headers,
+        )
+        self.assertEqual(manager_missing_attendance.status_code, 409, manager_missing_attendance.text)
+        self.assertIn("Attendance is still missing", manager_missing_attendance.json()["detail"])
+
+        wrong_teacher_mark = await self.http.post(
+            "/api/attendance", json=attendance_payload, headers=other_teacher_headers,
+        )
+        self.assertEqual(wrong_teacher_mark.status_code, 403, wrong_teacher_mark.text)
+        self.assertIn("assigned to this lesson", wrong_teacher_mark.json()["detail"])
+
         marked_absent = await self.http.post(
             "/api/attendance",
-            json={
-                "student_id": str(student["_id"]),
-                "group_id": str(group["_id"]),
-                "occurrence_id": occurrence_id,
-                "date": f"{academy_today.isoformat()}T00:00:00",
-                "status": "absent",
-            },
+            json=attendance_payload,
             headers=teacher_headers,
         )
         self.assertEqual(marked_absent.status_code, 200, marked_absent.text)
@@ -868,6 +925,13 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed.json()["rolling_accrual"]["status"], "updated")
         self.assertEqual(replay.status_code, 200, replay.text)
         self.assertTrue(replay.json()["idempotent_replay"])
+        closed_mark = await self.http.post(
+            "/api/attendance",
+            json={**attendance_payload, "status": "late"},
+            headers=teacher_headers,
+        )
+        self.assertEqual(closed_mark.status_code, 409, closed_mark.text)
+        self.assertIn("closed", closed_mark.json()["detail"])
         self.assertEqual(
             await self.db.lesson_resolution_events.count_documents({
                 "occurrence_id": occurrence_id,

@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Depends, Request, BackgroundTasks
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from models import Attendance, AttendanceBase, AttendanceStatus
 from auth import get_current_user
 from academic_access import (
@@ -33,6 +33,49 @@ def group_has_class_on_day(group: dict, attendance_day: datetime) -> bool:
 
     weekday = attendance_day.strftime("%A").lower()
     return any(str(item.get("day", "")).lower() == weekday for item in schedule)
+
+
+def _utc_naive(value: datetime) -> datetime:
+    """Normalize Mongo/API instants for comparisons with ``datetime.utcnow``."""
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def attendance_window_state(occurrence: dict, now_utc: Optional[datetime] = None) -> str:
+    """Return the server-authoritative write state for one lesson.
+
+    Attendance opens at the scheduled start. It remains editable through the
+    lesson and, as a recovery guard, after the end until the assigned teacher
+    completes the lesson. Resolution/financial locking closes it permanently.
+    """
+    if (
+        occurrence.get("superseded")
+        or occurrence.get("locked_at")
+        or occurrence.get("resolution_status") != "unresolved"
+    ):
+        return "closed"
+
+    starts_at = occurrence.get("starts_at")
+    ends_at = occurrence.get("ends_at")
+    if not isinstance(starts_at, datetime) or not isinstance(ends_at, datetime):
+        return "unavailable"
+
+    now = _utc_naive(now_utc or datetime.utcnow())
+    starts = _utc_naive(starts_at)
+    ends = _utc_naive(ends_at)
+    if now < starts:
+        return "upcoming"
+    if now <= ends:
+        return "in_progress"
+    return "ended_unresolved"
+
+
+def attendance_is_open(occurrence: dict, now_utc: Optional[datetime] = None) -> bool:
+    return attendance_window_state(occurrence, now_utc) in {
+        "in_progress",
+        "ended_unresolved",
+    }
 
 
 async def complete_attendance_side_effects(
@@ -97,9 +140,13 @@ async def mark_attendance(
     
     current_role = str(current_user.get("role", "")).lower()
 
-    # Only teachers, managers, and super admins can mark attendance
-    if current_role not in ["super_admin", "manager", "teacher"]:
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    # Attendance is an academic fact entered by the assigned teacher. Managers
+    # and admins retain read access, but cannot create or rewrite the register.
+    if current_role != "teacher":
+        raise HTTPException(
+            status_code=403,
+            detail="Only the assigned teacher can mark attendance",
+        )
     
     try:
         if not ObjectId.is_valid(attendance_data.group_id):
@@ -111,32 +158,19 @@ async def mark_attendance(
             raise HTTPException(status_code=404, detail="Group not found")
         await require_group_academic_staff_access(db, current_user, group)
 
-        # Get teacher ID
-        teacher_id = None
-        if current_role == "teacher":
-            teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
-            if teacher:
-                teacher_id = str(teacher["_id"])
-                if (
-                    attendance_data.group_id not in teacher.get("group_ids", [])
-                    and group.get("teacher_id") != teacher_id
-                ):
-                    raise HTTPException(status_code=403, detail="You can only mark attendance for your own groups")
-        else:
-            # For managers/admins, get teacher from group
-            teacher_id = group.get("teacher_id")
-        
-        if not teacher_id:
+        teacher = await db.teachers.find_one({
+            "user_id": str(current_user["_id"]),
+            "status": {"$ne": "archived"},
+        })
+        if not teacher:
             raise HTTPException(status_code=400, detail="Teacher not found")
+        teacher_id = str(teacher["_id"])
         
         attendance_date = require_date_window(
             attendance_data.date, past_days=366, label="Attendance date"
         )
         attendance_day = attendance_date.replace(hour=0, minute=0, second=0, microsecond=0)
         next_day = attendance_day + timedelta(days=1)
-
-        if not group_has_class_on_day(group, attendance_day):
-            raise HTTPException(status_code=400, detail="This group does not have a class scheduled on this date")
 
         occurrence = None
         occurrences = await db.lesson_occurrences.find({
@@ -163,6 +197,29 @@ async def mark_attendance(
             raise HTTPException(
                 status_code=409,
                 detail="Select the exact lesson time before marking attendance",
+            )
+
+        if not occurrence:
+            raise HTTPException(
+                status_code=409,
+                detail="No generated lesson occurrence is available for this group and date",
+            )
+        if occurrence.get("teacher_id") != teacher_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Only the teacher assigned to this lesson can mark attendance",
+            )
+
+        window_state = attendance_window_state(occurrence)
+        if window_state == "upcoming":
+            raise HTTPException(
+                status_code=409,
+                detail="Attendance opens at the scheduled lesson start time",
+            )
+        if not attendance_is_open(occurrence):
+            raise HTTPException(
+                status_code=409,
+                detail="Attendance is closed because this lesson is completed or locked",
             )
 
         student = await db.students.find_one({
