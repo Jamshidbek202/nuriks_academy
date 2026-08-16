@@ -35,11 +35,13 @@ const styles = StyleSheet.create({
   input: {
     backgroundColor: COLORS.backgroundLight,
     borderRadius: SIZES.radiusMd,
-    padding: SIZES.md,
+    minHeight: SIZES.inputHeight,
+    paddingHorizontal: SIZES.md,
+    paddingVertical: 13,
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
     borderWidth: 1,
-    borderColor: COLORS.marbleGray,
+    borderColor: COLORS.border,
   },
   inputError: {
     borderColor: COLORS.error,

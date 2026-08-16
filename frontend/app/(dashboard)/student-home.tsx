@@ -638,7 +638,7 @@ export default function StudentHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: 60, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.xs },
   studentId: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: 2, fontWeight: '600' },
@@ -679,7 +679,7 @@ const styles = StyleSheet.create({
   bookingSupportName: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: 2 },
   bookingStatus: { alignSelf: 'flex-start', paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: SIZES.xs },
   bookingStatusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
-  bookingCancelButton: { alignSelf: 'flex-start', minHeight: 38, marginTop: SIZES.sm, paddingHorizontal: SIZES.md, justifyContent: 'center', borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
+  bookingCancelButton: { alignSelf: 'flex-start', minHeight: SIZES.touchTarget, marginTop: SIZES.sm, paddingHorizontal: SIZES.md, justifyContent: 'center', borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
   bookingCancelText: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '700' },
   
   // Modal styles

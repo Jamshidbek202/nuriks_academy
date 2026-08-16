@@ -16,6 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { useAuth } from '../../src/contexts/AuthContext';
 import TelegramInviteModal, { TelegramInviteItem } from '../../src/components/TelegramInviteModal';
 
 // Cross-platform alert helper
@@ -64,6 +65,7 @@ const ACCOUNT_ACCESS_OPTIONS: { value: AccountAccessMode; label: string; detail:
 ];
 
 export default function LeadsScreen() {
+  const { user } = useAuth();
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -328,7 +330,7 @@ export default function LeadsScreen() {
                   <Text style={styles.leadSource}>{lead.source}</Text>
                 </View>
               </View>
-              {!lead.converted_to_student_id && lead.status !== 'enrolled' && (
+              {['super_admin', 'manager'].includes(user?.role || '') && !lead.converted_to_student_id && lead.status !== 'enrolled' && (
                 <TouchableOpacity
                   style={styles.deleteLeadButton}
                   accessibilityLabel={`Delete ${lead.first_name} ${lead.last_name}`}
@@ -763,7 +765,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
     backgroundColor: COLORS.marbleDark,

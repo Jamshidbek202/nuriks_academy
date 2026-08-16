@@ -5,6 +5,7 @@ import { NotificationProvider } from '../src/contexts/NotificationContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LanguageProvider, useLanguage } from '../src/contexts/LanguageContext';
+import { COLORS } from '../src/constants/theme';
 
 function RootNavigator() {
   const { language } = useLanguage();
@@ -15,7 +16,7 @@ function RootNavigator() {
         key={language}
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: '#1C1C1E' },
+          contentStyle: { backgroundColor: COLORS.background },
         }}
       >
         <Stack.Screen name="index" />

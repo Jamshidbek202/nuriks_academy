@@ -739,7 +739,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingBottom: SIZES.xxl,
   },
   profileHeader: {

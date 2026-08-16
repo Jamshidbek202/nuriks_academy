@@ -8,6 +8,7 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
@@ -15,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { COLORS, LAYOUT, SHADOWS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useFinanceLiveRefresh } from '../../src/hooks/use-finance-live-refresh';
@@ -319,6 +320,7 @@ const tashkentTime = (value: string) => utcDate(value).toLocaleTimeString(getAct
 });
 
 export default function FinanceScreen() {
+  const { width } = useWindowDimensions();
   const { user, token } = useAuth();
   const role = user?.role;
   const isReception = role === 'reception';
@@ -2144,9 +2146,15 @@ export default function FinanceScreen() {
         <View><Text style={styles.title}>{isReception ? 'Student payments' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Find students, check paid/unpaid status, contact families, and record cash—without centre financial totals.' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
         {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={styles.monthInput} />}
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
-        {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
-      </ScrollView>
+      {width >= LAYOUT.desktopBreakpoint ? (
+        <View style={[styles.tabScroll, styles.tabs, styles.tabsWrapped]}>
+          {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
+        </View>
+      ) : (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
+          {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.marbleDark : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
+        </ScrollView>
+      )}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInset} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
         {activeTab === 'overview' && renderOverview()}
         {activeTab === 'receivables' && renderReceivables()}
@@ -2252,18 +2260,19 @@ function OutgoingPanel({ outgoing, amount, setAmount, busy, onPay, onCancel }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: SIZES.xl, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: '800' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, maxWidth: 270 },
   monthInput: { width: 180, marginBottom: 0 },
   tabScroll: { flexGrow: 0, backgroundColor: COLORS.marbleDark, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   tabs: { paddingHorizontal: SIZES.md, paddingBottom: SIZES.md, gap: SIZES.sm },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, height: 40, borderRadius: SIZES.radiusFull, backgroundColor: COLORS.backgroundCard },
+  tabsWrapped: { flexDirection: 'row', flexWrap: 'wrap', paddingTop: SIZES.sm },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, height: 44, borderRadius: SIZES.radiusFull, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border },
   activeTab: { backgroundColor: COLORS.gold },
   tabText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600' },
   activeTabText: { color: COLORS.marbleDark },
   content: { flex: 1 },
-  contentInset: { padding: SIZES.md },
+  contentInset: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
   modeBanner: { flexDirection: 'row', gap: SIZES.md, backgroundColor: COLORS.gold + '15', borderWidth: 1, borderColor: COLORS.gold + '55', borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md },
   modeTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   modeText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
@@ -2275,10 +2284,10 @@ const styles = StyleSheet.create({
   workQueueValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontXl, fontWeight: '800' },
   flex: { flex: 1 },
   kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.md },
-  kpi: { minWidth: '46%', flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, ...SHADOWS.small },
+  kpi: { minWidth: '46%', flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.md, ...SHADOWS.small },
   kpiValue: { color: COLORS.textPrimary, fontWeight: '800', fontSize: SIZES.fontMd, marginTop: SIZES.sm },
   kpiLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs },
-  section: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
+  section: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
   sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   sectionSubtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: SIZES.xs },
   sectionBody: { marginTop: SIZES.md },
@@ -2310,7 +2319,7 @@ const styles = StyleSheet.create({
   searchRow: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm },
   searchClear: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, backgroundColor: COLORS.backgroundLight },
   filterChips: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.xs, marginBottom: SIZES.md },
-  filterChip: { minHeight: 40, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusFull, borderWidth: 1, borderColor: COLORS.marbleGray, backgroundColor: COLORS.backgroundLight },
+  filterChip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusFull, borderWidth: 1, borderColor: COLORS.marbleGray, backgroundColor: COLORS.backgroundLight },
   filterChipActive: { borderColor: COLORS.gold, backgroundColor: COLORS.gold },
   filterChipText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, fontWeight: '700' },
   filterChipTextActive: { color: COLORS.marbleDark },
@@ -2321,7 +2330,7 @@ const styles = StyleSheet.create({
   studentResultIcon: { width: 34, height: 34, borderRadius: SIZES.radiusFull, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '22' },
   selectedStudentCard: { minHeight: 58, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold, backgroundColor: COLORS.gold + '15' },
   unselectedStudentCard: { minHeight: 58, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.gold + '88', backgroundColor: COLORS.backgroundLight },
-  changeStudentButton: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
+  changeStudentButton: { minHeight: SIZES.touchTarget, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
   receiptNotice: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1 },
   receiptNoticeSuccess: { backgroundColor: COLORS.success + '15', borderColor: COLORS.success + '77' },
   receiptNoticeError: { backgroundColor: COLORS.error + '15', borderColor: COLORS.error + '77' },
@@ -2340,18 +2349,18 @@ const styles = StyleSheet.create({
   pricingCardHeader: { flexDirection: 'row', alignItems: 'center', padding: SIZES.md, backgroundColor: COLORS.gold + '10', borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
   pricingCardTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800' },
   pricingRow: { minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
-  editPolicyButton: { minHeight: 38, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
+  editPolicyButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingHorizontal: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold },
   editPolicyText: { color: COLORS.gold, fontSize: SIZES.fontXs, fontWeight: '700' },
   pendingReportCard: { borderColor: COLORS.warning + '88', borderWidth: 1 },
   destinationRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray, marginBottom: SIZES.sm },
   destinationIcon: { width: 44, height: 44, borderRadius: SIZES.radiusFull, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '18' },
   destinationActions: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs },
-  iconAction: { width: 42, height: 42, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.backgroundCard },
+  iconAction: { width: 44, height: 44, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.backgroundCard },
   receivingCardNumber: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', marginTop: SIZES.xs, fontVariant: ['tabular-nums'] },
   verificationSummary: { borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '10', padding: SIZES.md, marginBottom: SIZES.md },
   lessonList: { marginTop: SIZES.md },
   lessonActions: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.md },
-  miniAction: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.warning + '33', borderWidth: 1, borderColor: COLORS.warning },
+  miniAction: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.warning + '24', borderWidth: 1, borderColor: COLORS.warning },
   goodAction: { backgroundColor: COLORS.success + '22', borderColor: COLORS.success },
   dangerAction: { backgroundColor: COLORS.error + '22', borderColor: COLORS.error },
   miniActionText: { color: COLORS.textPrimary, fontSize: SIZES.fontXs, fontWeight: '700' },

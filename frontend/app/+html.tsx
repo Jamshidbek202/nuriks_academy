@@ -21,9 +21,18 @@ export default function Root({ children }: PropsWithChildren) {
         <style
           dangerouslySetInnerHTML={{
             __html: `
+              :root { color-scheme: dark; background: #0C0D0B; }
+              * { box-sizing: border-box; }
+              html, body { background: #0C0D0B; }
               body > div:first-child { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
+              button, [role="button"], input, select, textarea { -webkit-tap-highlight-color: transparent; }
+              button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+                outline: 2px solid #D8B84A !important;
+                outline-offset: 2px;
+              }
+              ::selection { background: rgba(216, 184, 74, .28); }
             `,
           }}
         />

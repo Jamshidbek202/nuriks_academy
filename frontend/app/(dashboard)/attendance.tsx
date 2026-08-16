@@ -1030,13 +1030,15 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
     backgroundColor: COLORS.marbleDark,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   headerPhone: {
-    paddingTop: 52,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.md,
     paddingBottom: SIZES.sm,
   },
@@ -1057,6 +1059,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pageScrollContent: {
+    width: '100%',
+    maxWidth: 1120,
+    alignSelf: 'center',
     paddingBottom: 120,
   },
   groupSelector: {
@@ -1187,6 +1192,8 @@ const styles = StyleSheet.create({
     marginTop: 0,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   statsRow: {
@@ -1317,7 +1324,9 @@ const styles = StyleSheet.create({
   },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     padding: SIZES.md,
     marginBottom: SIZES.sm,
     flexDirection: 'row',
@@ -1390,10 +1399,10 @@ const styles = StyleSheet.create({
     color: COLORS.textTertiary,
   },
   statusButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
+    width: SIZES.touchTarget,
+    height: SIZES.touchTarget,
+    borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
     borderColor: COLORS.marbleGray,
     justifyContent: 'center',
     alignItems: 'center',

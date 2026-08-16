@@ -9,12 +9,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 
 import { Text, TextInput } from '../src/components/LocalizedText';
 import { api, apiErrorMessage } from '../src/services/api';
-import { COLORS, SHADOWS, SIZES } from '../src/constants/theme';
+import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
 import { ACTIVATE } from '../constants/testIds/auth';
 
 export default function ActivateAccountScreen() {
@@ -65,7 +64,7 @@ export default function ActivateAccountScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <LinearGradient colors={[COLORS.background, COLORS.marbleDark]} style={styles.flex}>
+      <View style={styles.page}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           <View style={styles.card}>
             <Text style={styles.title}>Activate your account</Text>
@@ -93,23 +92,24 @@ export default function ActivateAccountScreen() {
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </LinearGradient>
+      </View>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
+  page: { flex: 1, backgroundColor: COLORS.background },
   content: { flexGrow: 1, justifyContent: 'center', padding: SIZES.lg },
-  card: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg, ...SHADOWS.medium },
+  card: { width: '100%', maxWidth: LAYOUT.formMaxWidth, alignSelf: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, ...SHADOWS.medium },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: 'bold', marginBottom: SIZES.xs },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginBottom: SIZES.lg, lineHeight: 20 },
   label: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600', marginBottom: SIZES.xs, marginTop: SIZES.sm },
-  input: { backgroundColor: COLORS.backgroundLight, borderColor: COLORS.marbleGray, borderWidth: 1, borderRadius: SIZES.radiusMd, color: COLORS.textPrimary, fontSize: SIZES.fontMd, padding: SIZES.md },
+  input: { minHeight: SIZES.inputHeight, backgroundColor: COLORS.backgroundLight, borderColor: COLORS.border, borderWidth: 1, borderRadius: SIZES.radiusMd, color: COLORS.textPrimary, fontSize: SIZES.fontMd, padding: SIZES.md },
   hint: { color: COLORS.textTertiary, fontSize: 12, lineHeight: 17, marginTop: SIZES.xs },
   error: { color: COLORS.error, backgroundColor: COLORS.error + '18', borderColor: COLORS.error, borderWidth: 1, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm },
   primary: { backgroundColor: COLORS.gold, borderRadius: SIZES.radiusMd, minHeight: SIZES.touchTarget, alignItems: 'center', justifyContent: 'center', marginTop: SIZES.lg },
-  primaryText: { color: COLORS.background, fontWeight: 'bold', fontSize: SIZES.fontMd },
+  primaryText: { color: COLORS.textOnGold, fontWeight: '800', fontSize: SIZES.fontMd },
   linkButton: { alignItems: 'center', padding: SIZES.md },
   linkText: { color: COLORS.gold, fontWeight: '600' },
   secondaryLink: { color: COLORS.textSecondary },

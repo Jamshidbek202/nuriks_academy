@@ -151,7 +151,7 @@ function Metric({ testID, label, value, icon, color }: { testID: string; label: 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
-  header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.marbleDark },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.marbleDark },
   eyebrow: { color: COLORS.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.3 },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', marginTop: SIZES.xs },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20, marginTop: SIZES.xs, maxWidth: 760 },

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   ScrollView,
+  FlatList,
   StyleSheet,
   TouchableOpacity,
   Alert as NativeAlert,
@@ -642,8 +643,11 @@ export default function GroupsScreen() {
       </View>
 
       {/* Groups List */}
-      <ScrollView
+      <FlatList
         style={styles.list}
+        contentContainerStyle={styles.listContent}
+        data={filteredGroups}
+        keyExtractor={(group) => group.id}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -654,9 +658,8 @@ export default function GroupsScreen() {
             tintColor={COLORS.gold}
           />
         }
-      >
-        {filteredGroups.map((group) => (
-          <View key={group.id} style={styles.groupCard}>
+        renderItem={({ item: group }) => (
+          <View style={styles.groupCard}>
             <TouchableOpacity
               testID={`group-card-${group.id}`}
               accessibilityRole="button"
@@ -743,15 +746,14 @@ export default function GroupsScreen() {
               </TouchableOpacity>
             )}
           </View>
-        ))}
-
-        {filteredGroups.length === 0 && (
+        )}
+        ListEmptyComponent={(
           <View style={styles.emptyState}>
             <Ionicons name="people-circle-outline" size={64} color={COLORS.textTertiary} />
             <Text style={styles.emptyText}>No groups found</Text>
           </View>
         )}
-      </ScrollView>
+      />
 
       {/* Group Detail Modal */}
       <Modal
@@ -1288,10 +1290,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
     backgroundColor: COLORS.marbleDark,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   headerTitle: {
     fontSize: SIZES.fontXxl,
@@ -1319,6 +1323,8 @@ const styles = StyleSheet.create({
     margin: SIZES.md,
     borderRadius: SIZES.radiusMd,
     paddingHorizontal: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   studentSearchContainer: {
@@ -1345,11 +1351,14 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: SIZES.md,
   },
+  listContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingBottom: SIZES.xxl },
   groupCard: {
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.md,
     marginBottom: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   groupHeader: {
@@ -1494,12 +1503,20 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: COLORS.overlay,
-    justifyContent: 'flex-end',
+    justifyContent: Platform.OS === 'web' ? 'center' : 'flex-end',
+    alignItems: 'center',
+    padding: Platform.OS === 'web' ? SIZES.lg : 0,
   },
   modalContent: {
+    width: '100%',
+    maxWidth: Platform.OS === 'web' ? 760 : undefined,
     backgroundColor: COLORS.backgroundCard,
     borderTopLeftRadius: SIZES.radiusXl,
     borderTopRightRadius: SIZES.radiusXl,
+    borderBottomLeftRadius: Platform.OS === 'web' ? SIZES.radiusXl : 0,
+    borderBottomRightRadius: Platform.OS === 'web' ? SIZES.radiusXl : 0,
+    borderWidth: Platform.OS === 'web' ? 1 : 0,
+    borderColor: COLORS.border,
     maxHeight: '90%',
     paddingBottom: 40,
   },

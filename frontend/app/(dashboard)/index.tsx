@@ -8,12 +8,11 @@ import {
   RefreshControl,
 } from 'react-native';
 import { Text } from '../../src/components/LocalizedText';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { api } from '../../src/services/api';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, LAYOUT, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
@@ -104,10 +103,7 @@ export default function DashboardHome() {
   if (user?.role === 'super_admin' || user?.role === 'manager') {
     return (
       <View style={styles.container}>
-        <LinearGradient
-          colors={[COLORS.marbleDark, COLORS.background]}
-          style={styles.header}
-        >
+        <View style={styles.header}>
           <View style={styles.headerContent}>
             <View>
               <Text style={styles.greeting}>Welcome back,</Text>
@@ -119,10 +115,11 @@ export default function DashboardHome() {
               {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
             </TouchableOpacity>
           </View>
-        </LinearGradient>
+        </View>
 
         <ScrollView
           style={styles.content}
+          contentContainerStyle={styles.contentContainer}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={COLORS.gold} />
           }
@@ -219,10 +216,7 @@ export default function DashboardHome() {
   // Other roles - simple dashboard
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={[COLORS.marbleDark, COLORS.background]}
-        style={styles.header}
-      >
+      <View style={styles.header}>
         <View style={styles.headerContent}>
           <View>
             <Text style={styles.greeting}>Welcome,</Text>
@@ -233,9 +227,9 @@ export default function DashboardHome() {
             <Text style={styles.logoSmallText}>NA</Text>
           </View>
         </View>
-      </LinearGradient>
+      </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         <View style={styles.welcomeCard}>
           <Ionicons name="school" size={48} color={COLORS.gold} />
           <Text style={styles.welcomeText}>Welcome to Nurik&apos;s Academy</Text>
@@ -293,11 +287,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
   header: {
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingBottom: SIZES.lg,
     paddingHorizontal: SIZES.lg,
+    backgroundColor: COLORS.marbleDark,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
   },
   headerContent: {
+    width: '100%',
+    maxWidth: LAYOUT.contentMaxWidth,
+    alignSelf: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -322,8 +322,10 @@ const styles = StyleSheet.create({
   logoSmall: {
     width: 50,
     height: 50,
-    borderRadius: 25,
-    backgroundColor: COLORS.gold,
+    borderRadius: SIZES.radiusMd,
+    backgroundColor: COLORS.gold + '12',
+    borderWidth: 1,
+    borderColor: COLORS.gold + '45',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -336,8 +338,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: SIZES.lg,
   },
+  contentContainer: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.lg, paddingBottom: SIZES.xxl },
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -351,6 +353,8 @@ const styles = StyleSheet.create({
     padding: SIZES.md,
     margin: SIZES.xs,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   statIconContainer: {
@@ -385,6 +389,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   todayRow: {
@@ -406,6 +412,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   statusRow: {
@@ -450,7 +458,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   studentHeader: {
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.xl,
     backgroundColor: COLORS.marbleDark,
@@ -472,6 +480,8 @@ const styles = StyleSheet.create({
     padding: SIZES.md,
     margin: SIZES.xs,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   adminIconContainer: {

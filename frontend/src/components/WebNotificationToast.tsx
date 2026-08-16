@@ -90,5 +90,5 @@ const styles = StyleSheet.create({
   content: { flex: 1, minWidth: 0 },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800' },
   message: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 19, marginTop: 3 },
-  closeButton: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
+  closeButton: { width: 44, height: 44, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', alignSelf: 'flex-start' },
 });

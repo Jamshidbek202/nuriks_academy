@@ -553,7 +553,7 @@ export default function StaffManagementScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
-  header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 3 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },

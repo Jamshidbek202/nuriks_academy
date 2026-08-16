@@ -701,7 +701,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: 60,
+    paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
     backgroundColor: COLORS.marbleDark,

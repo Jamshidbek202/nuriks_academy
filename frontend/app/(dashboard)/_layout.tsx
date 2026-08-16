@@ -1,16 +1,77 @@
-import React from 'react';
-import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import React, { useMemo } from 'react';
+import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS } from '../../src/constants/theme';
+import { COLORS, LAYOUT, SIZES } from '../../src/constants/theme';
 import { useLanguage } from '../../src/contexts/LanguageContext';
+
+type TabDefinition = {
+  name: string;
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+const ALL_ROUTES = [
+  'index', 'students', 'finance', 'chats', 'profile', 'groups', 'payments',
+  'earnings', 'teachers', 'leads', 'attendance', 'homework', 'tests',
+  'certificates', 'progress', 'settings', 'courses', 'notification-settings',
+  'notifications', 'feature-flags', 'analytics', 'news', 'audit-logs', 'backups',
+  'staff-management', 'parent-home', 'teacher-home', 'support-home',
+  'student-home', 'reception-home', 'journal', 'more',
+] as const;
+
+const tab = (name: string, label: string, icon: keyof typeof Ionicons.glyphMap): TabDefinition => ({ name, label, icon });
+
+const ROLE_TABS: Record<string, { mobile: TabDefinition[]; desktop: TabDefinition[] }> = {
+  super_admin: {
+    mobile: [tab('index', 'Home', 'grid-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Finance', 'wallet-outline'), tab('chats', 'Chats', 'chatbubbles-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+    desktop: [tab('index', 'Home', 'grid-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Finance', 'wallet-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('teachers', 'Teachers', 'school-outline'), tab('leads', 'Leads', 'funnel-outline'), tab('chats', 'Chats', 'chatbubbles-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  manager: {
+    mobile: [tab('index', 'Home', 'grid-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Finance', 'wallet-outline'), tab('leads', 'Leads', 'funnel-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+    desktop: [tab('index', 'Home', 'grid-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Finance', 'wallet-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('teachers', 'Teachers', 'school-outline'), tab('leads', 'Leads', 'funnel-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  reception: {
+    mobile: [tab('index', 'Home', 'home-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Payments', 'cash-outline'), tab('leads', 'Leads', 'funnel-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+    desktop: [tab('index', 'Home', 'home-outline'), tab('students', 'Students', 'people-outline'), tab('finance', 'Payments', 'cash-outline'), tab('leads', 'Leads', 'funnel-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  teacher: {
+    mobile: [tab('index', 'Today', 'calendar-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('attendance', 'Attendance', 'checkbox-outline'), tab('earnings', 'Earnings', 'cash-outline'), tab('more', 'More', 'menu-outline')],
+    desktop: [tab('index', 'Today', 'calendar-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('attendance', 'Attendance', 'checkbox-outline'), tab('earnings', 'Earnings', 'cash-outline'), tab('homework', 'Homework', 'book-outline'), tab('tests', 'Tests', 'clipboard-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  student: {
+    mobile: [tab('index', 'Home', 'home-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('homework', 'Homework', 'book-outline'), tab('payments', 'Payments', 'card-outline'), tab('more', 'More', 'menu-outline')],
+    desktop: [tab('index', 'Home', 'home-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('chats', 'Chats', 'chatbubbles-outline'), tab('homework', 'Homework', 'book-outline'), tab('tests', 'Tests', 'clipboard-outline'), tab('payments', 'Payments', 'card-outline'), tab('progress', 'Grades', 'analytics-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  parent: {
+    mobile: [tab('index', 'Home', 'home-outline'), tab('progress', 'Progress', 'analytics-outline'), tab('homework', 'Homework', 'book-outline'), tab('payments', 'Payments', 'card-outline'), tab('more', 'More', 'menu-outline')],
+    desktop: [tab('index', 'Home', 'home-outline'), tab('groups', 'Groups', 'people-circle-outline'), tab('progress', 'Progress', 'analytics-outline'), tab('homework', 'Homework', 'book-outline'), tab('tests', 'Tests', 'clipboard-outline'), tab('payments', 'Payments', 'card-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+  support: {
+    mobile: [tab('index', 'Bookings', 'calendar-outline'), tab('chats', 'Chats', 'chatbubbles-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+    desktop: [tab('index', 'Bookings', 'calendar-outline'), tab('chats', 'Chats', 'chatbubbles-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  },
+};
+
+const FALLBACK_TABS = {
+  mobile: [tab('index', 'Home', 'home-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+  desktop: [tab('index', 'Home', 'home-outline'), tab('profile', 'Profile', 'person-circle-outline')],
+};
 
 export default function DashboardLayout() {
   const { user, isLoading } = useAuth();
   const { t } = useLanguage();
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= LAYOUT.desktopBreakpoint;
 
-  // Show loading while auth is being restored
+  const visibleTabs = useMemo(() => {
+    const roleTabs = ROLE_TABS[user?.role || ''] || FALLBACK_TABS;
+    return isDesktop ? roleTabs.desktop : roleTabs.mobile;
+  }, [isDesktop, user?.role]);
+
+  const visibleByName = useMemo(() => new Map(visibleTabs.map((item) => [item.name, item])), [visibleTabs]);
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -19,349 +80,39 @@ export default function DashboardLayout() {
     );
   }
 
-  if (!user) {
-    return <Redirect href="/login" />;
-  }
+  if (!user) return <Redirect href="/login" />;
 
-  const tabScreenOptions = {
-    headerShown: false,
-    tabBarActiveTintColor: COLORS.gold,
-    tabBarInactiveTintColor: COLORS.textTertiary,
-    tabBarStyle: {
-      backgroundColor: COLORS.backgroundCard,
-      borderTopColor: COLORS.marbleGray,
-      height: 60,
-      paddingBottom: 8,
-    },
-    tabBarLabelStyle: {
-      fontSize: 10,
-      fontWeight: '600' as const,
-    },
-  };
-
-  // Helper function to create tab icon
-  const createTabIcon = (iconName: string) => {
-    const TabBarIcon = ({ color, size }: { color: string; size: number }) => (
-      <Ionicons name={iconName as any} size={size} color={color} />
-    );
-    TabBarIcon.displayName = `TabBarIcon(${iconName})`;
-    return TabBarIcon;
-  };
-
-  // Super Admin Tabs
-  if (user?.role === 'super_admin') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('grid') }} />
-        <Tabs.Screen name="students" options={{ title: t('Students'), tabBarIcon: createTabIcon('people') }} />
-        <Tabs.Screen name="finance" options={{ title: t('Finance'), tabBarIcon: createTabIcon('wallet') }} />
-        <Tabs.Screen name="chats" options={{ title: t('Chats'), tabBarIcon: createTabIcon('chatbubbles') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Manager Tabs
-  if (user?.role === 'manager') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('grid') }} />
-        <Tabs.Screen name="students" options={{ title: t('Students'), tabBarIcon: createTabIcon('people') }} />
-        <Tabs.Screen name="finance" options={{ title: t('Finance'), tabBarIcon: createTabIcon('wallet') }} />
-        <Tabs.Screen name="leads" options={{ title: t('Leads'), tabBarIcon: createTabIcon('people-circle') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="chats" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Reception Tabs: CRM and cash collection only; no pricing, payroll, expenses, or profit.
-  if (user?.role === 'reception') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('home') }} />
-        <Tabs.Screen name="leads" options={{ title: t('Leads'), tabBarIcon: createTabIcon('people-circle') }} />
-        <Tabs.Screen name="finance" options={{ title: t('Payments'), tabBarIcon: createTabIcon('cash') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        <Tabs.Screen name="students" options={{ title: t('Students'), tabBarIcon: createTabIcon('people') }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="chats" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-        <Tabs.Screen name="courses" options={{ href: null }} />
-        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Teacher Tabs
-  if (user?.role === 'teacher') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('calendar') }} />
-        <Tabs.Screen name="groups" options={{ title: t('Groups'), tabBarIcon: createTabIcon('people-circle') }} />
-        <Tabs.Screen name="attendance" options={{ title: t('Attendance'), tabBarIcon: createTabIcon('checkbox') }} />
-        <Tabs.Screen name="earnings" options={{ title: t('Earnings'), tabBarIcon: createTabIcon('cash') }} />
-        <Tabs.Screen name="homework" options={{ title: t('Homework'), tabBarIcon: createTabIcon('book') }} />
-        <Tabs.Screen name="tests" options={{ title: t('Tests'), tabBarIcon: createTabIcon('clipboard') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="chats" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="finance" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Student Tabs
-  if (user?.role === 'student') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('home') }} />
-        <Tabs.Screen name="groups" options={{ title: t('Groups'), tabBarIcon: createTabIcon('people-circle') }} />
-        <Tabs.Screen name="chats" options={{ title: t('Chats'), tabBarIcon: createTabIcon('chatbubbles') }} />
-        <Tabs.Screen name="homework" options={{ title: t('Homework'), tabBarIcon: createTabIcon('book') }} />
-        <Tabs.Screen name="tests" options={{ title: t('Tests'), tabBarIcon: createTabIcon('clipboard') }} />
-        <Tabs.Screen name="payments" options={{ title: t('Payments'), tabBarIcon: createTabIcon('card') }} />
-        <Tabs.Screen name="progress" options={{ title: t('Grades'), tabBarIcon: createTabIcon('analytics') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="finance" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Parent Tabs
-  if (user?.role === 'parent') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('home') }} />
-        <Tabs.Screen name="groups" options={{ title: t('Groups'), tabBarIcon: createTabIcon('people-circle') }} />
-        <Tabs.Screen name="progress" options={{ title: t('Progress'), tabBarIcon: createTabIcon('analytics') }} />
-        <Tabs.Screen name="homework" options={{ title: t('Homework'), tabBarIcon: createTabIcon('book') }} />
-        <Tabs.Screen name="tests" options={{ title: t('Tests'), tabBarIcon: createTabIcon('clipboard') }} />
-        <Tabs.Screen name="payments" options={{ title: t('Payments'), tabBarIcon: createTabIcon('card') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="chats" options={{ href: null }} />
-        <Tabs.Screen name="finance" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Support Tabs
-  if (user?.role === 'support') {
-    return (
-      <Tabs screenOptions={tabScreenOptions}>
-        <Tabs.Screen name="index" options={{ title: t('Bookings'), tabBarIcon: createTabIcon('calendar') }} />
-        <Tabs.Screen name="chats" options={{ title: t('Chats'), tabBarIcon: createTabIcon('chatbubbles') }} />
-        <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-        {/* Hidden screens */}
-        <Tabs.Screen name="groups" options={{ href: null }} />
-        <Tabs.Screen name="students" options={{ href: null }} />
-        <Tabs.Screen name="teachers" options={{ href: null }} />
-        <Tabs.Screen name="leads" options={{ href: null }} />
-        <Tabs.Screen name="payments" options={{ href: null }} />
-        <Tabs.Screen name="finance" options={{ href: null }} />
-        <Tabs.Screen name="earnings" options={{ href: null }} />
-        <Tabs.Screen name="attendance" options={{ href: null }} />
-        <Tabs.Screen name="journal" options={{ href: null }} />
-        <Tabs.Screen name="homework" options={{ href: null }} />
-        <Tabs.Screen name="tests" options={{ href: null }} />
-        <Tabs.Screen name="certificates" options={{ href: null }} />
-        <Tabs.Screen name="progress" options={{ href: null }} />
-        <Tabs.Screen name="settings" options={{ href: null }} />
-	        <Tabs.Screen name="courses" options={{ href: null }} />
-	        <Tabs.Screen name="notification-settings" options={{ href: null }} />
-        <Tabs.Screen name="notifications" options={{ href: null }} />
-        <Tabs.Screen name="feature-flags" options={{ href: null }} />
-        <Tabs.Screen name="analytics" options={{ href: null }} />
-        <Tabs.Screen name="news" options={{ href: null }} />
-        <Tabs.Screen name="audit-logs" options={{ href: null }} />
-        <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-        <Tabs.Screen name="parent-home" options={{ href: null }} />
-        <Tabs.Screen name="teacher-home" options={{ href: null }} />
-        <Tabs.Screen name="support-home" options={{ href: null }} />
-        <Tabs.Screen name="student-home" options={{ href: null }} />
-        <Tabs.Screen name="reception-home" options={{ href: null }} />
-      </Tabs>
-    );
-  }
-
-  // Default fallback for an authenticated account with an unknown role.
   return (
-    <Tabs screenOptions={tabScreenOptions}>
-      <Tabs.Screen name="index" options={{ title: t('Home'), tabBarIcon: createTabIcon('home') }} />
-      <Tabs.Screen name="profile" options={{ title: t('Profile'), tabBarIcon: createTabIcon('person-circle') }} />
-      {/* Hidden screens */}
-      <Tabs.Screen name="chats" options={{ href: null }} />
-      <Tabs.Screen name="groups" options={{ href: null }} />
-      <Tabs.Screen name="students" options={{ href: null }} />
-      <Tabs.Screen name="teachers" options={{ href: null }} />
-      <Tabs.Screen name="leads" options={{ href: null }} />
-      <Tabs.Screen name="payments" options={{ href: null }} />
-      <Tabs.Screen name="finance" options={{ href: null }} />
-      <Tabs.Screen name="earnings" options={{ href: null }} />
-      <Tabs.Screen name="attendance" options={{ href: null }} />
-      <Tabs.Screen name="journal" options={{ href: null }} />
-      <Tabs.Screen name="homework" options={{ href: null }} />
-      <Tabs.Screen name="tests" options={{ href: null }} />
-      <Tabs.Screen name="certificates" options={{ href: null }} />
-      <Tabs.Screen name="progress" options={{ href: null }} />
-      <Tabs.Screen name="settings" options={{ href: null }} />
-	      <Tabs.Screen name="courses" options={{ href: null }} />
-	      <Tabs.Screen name="notification-settings" options={{ href: null }} />
-      <Tabs.Screen name="notifications" options={{ href: null }} />
-      <Tabs.Screen name="feature-flags" options={{ href: null }} />
-      <Tabs.Screen name="analytics" options={{ href: null }} />
-      <Tabs.Screen name="news" options={{ href: null }} />
-      <Tabs.Screen name="audit-logs" options={{ href: null }} />
-      <Tabs.Screen name="backups" options={{ href: null }} />
-        <Tabs.Screen name="staff-management" options={{ href: null }} />
-      <Tabs.Screen name="parent-home" options={{ href: null }} />
-      <Tabs.Screen name="teacher-home" options={{ href: null }} />
-      <Tabs.Screen name="support-home" options={{ href: null }} />
-      <Tabs.Screen name="student-home" options={{ href: null }} />
-      <Tabs.Screen name="reception-home" options={{ href: null }} />
+    <Tabs
+      screenOptions={{
+        headerShown: false,
+        sceneStyle: styles.scene,
+        tabBarPosition: isDesktop ? 'left' : 'bottom',
+        tabBarActiveTintColor: COLORS.gold,
+        tabBarInactiveTintColor: COLORS.textSecondary,
+        tabBarActiveBackgroundColor: COLORS.gold + '12',
+        tabBarHideOnKeyboard: true,
+        tabBarStyle: isDesktop ? styles.desktopTabBar : styles.mobileTabBar,
+        tabBarItemStyle: isDesktop ? styles.desktopTabItem : styles.mobileTabItem,
+        tabBarLabelPosition: isDesktop ? 'beside-icon' : 'below-icon',
+        tabBarLabelStyle: isDesktop ? styles.desktopLabel : styles.mobileLabel,
+        tabBarIconStyle: styles.tabIcon,
+      }}
+    >
+      {visibleTabs.map((definition) => (
+        <Tabs.Screen
+          key={definition.name}
+          name={definition.name}
+          options={{
+            title: t(definition.label),
+            tabBarAccessibilityLabel: t(definition.label),
+            tabBarIcon: ({ color, size }) => <Ionicons name={definition.icon} size={size} color={color} />,
+          }}
+        />
+      ))}
+      {ALL_ROUTES.filter((routeName) => !visibleByName.has(routeName)).map((routeName) => (
+        <Tabs.Screen key={routeName} name={routeName} options={{ href: null }} />
+      ))}
     </Tabs>
   );
 }
@@ -373,4 +124,38 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: COLORS.background,
   },
+  scene: { backgroundColor: COLORS.background },
+  mobileTabBar: {
+    minHeight: 68,
+    paddingTop: SIZES.sm,
+    paddingBottom: SIZES.sm,
+    backgroundColor: COLORS.backgroundCard,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  desktopTabBar: {
+    width: LAYOUT.sidebarWidth,
+    paddingTop: SIZES.xl,
+    paddingHorizontal: SIZES.sm,
+    paddingBottom: SIZES.lg,
+    backgroundColor: COLORS.backgroundSubtle,
+    borderTopWidth: 0,
+    borderRightWidth: 1,
+    borderRightColor: COLORS.border,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  mobileTabItem: { borderRadius: SIZES.radiusMd },
+  desktopTabItem: {
+    minHeight: 52,
+    maxHeight: 52,
+    marginVertical: 3,
+    borderRadius: SIZES.radiusMd,
+    overflow: 'hidden',
+  },
+  mobileLabel: { fontSize: 11, fontWeight: '700' },
+  desktopLabel: { fontSize: 14, fontWeight: '700', marginLeft: SIZES.sm },
+  tabIcon: { marginBottom: 0 },
 });

@@ -1,8 +1,7 @@
 import React from 'react';
 import { TouchableOpacity, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
 import { Text } from './LocalizedText';
-import { LinearGradient } from 'expo-linear-gradient';
-import { COLORS, SIZES, SHADOWS } from '../constants/theme';
+import { COLORS, SIZES } from '../constants/theme';
 
 interface ButtonProps {
   title: string;
@@ -27,23 +26,16 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <TouchableOpacity
         testID={testID}
-        style={[styles.button, disabled && styles.disabled, style]}
+        style={[styles.button, styles.primary, disabled && styles.disabled, style]}
         onPress={onPress}
         disabled={disabled || loading}
-        activeOpacity={0.8}
+        activeOpacity={0.82}
       >
-        <LinearGradient
-          colors={[COLORS.gold, COLORS.goldDark]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={styles.gradient}
-        >
-          {loading ? (
-            <ActivityIndicator color={COLORS.marbleDark} />
-          ) : (
-            <Text style={styles.primaryText}>{title}</Text>
-          )}
-        </LinearGradient>
+        {loading ? (
+          <ActivityIndicator color={COLORS.textOnGold} />
+        ) : (
+          <Text style={styles.primaryText}>{title}</Text>
+        )}
       </TouchableOpacity>
     );
   }
@@ -69,25 +61,26 @@ const styles = StyleSheet.create({
   button: {
     borderRadius: SIZES.radiusMd,
     overflow: 'hidden',
-    ...SHADOWS.small,
-  },
-  gradient: {
-    padding: SIZES.md,
+    minHeight: SIZES.touchTarget,
+    paddingHorizontal: SIZES.lg,
+    paddingVertical: 13,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 48,
+  },
+  primary: {
+    backgroundColor: COLORS.gold,
+    borderWidth: 1,
+    borderColor: COLORS.goldLight,
   },
   secondary: {
-    backgroundColor: COLORS.backgroundCard,
-    padding: SIZES.md,
-    alignItems: 'center',
+    backgroundColor: COLORS.backgroundElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: COLORS.gold,
-    padding: SIZES.md,
-    alignItems: 'center',
+    borderColor: COLORS.borderStrong,
   },
   disabled: {
     opacity: 0.5,
@@ -97,14 +90,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   primaryText: {
-    color: COLORS.marbleDark,
+    color: COLORS.textOnGold,
     fontSize: SIZES.fontMd,
-    fontWeight: 'bold',
+    fontWeight: '800',
   },
   secondaryText: {
     color: COLORS.textPrimary,
   },
   outlineText: {
-    color: COLORS.gold,
+    color: COLORS.textPrimary,
   },
 });

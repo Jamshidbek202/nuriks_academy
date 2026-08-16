@@ -139,11 +139,16 @@ const roleLogins: Record<RoleKey, string> = REMOTE_LIVE_AUDIT ? {
   support: 'qa_support_a',
 };
 
-const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
+type RoleTab = { name: string; path: RegExp };
+
+const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
   super_admin: [
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
+    { name: 'Groups', path: /\/groups/ },
+    { name: 'Teachers', path: /\/teachers/ },
+    { name: 'Leads', path: /\/leads/ },
     { name: 'Chats', path: /\/chats/ },
     { name: 'Profile', path: /\/profile/ },
   ],
@@ -151,6 +156,8 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
+    { name: 'Groups', path: /\/groups/ },
+    { name: 'Teachers', path: /\/teachers/ },
     { name: 'Leads', path: /\/leads/ },
     { name: 'Profile', path: /\/profile/ },
   ],
@@ -162,7 +169,7 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
     { name: 'Profile', path: /\/profile/ },
   ],
   teacher: [
-    { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Today', path: /\/(?:$|\?)/ },
     { name: 'Groups', path: /\/groups/ },
     { name: 'Attendance', path: /\/attendance/ },
     { name: 'Earnings', path: /\/earnings/ },
@@ -196,6 +203,48 @@ const roleTabs: Record<RoleKey, { name: string; path: RegExp }[]> = {
   ],
 };
 
+const phoneRoleTabs: Record<RoleKey, RoleTab[]> = {
+  super_admin: [
+    { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Students', path: /\/students/ },
+    { name: 'Finance', path: /\/finance/ },
+    { name: 'Chats', path: /\/chats/ },
+    { name: 'Profile', path: /\/profile/ },
+  ],
+  manager: [
+    { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Students', path: /\/students/ },
+    { name: 'Finance', path: /\/finance/ },
+    { name: 'Leads', path: /\/leads/ },
+    { name: 'Profile', path: /\/profile/ },
+  ],
+  reception: desktopRoleTabs.reception,
+  teacher: [
+    { name: 'Today', path: /\/(?:$|\?)/ },
+    { name: 'Groups', path: /\/groups/ },
+    { name: 'Attendance', path: /\/attendance/ },
+    { name: 'Earnings', path: /\/earnings/ },
+    { name: 'More', path: /\/more/ },
+  ],
+  student: [
+    { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Groups', path: /\/groups/ },
+    { name: 'Homework', path: /\/homework/ },
+    { name: 'Payments', path: /\/payments/ },
+    { name: 'More', path: /\/more/ },
+  ],
+  parent: [
+    { name: 'Home', path: /\/(?:$|\?)/ },
+    { name: 'Progress', path: /\/progress/ },
+    { name: 'Homework', path: /\/homework/ },
+    { name: 'Payments', path: /\/payments/ },
+    { name: 'More', path: /\/more/ },
+  ],
+  support: desktopRoleTabs.support,
+};
+
+const tabsFor = (role: RoleKey, mobile: boolean) => mobile ? phoneRoleTabs[role] : desktopRoleTabs[role];
+
 function monitor(page: Page, session: Omit<Session, 'context' | 'page'>) {
   page.on('console', (message) => {
     if (message.type() === 'error') session.consoleErrors.push(message.text());
@@ -226,7 +275,7 @@ async function loginUi(browser: Browser, role: RoleKey, mobile = false): Promise
   await page.getByTestId('login-email-input').fill(roleLogins[role]);
   await page.getByTestId('login-password-input').fill(PASSWORD);
   await page.getByTestId('login-submit-button').click();
-  await expect(page.getByRole('tab', { name: roleTabs[role][0].name }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: tabsFor(role, mobile)[0].name }).first()).toBeVisible({ timeout: 15_000 });
   return { context, page, ...observed };
 }
 
@@ -313,12 +362,13 @@ const academyWeekday = () => new Intl.DateTimeFormat('en-US', {
 for (const viewport of ['desktop', 'phone'] as const) {
   test(`all role navigation renders and remains usable on ${viewport}`, async ({ browser }, testInfo) => {
     test.setTimeout(240_000);
-    for (const role of Object.keys(roleTabs) as RoleKey[]) {
+    for (const role of Object.keys(desktopRoleTabs) as RoleKey[]) {
       const session = await loginUi(browser, role, viewport === 'phone');
       try {
-        await expect(session.page.getByRole('tab')).toHaveCount(roleTabs[role].length);
+        const expectedTabs = tabsFor(role, viewport === 'phone');
+        await expect(session.page.getByRole('tab')).toHaveCount(expectedTabs.length);
         await expect(session.page.getByRole('tab', { name: /reception-home/i })).toHaveCount(0);
-        for (const tab of roleTabs[role]) {
+        for (const tab of expectedTabs) {
           const locator = session.page.getByRole('tab', { name: tab.name }).first();
           await expect(locator, `${role} is missing the ${tab.name} tab`).toBeVisible();
           await locator.click();
@@ -326,7 +376,7 @@ for (const viewport of ['desktop', 'phone'] as const) {
           await assertHealthy(session, `${role}/${tab.name}/${viewport}`);
           if (viewport === 'phone') await assertPhoneGeometry(session.page, `${role}/${tab.name}`);
         }
-        const refreshTarget = roleTabs[role][1];
+        const refreshTarget = expectedTabs[1];
         const refreshLocator = session.page.getByRole('tab', { name: refreshTarget.name }).first();
         await refreshLocator.click();
         await expect(session.page).toHaveURL(refreshTarget.path);

@@ -332,7 +332,7 @@ export default function CoursesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: 58, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', alignItems: 'center' },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', alignItems: 'center' },
   headerCopy: { flex: 1, paddingRight: SIZES.md },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 4 },
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   archivedBadge: { backgroundColor: COLORS.textTertiary + '25' },
   badgeText: { color: COLORS.textPrimary, fontSize: SIZES.fontXs, fontWeight: '600' },
   iconActions: { flexDirection: 'row', marginTop: SIZES.sm, gap: SIZES.xs },
-  iconButton: { width: 42, height: 42, borderRadius: 21, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center' },
+  iconButton: { width: SIZES.touchTarget, height: SIZES.touchTarget, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center' },
   overlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modal: { maxHeight: '90%', backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, padding: SIZES.lg, paddingBottom: 38 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SIZES.lg },
