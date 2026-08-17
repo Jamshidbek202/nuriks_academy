@@ -15,7 +15,7 @@ import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { api } from '../../src/services/api';
-import { COLORS, LAYOUT, SHADOWS, SIZES } from '../../src/constants/theme';
+import { COLORS, LAYOUT, SIZES } from '../../src/constants/theme';
 
 type Dashboard = {
   students?: { total?: number; active?: number; frozen?: number };
@@ -94,7 +94,6 @@ export default function ReceptionHomeScreen() {
   return (
     <View testID="reception-home" style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>RECEPTION WORKSPACE</Text>
         <Text style={styles.title}>Good day, {user?.full_name?.split(' ')[0] || 'Reception'}</Text>
         <Text style={styles.subtitle}>Students, calls, payments, and today’s support bookings—without revenue or profit details.</Text>
       </View>
@@ -183,27 +182,26 @@ function Empty({ text }: { text: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.marbleDark, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-  eyebrow: { color: COLORS.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.2 },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', marginTop: SIZES.xs },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20, marginTop: SIZES.xs, maxWidth: 720 },
   scroll: { flex: 1 },
   content: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.md, paddingBottom: 90 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  quickAction: { flexGrow: 1, flexBasis: 210, minHeight: 68, padding: SIZES.sm, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, ...SHADOWS.small },
-  quickIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '18' },
+  quickAction: { flexGrow: 1, flexBasis: 210, minHeight: 68, padding: SIZES.sm, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+  quickIcon: { width: 40, height: 40, borderRadius: 0, alignItems: 'flex-start', justifyContent: 'center' },
   quickLabel: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   sectionHint: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: 2 },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.sm, marginBottom: SIZES.md },
-  metric: { flexGrow: 1, flexBasis: 130, minHeight: 105, padding: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
+  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: 0, marginTop: SIZES.sm, marginBottom: SIZES.md, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border },
+  metric: { flexGrow: 1, flexBasis: 130, minHeight: 105, padding: SIZES.md, borderRadius: 0, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard },
   metricValue: { color: COLORS.textPrimary, fontSize: 27, fontWeight: '800', marginTop: SIZES.xs },
   metricLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
-  cashCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '0E', marginBottom: SIZES.lg },
-  cardIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold + '1C' },
+  cashCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gold + '66', backgroundColor: COLORS.gold + '0E', marginBottom: SIZES.lg },
+  cardIcon: { width: 44, height: 44, borderRadius: 0, alignItems: 'flex-start', justifyContent: 'center' },
   sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', marginTop: SIZES.sm, marginBottom: SIZES.sm },
   link: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
-  rowCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm, ...SHADOWS.small },
+  rowCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard },
   flex: { flex: 1 },
   cardTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   meta: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 2 },
@@ -213,5 +211,5 @@ const styles = StyleSheet.create({
   dateBox: { width: 55, paddingVertical: SIZES.xs, borderRadius: SIZES.radiusSm, alignItems: 'center', backgroundColor: COLORS.gold + '18' },
   dateText: { color: COLORS.gold, fontSize: 11, fontWeight: '800' },
   timeText: { color: COLORS.textPrimary, fontSize: SIZES.fontXs, marginTop: 2 },
-  empty: { alignItems: 'center', gap: SIZES.xs, paddingVertical: SIZES.lg, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm },
+  empty: { alignItems: 'center', gap: SIZES.xs, paddingVertical: SIZES.lg, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, marginBottom: SIZES.sm },
 });

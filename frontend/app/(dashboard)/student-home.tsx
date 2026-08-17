@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
@@ -638,7 +638,7 @@ export default function StudentHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.xs },
   studentId: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: 2, fontWeight: '600' },
@@ -647,7 +647,7 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
   content: { flex: 1, padding: SIZES.md },
   
-  profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, marginBottom: SIZES.md, borderLeftWidth: 4, borderLeftColor: COLORS.gold, ...SHADOWS.small },
+  profileCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.lg, marginBottom: SIZES.md, borderTopWidth: 1, borderBottomWidth: 1, borderLeftWidth: 3, borderColor: COLORS.border, borderLeftColor: COLORS.gold },
   profileAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   avatarText: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.marbleDark },
   profileInfo: { flex: 1 },
@@ -656,23 +656,23 @@ const styles = StyleSheet.create({
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   
   statsRow: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   statValue: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
   
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
   
-  groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, ...SHADOWS.small },
-  groupIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
+  groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
+  groupIcon: { width: 48, height: 48, borderRadius: 0, backgroundColor: 'transparent', justifyContent: 'center', alignItems: 'flex-start', marginRight: SIZES.md },
   groupInfo: { flex: 1 },
   groupName: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
   groupSchedule: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 2 },
   
-  bookingCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, ...SHADOWS.small },
+  bookingCard: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
   bookingTime: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs },
   bookingTimeText: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.gold },
   bookingDate: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 4 },

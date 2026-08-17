@@ -1,0 +1,284 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-17T06:30:53Z",
+  "title": "Design System: Nurik's Academy Operations Platform",
+  "extensions": {
+    "colorMeta": {
+      "gold": {
+        "role": "primary",
+        "displayName": "Ledger Brass Gold",
+        "canonical": "#E0BE45",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+      },
+      "gold-light": {
+        "role": "primary",
+        "displayName": "Highlight Brass",
+        "canonical": "#F0D56F",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+      },
+      "gold-dark": {
+        "role": "primary",
+        "displayName": "Deep Brass",
+        "canonical": "#B89326",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+      },
+      "gold-muted": {
+        "role": "primary",
+        "displayName": "Muted Brass",
+        "canonical": "#746421",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+      },
+      "background": {
+        "role": "neutral",
+        "displayName": "Ink Black",
+        "canonical": "#090A08",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "background-light": {
+        "role": "neutral",
+        "displayName": "Ledger Ink",
+        "canonical": "#0D0F0C",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "background-card": {
+        "role": "neutral",
+        "displayName": "Register Surface",
+        "canonical": "#11130F",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "background-elevated": {
+        "role": "neutral",
+        "displayName": "Raised Register",
+        "canonical": "#171913",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "background-subtle": {
+        "role": "neutral",
+        "displayName": "Deep Band",
+        "canonical": "#0B0D0A",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "text-primary": {
+        "role": "neutral",
+        "displayName": "Warm Chalk",
+        "canonical": "#F4F1E7",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "text-secondary": {
+        "role": "neutral",
+        "displayName": "Quiet Parchment",
+        "canonical": "#B4B4AA",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "text-tertiary": {
+        "role": "neutral",
+        "displayName": "Dim Register",
+        "canonical": "#85877D",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "text-on-gold": {
+        "role": "neutral",
+        "displayName": "Ink on Brass",
+        "canonical": "#14140E",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline Rule",
+        "canonical": "#292C24",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "border-strong": {
+        "role": "neutral",
+        "displayName": "Strong Rule",
+        "canonical": "#41453A",
+        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+      },
+      "success": {
+        "role": "secondary",
+        "displayName": "Confirmation Green",
+        "canonical": "#67A873",
+        "tonalRamp": ["oklch(15% 0.03 147)", "oklch(27% 0.05 147)", "oklch(39% 0.07 147)", "oklch(51% 0.09 147)", "#67A873", "oklch(79% 0.075 147)", "oklch(87% 0.045 147)", "oklch(95% 0.02 147)"]
+      },
+      "warning": {
+        "role": "secondary",
+        "displayName": "Caution Amber",
+        "canonical": "#D7A13F",
+        "tonalRamp": ["oklch(15% 0.035 76)", "oklch(27% 0.065 76)", "oklch(39% 0.09 76)", "oklch(51% 0.115 76)", "#D7A13F", "oklch(79% 0.09 76)", "oklch(87% 0.055 76)", "oklch(95% 0.025 76)"]
+      },
+      "error": {
+        "role": "secondary",
+        "displayName": "Exception Coral",
+        "canonical": "#D86B57",
+        "tonalRamp": ["oklch(15% 0.04 31)", "oklch(27% 0.075 31)", "oklch(39% 0.11 31)", "oklch(51% 0.14 31)", "#D86B57", "oklch(79% 0.11 31)", "oklch(87% 0.065 31)", "oklch(95% 0.025 31)"]
+      },
+      "info": {
+        "role": "secondary",
+        "displayName": "Information Blue",
+        "canonical": "#7B9FBE",
+        "tonalRamp": ["oklch(15% 0.025 244)", "oklch(27% 0.04 244)", "oklch(39% 0.055 244)", "oklch(51% 0.07 244)", "#7B9FBE", "oklch(79% 0.06 244)", "oklch(87% 0.04 244)", "oklch(95% 0.02 244)"]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "High-level authentication and rare screen-defining statements."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headers and grouped ledger regions."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Route title, current date, and primary page context."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Record content, instructions, and explanatory copy."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Compact metadata, control labels, and register column headings."
+      }
+    },
+    "shadows": [
+      {
+        "name": "quiet-edge",
+        "value": "0 1px 1px rgba(0,0,0,0.18)",
+        "purpose": "Minimal web separation where a hairline alone is insufficient."
+      },
+      {
+        "name": "temporary-overlay",
+        "value": "0 8px 24px rgba(0,0,0,0.18)",
+        "purpose": "Menus, popovers, and medium transient surfaces."
+      },
+      {
+        "name": "modal-lift",
+        "value": "0 18px 48px rgba(0,0,0,0.28)",
+        "purpose": "Large modal or overlay separation only."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone-ledger",
+        "value": "620px"
+      },
+      {
+        "name": "mobile-shell",
+        "value": "768px"
+      },
+      {
+        "name": "login-wide",
+        "value": "900px"
+      },
+      {
+        "name": "desktop-shell",
+        "value": "1024px"
+      },
+      {
+        "name": "ledger-wide",
+        "value": "1080px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single brass-gold action that advances the current task.",
+      "html": "<button class=\"ds-btn-primary\">Record payment</button>",
+      "css": ".ds-btn-primary { min-height: 48px; padding: 13px 24px; border: 1px solid #F0D56F; border-radius: 6px; background: #E0BE45; color: #14140E; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; } .ds-btn-primary:hover { opacity: 0.92; } .ds-btn-primary:focus-visible { outline: 2px solid #F0D56F; outline-offset: 2px; } .ds-btn-primary:active { opacity: 0.82; } .ds-btn-primary:disabled { opacity: 0.5; cursor: default; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A quiet filled action for useful but non-primary choices.",
+      "html": "<button class=\"ds-btn-secondary\">View details</button>",
+      "css": ".ds-btn-secondary { min-height: 48px; padding: 13px 24px; border: 1px solid #292C24; border-radius: 6px; background: #0D0F0C; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 600; cursor: pointer; } .ds-btn-secondary:hover { background: #171913; } .ds-btn-secondary:focus-visible { outline: 2px solid #E0BE45; outline-offset: 2px; } .ds-btn-secondary:active { opacity: 0.7; } .ds-btn-secondary:disabled { opacity: 0.5; cursor: default; }"
+    },
+    {
+      "name": "Outline Button",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "A transparent bordered action for tertiary choices.",
+      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
+      "css": ".ds-btn-outline { min-height: 48px; padding: 13px 24px; border: 1px solid #41453A; border-radius: 6px; background: transparent; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 600; cursor: pointer; } .ds-btn-outline:hover { background: #0D0F0C; } .ds-btn-outline:focus-visible { outline: 2px solid #E0BE45; outline-offset: 2px; } .ds-btn-outline:active { opacity: 0.7; } .ds-btn-outline:disabled { opacity: 0.5; cursor: default; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "A substantial dark field with a persistent label and explicit error treatment.",
+      "html": "<label class=\"ds-input-group\"><span class=\"ds-input-label\">Phone number</span><input class=\"ds-input-field\" type=\"tel\" placeholder=\"+998 90 123 45 67\"></label>",
+      "css": ".ds-input-group { display: grid; gap: 4px; width: min(100%, 420px); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-input-label { color: #B4B4AA; font-size: 14px; font-weight: 600; } .ds-input-field { min-height: 52px; padding: 13px 16px; border: 1px solid #292C24; border-radius: 6px; background: #0D0F0C; color: #F4F1E7; font: inherit; font-size: 16px; } .ds-input-field::placeholder { color: #85877D; } .ds-input-field:hover { border-color: #41453A; } .ds-input-field:focus-visible { border-color: #E0BE45; outline: 2px solid #E0BE45; outline-offset: 1px; } .ds-input-field[aria-invalid=\"true\"] { border-color: #D86B57; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "A bounded record or grouped form surface, never a decorative floating tile.",
+      "html": "<section class=\"ds-card\"><h3 class=\"ds-card-title\">Student record</h3><p class=\"ds-card-copy\">Current academy information stays grouped behind one quiet rule.</p></section>",
+      "css": ".ds-card { padding: 24px; border: 1px solid #292C24; border-radius: 8px; background: #11130F; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-card-title { margin: 0; font-size: 17px; line-height: 22px; font-weight: 700; } .ds-card-copy { margin: 8px 0 0; color: #B4B4AA; font-size: 15px; line-height: 22px; }"
+    },
+    {
+      "name": "Active Navigation Item",
+      "kind": "nav",
+      "refersTo": "navigation-item-active",
+      "description": "A transparent role-valid destination marked by one brass-gold edge.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/></svg><span>Home</span></a></nav>",
+      "css": ".ds-nav { width: 216px; padding: 8px 0; border-right: 1px solid #292C24; background: #0B0D0A; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-nav-item { position: relative; display: flex; min-height: 48px; align-items: center; gap: 8px; padding: 0 16px; color: #B4B4AA; font-size: 13px; font-weight: 600; text-decoration: none; } .ds-nav-item:hover { background: #0D0F0C; color: #F4F1E7; } .ds-nav-item:focus-visible { outline: 2px solid #E0BE45; outline-offset: -2px; } .ds-nav-item-active { color: #E0BE45; } .ds-nav-item-active::before { position: absolute; inset: 0 auto 0 0; width: 2px; background: #E0BE45; content: \"\"; } .ds-nav-icon { width: 22px; height: 22px; }"
+    },
+    {
+      "name": "Day Ledger Row",
+      "kind": "custom",
+      "refersTo": "ledger-row",
+      "description": "The signature chronological row for time, event, ownership, location, and labeled status.",
+      "html": "<div class=\"ds-ledger-row\"><div class=\"ds-ledger-time\"><strong>18:00</strong><span>19:30</span></div><div class=\"ds-ledger-marker\" aria-hidden=\"true\"><i></i></div><div class=\"ds-ledger-event\"><strong>QA Live Finance Group</strong><span>1 student · Live Teacher · QA Live</span></div><b class=\"ds-ledger-status\">Scheduled</b></div>",
+      "css": ".ds-ledger-row { display: grid; grid-template-columns: 74px 32px minmax(0, 1fr) auto; min-height: 88px; align-items: center; padding: 0 16px; border-bottom: 1px solid #292C24; background: #11130F; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-ledger-time { display: grid; gap: 3px; font-variant-numeric: tabular-nums; } .ds-ledger-time strong { font-size: 16px; font-weight: 800; } .ds-ledger-time span { color: #85877D; font-size: 10px; } .ds-ledger-marker { position: relative; display: grid; align-self: stretch; place-items: center; } .ds-ledger-marker::before { position: absolute; inset-block: 0; width: 1px; background: #41453A; content: \"\"; } .ds-ledger-marker i { z-index: 1; width: 17px; height: 17px; border: 1px solid #E0BE45; border-radius: 999px; background: #11130F; } .ds-ledger-marker i::after { display: block; width: 7px; height: 7px; margin: 4px; border-radius: 999px; background: #E0BE45; content: \"\"; } .ds-ledger-event { display: grid; min-width: 0; gap: 4px; } .ds-ledger-event strong { font-size: 16px; font-weight: 750; } .ds-ledger-event span { overflow: hidden; color: #B4B4AA; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; } .ds-ledger-status { color: #E0BE45; font-size: 10px; font-weight: 800; letter-spacing: 0.35px; text-transform: uppercase; } @media (max-width: 520px) { .ds-ledger-row { grid-template-columns: 64px 24px minmax(0, 1fr) auto; padding: 0 12px; } .ds-ledger-event span { font-size: 11px; } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Day Ledger",
+    "overview": "Day Ledger turns academy operations into one continuous working register. Ink-black surfaces hold warm-white information, while brass gold identifies the current destination, the next valid action, and the moments that require deliberate attention. The mood is serious, direct, trustworthy, and pleasant: operational rather than promotional.\n\nStructure comes from tonal bands, hairline rules, aligned columns, and a visible chronology instead of stacked decorative cards. Wide screens use a compact role-aware rail and ledger columns; compact screens move navigation to a five-destination bottom bar and collapse records into a single readable flow. Small functional corners soften controls without making the product feel bubbly.\n\nThe login surface shares the same materials, logo, typography, borders, and gold action language. Across every surface, familiar controls, multilingual resilience, exact financial reading, and fast mobile work take precedence over decoration.",
+    "keyCharacteristics": [
+      "Ink-black tonal bands create the working canvas.",
+      "Brass gold marks active navigation and the single primary action.",
+      "Warm-white type and tabular numerals keep records legible.",
+      "Hairline rules organize chronology, columns, and grouped records.",
+      "Compact radii and restrained shadows keep the interface operational."
+    ],
+    "rules": [
+      {
+        "name": "The Brass Scarcity Rule",
+        "body": "Gold marks the current selection, one primary action, or a decisive link; it is never a decorative wash.",
+        "section": "colors"
+      },
+      {
+        "name": "The Numeric Trust Rule",
+        "body": "Money, dates, times, and counts always use tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Flat Register Rule",
+        "body": "Resting work surfaces stay flat; shadow belongs only to a menu, modal, or temporary overlay.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do use gold for the active navigation marker, the primary action, and short decisive links.",
+      "Do organize dense information with one-pixel rules, flat tonal bands, and explicit labels.",
+      "Do keep interactive targets at least 48px high and inputs at least 52px high.",
+      "Do pair every status color with text and use tabular numerals for dates, times, counts, and UZS.",
+      "Do collapse wide ledger columns into a single readable flow on compact screens."
+    ],
+    "donts": [
+      "Don't turn operational sections into nested floating card stacks.",
+      "Don't use large decorative radii, gradients, texture, heavy blur, or custom-display typography.",
+      "Don't fill the active navigation item with a rounded tile; use one gold edge marker.",
+      "Don't use shadows on resting content surfaces or color as the only status cue.",
+      "Don't introduce a second primary action inside the same task context."
+    ]
+  }
+}

@@ -15,12 +15,13 @@ function localizeChildren(children: React.ReactNode, t: (source: string) => stri
 }
 
 export const Text = forwardRef<React.ElementRef<typeof NativeText>, TextProps>(
-  ({ children, accessibilityLabel, ...props }, ref) => {
+  ({ children, accessibilityLabel, maxFontSizeMultiplier = 1.45, ...props }, ref) => {
     const { t } = useLanguage();
     return (
       <NativeText
         ref={ref}
         accessibilityLabel={accessibilityLabel ? t(accessibilityLabel) : accessibilityLabel}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         {...props}
       >
         {localizeChildren(children, t)}
@@ -31,13 +32,14 @@ export const Text = forwardRef<React.ElementRef<typeof NativeText>, TextProps>(
 Text.displayName = 'LocalizedText';
 
 export const TextInput = forwardRef<React.ElementRef<typeof NativeTextInput>, TextInputProps>(
-  ({ placeholder, accessibilityLabel, ...props }, ref) => {
+  ({ placeholder, accessibilityLabel, maxFontSizeMultiplier = 1.45, ...props }, ref) => {
     const { t } = useLanguage();
     return (
       <NativeTextInput
         ref={ref}
         placeholder={placeholder ? t(placeholder) : placeholder}
         accessibilityLabel={accessibilityLabel ? t(accessibilityLabel) : accessibilityLabel}
+        maxFontSizeMultiplier={maxFontSizeMultiplier}
         {...props}
       />
     );

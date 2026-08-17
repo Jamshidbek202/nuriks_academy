@@ -26,6 +26,7 @@ export const Button: React.FC<ButtonProps> = ({
     return (
       <TouchableOpacity
         testID={testID}
+        accessibilityRole="button"
         style={[styles.button, styles.primary, disabled && styles.disabled, style]}
         onPress={onPress}
         disabled={disabled || loading}
@@ -43,6 +44,7 @@ export const Button: React.FC<ButtonProps> = ({
   return (
     <TouchableOpacity
       testID={testID}
+      accessibilityRole="button"
       style={[styles.button, styles[variant], disabled && styles.disabled, style]}
       onPress={onPress}
       disabled={disabled || loading}
@@ -59,7 +61,7 @@ export const Button: React.FC<ButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusSm,
     overflow: 'hidden',
     minHeight: SIZES.touchTarget,
     paddingHorizontal: SIZES.lg,
@@ -73,7 +75,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.goldLight,
   },
   secondary: {
-    backgroundColor: COLORS.backgroundElevated,
+    backgroundColor: COLORS.backgroundLight,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
@@ -92,7 +94,7 @@ const styles = StyleSheet.create({
   primaryText: {
     color: COLORS.textOnGold,
     fontSize: SIZES.fontMd,
-    fontWeight: '800',
+    fontWeight: '700',
   },
   secondaryText: {
     color: COLORS.textPrimary,

@@ -16,7 +16,7 @@ import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../src/components/LocalizedText';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useLanguage } from '../src/contexts/LanguageContext';
-import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
+import { COLORS, LAYOUT, SIZES } from '../src/constants/theme';
 import { LOGIN } from '../constants/testIds';
 
 export default function LoginScreen() {
@@ -66,7 +66,7 @@ export default function LoginScreen() {
                 <Image
                   source={require('../assets/images/logo.png')}
                   style={styles.logoImage}
-                  resizeMode="cover"
+                  resizeMode="contain"
                   accessibilityLabel="Nurik's Academy logo"
                 />
                 <View>
@@ -75,7 +75,6 @@ export default function LoginScreen() {
                 </View>
               </View>
               <View style={[styles.brandCopy, !isWide && styles.brandCopyMobile]}>
-                <Text style={styles.brandEyebrow}>{t('STAFF · STUDENTS · PARENTS')}</Text>
                 <Text style={[styles.brandTitle, !isWide && styles.brandTitleMobile]}>{t('One place to run the academy.')}</Text>
                 {isWide && (
                   <Text style={styles.brandDescription}>
@@ -92,7 +91,6 @@ export default function LoginScreen() {
             </View>
 
             <View style={styles.formPanel}>
-              <Text style={styles.formEyebrow}>{t('SECURE ACCESS')}</Text>
               <Text style={styles.title}>{t('Welcome Back')}</Text>
               <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
 
@@ -209,14 +207,13 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: SIZES.radiusXl,
   },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
-  logoImage: { width: 56, height: 56, borderRadius: 18 },
+  logoImage: { width: 64, height: 64, flexShrink: 0 },
   brandName: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   brandMeta: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2, letterSpacing: 0.5 },
   brandCopy: { maxWidth: 430 },
   brandCopyMobile: { marginTop: SIZES.lg },
-  brandEyebrow: { color: COLORS.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.8 },
-  brandTitle: { color: COLORS.textPrimary, fontSize: 46, lineHeight: 52, fontWeight: '800', marginTop: SIZES.md, letterSpacing: -1.3 },
-  brandTitleMobile: { fontSize: SIZES.fontXl, lineHeight: 32, marginTop: SIZES.sm, letterSpacing: -0.4 },
+  brandTitle: { color: COLORS.textPrimary, fontSize: 46, lineHeight: 52, fontWeight: '800', letterSpacing: -1.3 },
+  brandTitleMobile: { fontSize: SIZES.fontXl, lineHeight: 32, letterSpacing: -0.4 },
   brandDescription: { color: COLORS.textSecondary, fontSize: SIZES.fontMd, lineHeight: 25, marginTop: SIZES.md },
   securityNote: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
   securityText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs },
@@ -230,10 +227,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: SIZES.radiusXl,
     borderBottomRightRadius: SIZES.radiusXl,
     padding: SIZES.lg,
-    ...SHADOWS.medium,
   },
-  formEyebrow: { color: COLORS.gold, fontSize: 11, fontWeight: '800', letterSpacing: 1.6 },
-  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', marginTop: SIZES.sm, letterSpacing: -0.6 },
+  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', letterSpacing: -0.6 },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, marginBottom: SIZES.xl },
   errorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, backgroundColor: COLORS.error + '12', borderColor: COLORS.error + '70', borderWidth: 1, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md },
   errorText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm, lineHeight: 20 },

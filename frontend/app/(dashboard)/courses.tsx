@@ -17,7 +17,7 @@ import { Text, TextInput, LocalizedPickerItem } from '../../src/components/Local
 import { useAuth } from '../../src/contexts/AuthContext';
 import { api, apiErrorMessage } from '../../src/services/api';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
-import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 
 type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
 
@@ -332,12 +332,12 @@ export default function CoursesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark, flexDirection: 'row', alignItems: 'center' },
+  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', alignItems: 'center' },
   headerCopy: { flex: 1, paddingRight: SIZES.md },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 4 },
-  addButton: { width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
-  financeNote: { margin: SIZES.md, marginBottom: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.gold + '13', borderWidth: 1, borderColor: COLORS.gold + '55', flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+  addButton: { width: 46, height: 46, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
+  financeNote: { margin: SIZES.md, marginBottom: SIZES.sm, padding: SIZES.md, borderRadius: 0, backgroundColor: COLORS.gold + '13', borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gold + '55', flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
   financeNoteText: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
   searchBox: { marginHorizontal: SIZES.md, marginBottom: SIZES.sm, backgroundColor: COLORS.backgroundCard, borderColor: COLORS.marbleGray, borderWidth: 1, borderRadius: SIZES.radiusMd, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.md },
   searchInput: { flex: 1, minHeight: 46, padding: SIZES.sm, color: COLORS.textPrimary },
@@ -346,8 +346,8 @@ const styles = StyleSheet.create({
   emptyState: { alignItems: 'center', padding: SIZES.xl },
   emptyTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '700', marginTop: SIZES.sm, textAlign: 'center' },
   emptyText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, textAlign: 'center' },
-  card: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, flexDirection: 'row', alignItems: 'flex-start', ...SHADOWS.small },
-  cardIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: COLORS.gold + '20', alignItems: 'center', justifyContent: 'center', marginRight: SIZES.md },
+  card: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, flexDirection: 'row', alignItems: 'flex-start', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
+  cardIcon: { width: 46, height: 46, borderRadius: 0, backgroundColor: 'transparent', alignItems: 'flex-start', justifyContent: 'center', marginRight: SIZES.md },
   cardBody: { flex: 1 },
   courseName: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   program: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '600', marginTop: 3 },

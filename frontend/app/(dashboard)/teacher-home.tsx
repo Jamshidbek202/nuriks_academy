@@ -12,7 +12,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
@@ -260,7 +260,7 @@ export default function TeacherHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   headerBadge: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
@@ -268,11 +268,11 @@ const styles = StyleSheet.create({
   unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
   content: { flex: 1, padding: SIZES.md },
   statsRow: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   statValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
-  scheduleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderLeftWidth: 4, borderLeftColor: COLORS.gold, ...SHADOWS.small },
+  scheduleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderLeftWidth: 3, borderBottomColor: COLORS.border, borderLeftColor: COLORS.gold },
   scheduleTime: { alignItems: 'center', marginRight: SIZES.md, minWidth: 60 },
   timeText: { fontSize: SIZES.fontMd, fontWeight: 'bold', color: COLORS.gold },
   timeDivider: { fontSize: SIZES.fontSm, color: COLORS.textTertiary },
@@ -282,13 +282,13 @@ const styles = StyleSheet.create({
   roomBadge: { flexDirection: 'row', alignItems: 'center', marginTop: SIZES.xs, gap: 4 },
   roomText: { fontSize: SIZES.fontXs, color: COLORS.textTertiary },
   attendanceButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
-  emptySchedule: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.xl, alignItems: 'center', marginBottom: SIZES.md },
+  emptySchedule: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.xl, alignItems: 'center', marginBottom: SIZES.md },
   emptyText: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.md },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
-  groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, ...SHADOWS.small },
-  groupIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
+  groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
+  groupIcon: { width: 48, height: 48, borderRadius: 0, backgroundColor: 'transparent', justifyContent: 'center', alignItems: 'flex-start', marginRight: SIZES.md },
   groupInfo: { flex: 1 },
   groupTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
   groupCourse: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: 2 },

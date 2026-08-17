@@ -17,7 +17,7 @@ import { Picker } from '@react-native-picker/picker';
 import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { dateStringWithOffset, todayDateString, toLocalDateString } from '../../src/utils/dates';
@@ -1190,11 +1190,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundCard,
     margin: SIZES.md,
     marginTop: 0,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: 0,
     padding: SIZES.md,
-    borderWidth: 1,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   statsRow: {
     flexDirection: 'row',
@@ -1248,15 +1248,15 @@ const styles = StyleSheet.create({
     marginHorizontal: SIZES.md,
     marginBottom: SIZES.md,
     padding: SIZES.md,
-    borderRadius: SIZES.radiusMd,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
     borderColor: COLORS.gold + '66',
     backgroundColor: COLORS.backgroundCard,
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: SIZES.md,
-    ...SHADOWS.small,
   },
   completionCopy: {
     flex: 1,
@@ -1324,15 +1324,14 @@ const styles = StyleSheet.create({
   },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusLg,
-    borderWidth: 1,
+    borderRadius: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.border,
     padding: SIZES.md,
-    marginBottom: SIZES.sm,
+    marginBottom: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    ...SHADOWS.small,
   },
   studentCardPhone: {
     flexDirection: 'column',

@@ -546,6 +546,176 @@ async def get_dashboard_stats(
                     "status": cash_day.get("status"),
                 },
             }
+
+        # The manager landing view is an operational ledger, not a second
+        # analytics page.  Build its rows from the same source records used by
+        # attendance and finance so the first viewport stays actionable and
+        # live without inventing dashboard-only state.
+        academy_zone = ZoneInfo("Asia/Tashkent")
+        utc_zone = ZoneInfo("UTC")
+        academy_now = datetime.now(academy_zone)
+        academy_day = academy_now.date().isoformat()
+        occurrence_query = {
+            **branch_query,
+            "local_date": academy_day,
+            "counts_as_scheduled": True,
+            "superseded": {"$ne": True},
+        }
+        occurrences = await db.lesson_occurrences.find(occurrence_query).sort(
+            "starts_at", 1
+        ).to_list(100)
+        group_ids = {
+            row.get("group_id") for row in occurrences if row.get("group_id")
+        }
+        teacher_ids = {
+            row.get("teacher_id") for row in occurrences if row.get("teacher_id")
+        }
+        groups = {
+            str(row["_id"]): row
+            for row in await db.groups.find({
+                "_id": {"$in": [ObjectId(value) for value in group_ids if ObjectId.is_valid(value)]}
+            }).to_list(100)
+        }
+        teachers = {
+            str(row["_id"]): row
+            for row in await db.teachers.find({
+                "_id": {"$in": [ObjectId(value) for value in teacher_ids if ObjectId.is_valid(value)]}
+            }).to_list(100)
+        }
+
+        def local_clock(value):
+            if not isinstance(value, datetime):
+                return "—"
+            instant = value if value.tzinfo else value.replace(tzinfo=utc_zone)
+            return instant.astimezone(academy_zone).strftime("%H:%M")
+
+        daily_events = []
+        now_utc = datetime.utcnow()
+        for occurrence in occurrences:
+            group = groups.get(occurrence.get("group_id"), {})
+            teacher = teachers.get(occurrence.get("teacher_id"), {})
+            starts_at = occurrence.get("starts_at")
+            ends_at = occurrence.get("ends_at")
+            resolution = occurrence.get("resolution_status", "unresolved")
+            lesson_status = occurrence.get("lesson_status", "scheduled")
+            if lesson_status == "centre_closed":
+                status_key, status_label = "closed", "Centre closed"
+            elif resolution == "resolved":
+                status_key, status_label = "resolved", "Recorded"
+            elif starts_at and starts_at <= now_utc <= ends_at:
+                status_key, status_label = "open", "Attendance open"
+            elif ends_at and ends_at < now_utc:
+                status_key, status_label = "attention", "Needs resolution"
+            else:
+                status_key, status_label = "scheduled", "Scheduled"
+            daily_events.append({
+                "id": str(occurrence["_id"]),
+                "kind": "lesson",
+                "time": local_clock(starts_at),
+                "ends_at": local_clock(ends_at),
+                "title": group.get("name", "Scheduled lesson"),
+                "student_count": len(group.get("student_ids", [])),
+                "detail": (
+                    f"{len(group.get('student_ids', []))} student"
+                    if len(group.get("student_ids", [])) == 1
+                    else f"{len(group.get('student_ids', []))} students"
+                ),
+                "owner": " ".join(filter(None, [teacher.get("first_name"), teacher.get("last_name")])) or "Teacher unassigned",
+                "location": occurrence.get("room") or "Room not set",
+                "status": status_key,
+                "status_label": status_label,
+            })
+
+        booking_rows = await db.support_bookings.find(booking_query).sort(
+            "start_time", 1
+        ).to_list(100)
+        booking_student_ids = {
+            row.get("student_id") for row in booking_rows if row.get("student_id")
+        }
+        booking_support_ids = {
+            row.get("support_staff_id") for row in booking_rows if row.get("support_staff_id")
+        }
+        booking_students = {
+            str(row["_id"]): row
+            for row in await db.students.find({
+                "_id": {"$in": [ObjectId(value) for value in booking_student_ids if ObjectId.is_valid(value)]}
+            }).to_list(100)
+        }
+        booking_support = {
+            str(row["_id"]): row
+            for row in await db.support_staff.find({
+                "_id": {"$in": [ObjectId(value) for value in booking_support_ids if ObjectId.is_valid(value)]}
+            }).to_list(100)
+        }
+        for booking in booking_rows:
+            student = booking_students.get(booking.get("student_id"), {})
+            support = booking_support.get(booking.get("support_staff_id"), {})
+            daily_events.append({
+                "id": str(booking["_id"]),
+                "kind": "support",
+                "time": booking.get("start_time") or "—",
+                "ends_at": booking.get("end_time") or "—",
+                "title": "Support session",
+                "detail": " ".join(filter(None, [student.get("first_name"), student.get("last_name")])) or "Student",
+                "owner": " ".join(filter(None, [support.get("first_name"), support.get("last_name")])) or "Support staff",
+                "location": booking.get("room") or "Support room",
+                "status": "scheduled",
+                "status_label": "Scheduled",
+            })
+        daily_events.sort(key=lambda row: row.get("time") or "99:99")
+
+        visible_student_rows = await db.students.find({
+            **branch_query,
+            "status": {"$ne": "archived"},
+        }).to_list(5000)
+        visible_student_ids = [str(student["_id"]) for student in visible_student_rows]
+        overdue_query = {
+            "student_id": {"$in": visible_student_ids},
+            "status": "finalized",
+            "balance_uzs": {"$gt": 0},
+            "due_date": {"$lt": academy_day},
+        }
+        overdue_rows = await db.finance_invoices.find(overdue_query).to_list(5000)
+        overdue_student_count = len({row.get("student_id") for row in overdue_rows})
+        overdue_total = sum(int(row.get("balance_uzs", 0)) for row in overdue_rows)
+
+        transfer_query = {"status": "unresolved"}
+        if current_user["role"] != "super_admin":
+            transfer_query["branch_id"] = current_user.get("branch_id")
+        pending_transfers = await db.finance_card_payment_reports.find(
+            transfer_query
+        ).to_list(5000)
+
+        from finance_ledger import ensure_daily_cash_shift
+        cash_day = await ensure_daily_cash_shift(db)
+        cash_awaiting_count = await db.cash_shifts.count_documents({
+            "cashbox_id": "main",
+            "status": "awaiting_confirmation",
+        })
+        local_start = academy_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        utc_start = local_start.astimezone(utc_zone).replace(tzinfo=None)
+        utc_end = (local_start + timedelta(days=1)).astimezone(utc_zone).replace(tzinfo=None)
+        receipt_rows = await db.finance_receipts.find({
+            "status": "posted",
+            "received_at": {"$gte": utc_start, "$lt": utc_end},
+            "student_id": {"$in": visible_student_ids},
+        }).to_list(5000)
+        cash_received = sum(
+            int(row.get("amount_uzs", 0))
+            for row in receipt_rows
+            if row.get("payment_method", "cash") == "cash"
+        )
+        verified_transfers = sum(
+            int(row.get("amount_uzs", 0))
+            for row in receipt_rows
+            if row.get("payment_method") != "cash"
+        )
+        expected_cashbox = (
+            int(cash_day.get("opening_balance_uzs", 0))
+            + int(cash_day.get("receipt_total_uzs", 0))
+            + int(cash_day.get("other_income_total_uzs", 0))
+            - int(cash_day.get("removal_total_uzs", 0))
+        )
         
         return {
             "students": {
@@ -559,8 +729,23 @@ async def get_dashboard_stats(
             "support_staff": total_support,
             "today": {
                 "lessons": today_lessons,
-                "support_bookings": today_bookings
-            }
+                "support_bookings": today_bookings,
+                "events": daily_events,
+            },
+            "exceptions": {
+                "lesson_resolutions": sum(1 for row in daily_events if row.get("status") == "attention"),
+                "pending_transfers": len(pending_transfers),
+                "pending_transfer_uzs": sum(int(row.get("amount_uzs", 0)) for row in pending_transfers),
+                "overdue_students": overdue_student_count,
+                "overdue_uzs": overdue_total,
+                "cash_days": cash_awaiting_count,
+            },
+            "financial_ledger": {
+                "cash_received_uzs": cash_received,
+                "verified_transfers_uzs": verified_transfers,
+                "expected_cashbox_uzs": expected_cashbox,
+                "cash_day_status": cash_day.get("status"),
+            },
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
-import { ActivityIndicator, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { Redirect, Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, LAYOUT, SIZES } from '../../src/constants/theme';
 import { useLanguage } from '../../src/contexts/LanguageContext';
@@ -90,13 +91,15 @@ export default function DashboardLayout() {
         tabBarPosition: isDesktop ? 'left' : 'bottom',
         tabBarActiveTintColor: COLORS.gold,
         tabBarInactiveTintColor: COLORS.textSecondary,
-        tabBarActiveBackgroundColor: COLORS.gold + '12',
+        tabBarActiveBackgroundColor: 'transparent',
         tabBarHideOnKeyboard: true,
         tabBarStyle: isDesktop ? styles.desktopTabBar : styles.mobileTabBar,
         tabBarItemStyle: isDesktop ? styles.desktopTabItem : styles.mobileTabItem,
         tabBarLabelPosition: isDesktop ? 'beside-icon' : 'below-icon',
+        tabBarAllowFontScaling: false,
         tabBarLabelStyle: isDesktop ? styles.desktopLabel : styles.mobileLabel,
         tabBarIconStyle: styles.tabIcon,
+        tabBarBackground: isDesktop ? () => <DesktopRailBackdrop user={user} /> : undefined,
       }}
     >
       {visibleTabs.map((definition) => (
@@ -106,7 +109,16 @@ export default function DashboardLayout() {
           options={{
             title: t(definition.label),
             tabBarAccessibilityLabel: t(definition.label),
-            tabBarIcon: ({ color, size }) => <Ionicons name={definition.icon} size={size} color={color} />,
+            tabBarIcon: ({ color, size, focused }) => (
+              <View style={styles.navIconWrap}>
+                <View style={[
+                  styles.navIndicator,
+                  isDesktop ? styles.navIndicatorDesktop : styles.navIndicatorMobile,
+                  focused && styles.navIndicatorActive,
+                ]} />
+                <Ionicons name={definition.icon} size={size} color={color} />
+              </View>
+            ),
           }}
         />
       ))}
@@ -114,6 +126,38 @@ export default function DashboardLayout() {
         <Tabs.Screen key={routeName} name={routeName} options={{ href: null }} />
       ))}
     </Tabs>
+  );
+}
+
+function DesktopRailBackdrop({ user }: { user: NonNullable<ReturnType<typeof useAuth>['user']> }) {
+  const initials = String(user.full_name || 'Nurik Academy')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+  return (
+    <View pointerEvents="none" style={styles.railBackdrop}>
+      <View style={styles.railBrand}>
+        <Image
+          source={require('../../assets/images/logo.png')}
+          style={styles.railLogo}
+          resizeMode="contain"
+          accessibilityLabel="Nurik's Academy logo"
+        />
+        <View style={styles.railBrandCopy}>
+          <Text style={styles.railBrandName}>Nurik&apos;s Academy</Text>
+          <Text style={styles.railBrandRole}>{String(user.role || '').replaceAll('_', ' ')}</Text>
+        </View>
+      </View>
+      <View style={styles.railIdentity}>
+        <View style={styles.railAvatar}><Text style={styles.railAvatarText}>{initials || 'NA'}</Text></View>
+        <View style={styles.railIdentityCopy}>
+          <Text numberOfLines={1} style={styles.railIdentityName}>{user.full_name}</Text>
+          <Text style={styles.railIdentityPlace}>Nurik&apos;s Academy</Text>
+        </View>
+      </View>
+    </View>
   );
 }
 
@@ -126,10 +170,10 @@ const styles = StyleSheet.create({
   },
   scene: { backgroundColor: COLORS.background },
   mobileTabBar: {
-    minHeight: 68,
-    paddingTop: SIZES.sm,
-    paddingBottom: SIZES.sm,
-    backgroundColor: COLORS.backgroundCard,
+    minHeight: 70,
+    paddingTop: 6,
+    paddingBottom: 7,
+    backgroundColor: COLORS.backgroundSubtle,
     borderTopWidth: 1,
     borderTopColor: COLORS.border,
     elevation: 0,
@@ -137,9 +181,10 @@ const styles = StyleSheet.create({
   },
   desktopTabBar: {
     width: LAYOUT.sidebarWidth,
-    paddingTop: SIZES.xl,
-    paddingHorizontal: SIZES.sm,
-    paddingBottom: SIZES.lg,
+    minWidth: LAYOUT.sidebarWidth,
+    paddingTop: 112,
+    paddingHorizontal: 0,
+    paddingBottom: 92,
     backgroundColor: COLORS.backgroundSubtle,
     borderTopWidth: 0,
     borderRightWidth: 1,
@@ -147,15 +192,33 @@ const styles = StyleSheet.create({
     elevation: 0,
     shadowOpacity: 0,
   },
-  mobileTabItem: { borderRadius: SIZES.radiusMd },
+  mobileTabItem: { borderRadius: 0 },
   desktopTabItem: {
-    minHeight: 52,
-    maxHeight: 52,
-    marginVertical: 3,
-    borderRadius: SIZES.radiusMd,
+    minHeight: 48,
+    maxHeight: 48,
+    marginVertical: 1,
+    borderRadius: 0,
+    paddingHorizontal: SIZES.md,
     overflow: 'hidden',
   },
-  mobileLabel: { fontSize: 11, fontWeight: '700' },
-  desktopLabel: { fontSize: 14, fontWeight: '700', marginLeft: SIZES.sm },
+  mobileLabel: { fontSize: 10, fontWeight: '700', letterSpacing: 0.1 },
+  desktopLabel: { fontSize: 13, fontWeight: '600', marginLeft: SIZES.sm },
   tabIcon: { marginBottom: 0 },
+  navIconWrap: { minWidth: 28, minHeight: 28, alignItems: 'center', justifyContent: 'center' },
+  navIndicator: { position: 'absolute', backgroundColor: 'transparent' },
+  navIndicatorDesktop: { left: -24, top: -10, bottom: -10, width: 2 },
+  navIndicatorMobile: { top: -7, left: 2, right: 2, height: 2 },
+  navIndicatorActive: { backgroundColor: COLORS.gold },
+  railBackdrop: { ...StyleSheet.absoluteFillObject },
+  railBrand: { position: 'absolute', top: 25, left: SIZES.md, right: SIZES.sm, minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+  railLogo: { width: 42, height: 42, flexShrink: 0 },
+  railBrandCopy: { flex: 1, minWidth: 0 },
+  railBrandName: { color: COLORS.textPrimary, fontSize: 13, fontWeight: '800' },
+  railBrandRole: { color: COLORS.textSecondary, fontSize: 10, marginTop: 3, textTransform: 'capitalize' },
+  railIdentity: { position: 'absolute', left: SIZES.md, right: SIZES.sm, bottom: 23, minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border, paddingTop: SIZES.sm },
+  railAvatar: { width: 32, height: 32, borderRadius: 16, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
+  railAvatarText: { color: COLORS.textOnGold, fontSize: 10, fontWeight: '900' },
+  railIdentityCopy: { flex: 1, minWidth: 0 },
+  railIdentityName: { color: COLORS.textPrimary, fontSize: 11, fontWeight: '700' },
+  railIdentityPlace: { color: COLORS.textTertiary, fontSize: 9, marginTop: 2 },
 });

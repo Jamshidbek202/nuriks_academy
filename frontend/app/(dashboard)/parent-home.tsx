@@ -14,7 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
@@ -301,14 +301,14 @@ export default function ParentHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border },
   greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   notificationButton: { position: 'relative', padding: SIZES.sm },
   notificationBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: COLORS.error, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   notificationBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
   content: { flex: 1, padding: SIZES.md },
-  childCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, marginBottom: SIZES.md, borderLeftWidth: 4, borderLeftColor: COLORS.gold, ...SHADOWS.small },
+  childCard: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.lg, marginBottom: SIZES.md, borderTopWidth: 1, borderBottomWidth: 1, borderLeftWidth: 3, borderColor: COLORS.border, borderLeftColor: COLORS.gold },
   childHeader: { flexDirection: 'row', alignItems: 'center' },
   childAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   avatarText: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.marbleDark },
@@ -318,14 +318,14 @@ const styles = StyleSheet.create({
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: SIZES.xs },
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   statsGrid: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   statValue: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.md, alignItems: 'center' },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
-  paymentItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, ...SHADOWS.small },
+  paymentItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
   paymentInfo: { flex: 1 },
   paymentMonth: { fontSize: SIZES.fontMd, fontWeight: '500', color: COLORS.textPrimary },
   paymentDate: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
@@ -333,7 +333,7 @@ const styles = StyleSheet.create({
   paymentAmount: { fontSize: SIZES.fontMd, fontWeight: 'bold', color: COLORS.gold },
   paymentStatus: { paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: 4 },
   paymentStatusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
-  emptyItem: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, alignItems: 'center' },
+  emptyItem: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, alignItems: 'center' },
   emptyText: { fontSize: SIZES.fontSm, color: COLORS.textTertiary },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, maxHeight: '80%', paddingBottom: 40 },

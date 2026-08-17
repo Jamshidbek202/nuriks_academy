@@ -11,12 +11,11 @@ import {
   Modal,
   Platform,
 } from 'react-native';
-import { Text, TextInput, LocalizedPickerItem } from '../../src/components/LocalizedText';
+import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
@@ -215,11 +214,29 @@ export default function StudentsScreen() {
     const matchesSearch = `${student.first_name} ${student.last_name} ${student.student_id} ${student.phone || ''} ${student.parent_name || ''} ${student.parent_phone || ''}`
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
-    if (!matchesSearch || !isReception || statusFilter === 'current') return matchesSearch;
-    if (statusFilter === 'unpaid') return ['overdue', 'partial', 'unpaid'].includes(student.payment_status);
-    if (statusFilter === 'paid') return ['paid', 'advance'].includes(student.payment_status);
-    return true;
+    if (!matchesSearch) return false;
+    if (isReception) {
+      if (statusFilter === 'unpaid') return ['overdue', 'partial', 'unpaid'].includes(student.payment_status);
+      if (statusFilter === 'paid') return ['paid', 'advance'].includes(student.payment_status);
+      return student.status !== 'archived';
+    }
+    if (statusFilter === 'current') return student.status !== 'archived';
+    return student.status === statusFilter;
   });
+
+  const filterOptions = isReception
+    ? [
+        ['current', 'All students'],
+        ['unpaid', 'Unpaid or partial'],
+        ['paid', 'Paid'],
+      ]
+    : [
+        ['current', 'Current students'],
+        ['active', 'Active'],
+        ['frozen', 'Frozen'],
+        ['graduated', 'Graduated'],
+        ['archived', 'Archived'],
+      ];
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -261,30 +278,27 @@ export default function StudentsScreen() {
         />
       </View>
 
-      <View style={styles.filterContainer}>
-        <Picker
-          selectedValue={statusFilter}
-          onValueChange={(value) => setStatusFilter(String(value))}
-          style={styles.filterPicker}
-          dropdownIconColor={COLORS.gold}
-        >
-          {isReception ? (
-            <>
-              <LocalizedPickerItem label="All students" value="current" />
-              <LocalizedPickerItem label="Unpaid or partial" value="unpaid" />
-              <LocalizedPickerItem label="Paid" value="paid" />
-            </>
-          ) : (
-            <>
-              <LocalizedPickerItem label="Current students" value="current" />
-              <LocalizedPickerItem label="Active" value="active" />
-              <LocalizedPickerItem label="Frozen" value="frozen" />
-              <LocalizedPickerItem label="Graduated" value="graduated" />
-              <LocalizedPickerItem label="Archived" value="archived" />
-            </>
-          )}
-        </Picker>
-      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.filterScroll}
+        contentContainerStyle={styles.filterContainer}
+      >
+        {filterOptions.map(([value, label]) => {
+          const active = statusFilter === value;
+          return (
+            <TouchableOpacity
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: active }}
+              style={[styles.filterOption, active && styles.filterOptionActive]}
+              onPress={() => setStatusFilter(value)}
+            >
+              <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>{label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
 
       <FlatList
         style={styles.list}
@@ -453,7 +467,7 @@ const styles = StyleSheet.create({
     paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
-    backgroundColor: COLORS.marbleDark,
+    backgroundColor: COLORS.backgroundSubtle,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -470,22 +484,20 @@ const styles = StyleSheet.create({
   addButton: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: SIZES.radiusSm,
     backgroundColor: COLORS.gold,
     justifyContent: 'center',
     alignItems: 'center',
-    ...SHADOWS.medium,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.backgroundCard,
     margin: SIZES.md,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusSm,
     paddingHorizontal: SIZES.md,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   searchIcon: {
     marginRight: SIZES.sm,
@@ -496,18 +508,12 @@ const styles = StyleSheet.create({
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
   },
-  filterContainer: {
-    backgroundColor: COLORS.backgroundCard,
-    marginHorizontal: SIZES.md,
-    marginBottom: SIZES.md,
-    borderRadius: SIZES.radiusMd,
-    overflow: 'hidden',
-    ...SHADOWS.small,
-  },
-  filterPicker: {
-    color: COLORS.textPrimary,
-    backgroundColor: COLORS.backgroundCard,
-  },
+  filterScroll: { flexGrow: 0, marginBottom: SIZES.md },
+  filterContainer: { paddingHorizontal: SIZES.md, gap: SIZES.xs },
+  filterOption: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.backgroundCard },
+  filterOptionActive: { borderColor: COLORS.gold, backgroundColor: COLORS.gold + '12' },
+  filterOptionText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, fontWeight: '650' as any },
+  filterOptionTextActive: { color: COLORS.gold },
   list: {
     flex: 1,
     paddingHorizontal: SIZES.md,
@@ -515,12 +521,11 @@ const styles = StyleSheet.create({
   listContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingBottom: SIZES.xxl },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: 0,
     padding: SIZES.md,
-    marginBottom: SIZES.md,
-    borderWidth: 1,
+    marginBottom: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   studentHeader: {
     flexDirection: 'row',

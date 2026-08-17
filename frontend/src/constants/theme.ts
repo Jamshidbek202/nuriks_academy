@@ -4,37 +4,37 @@ import { Platform } from 'react-native';
 // The palette carries the public site's black-and-gold identity, while the
 // application stays flatter, quieter, and easier to scan for daily work.
 export const COLORS = {
-  gold: '#D8B84A',
-  goldLight: '#E8D174',
-  goldDark: '#B89427',
-  goldMuted: '#796724',
+  gold: '#E0BE45',
+  goldLight: '#F0D56F',
+  goldDark: '#B89326',
+  goldMuted: '#746421',
 
   // Legacy marble names remain as compatibility aliases used by existing
   // screens. Their values now map to the new neutral surface hierarchy.
-  marbleDark: '#11120F',
-  marbleGray: '#303129',
-  marbleMedium: '#5E6056',
-  marbleLight: '#92948A',
-  marbleVeryLight: '#D0D1C9',
+  marbleDark: '#0D0F0C',
+  marbleGray: '#2A2D24',
+  marbleMedium: '#5D6155',
+  marbleLight: '#96998E',
+  marbleVeryLight: '#D2D2C9',
 
-  background: '#0C0D0B',
-  backgroundLight: '#141510',
-  backgroundCard: '#191A16',
-  backgroundElevated: '#20211C',
-  backgroundSubtle: '#10110E',
+  background: '#090A08',
+  backgroundLight: '#0D0F0C',
+  backgroundCard: '#11130F',
+  backgroundElevated: '#171913',
+  backgroundSubtle: '#0B0D0A',
 
-  textPrimary: '#F5F3EA',
-  textSecondary: '#AAA99F',
-  textTertiary: '#77786F',
-  textOnGold: '#17160F',
+  textPrimary: '#F4F1E7',
+  textSecondary: '#B4B4AA',
+  textTertiary: '#85877D',
+  textOnGold: '#14140E',
 
-  border: '#303129',
-  borderStrong: '#45473D',
+  border: '#292C24',
+  borderStrong: '#41453A',
 
-  success: '#4DB67A',
-  warning: '#E1A847',
-  error: '#E56A62',
-  info: '#6F9FD8',
+  success: '#67A873',
+  warning: '#D7A13F',
+  error: '#D86B57',
+  info: '#7B9FBE',
 
   overlay: 'rgba(0, 0, 0, 0.72)',
   overlayLight: 'rgba(0, 0, 0, 0.42)',
@@ -56,11 +56,11 @@ export const SIZES = {
   fontXl: 26,
   fontXxl: 34,
 
-  radiusXs: 6,
-  radiusSm: 8,
-  radiusMd: 12,
-  radiusLg: 16,
-  radiusXl: 20,
+  radiusXs: 4,
+  radiusSm: 6,
+  radiusMd: 8,
+  radiusLg: 10,
+  radiusXl: 12,
   radiusFull: 999,
 
   touchTarget: 48,
@@ -72,7 +72,7 @@ export const LAYOUT = {
   contentMaxWidth: 1240,
   formMaxWidth: 560,
   readableMaxWidth: 760,
-  sidebarWidth: 232,
+  sidebarWidth: 216,
   mobileBreakpoint: 768,
   desktopBreakpoint: 1024,
 };
@@ -84,12 +84,21 @@ export const FONTS = {
   bold: 'System',
 };
 
+export const TYPOGRAPHY = {
+  display: { fontSize: 32, lineHeight: 38, fontWeight: '800' as const, letterSpacing: -0.8 },
+  title: { fontSize: 22, lineHeight: 28, fontWeight: '800' as const, letterSpacing: -0.25 },
+  section: { fontSize: 17, lineHeight: 22, fontWeight: '700' as const },
+  body: { fontSize: 15, lineHeight: 22, fontWeight: '400' as const },
+  label: { fontSize: 12, lineHeight: 16, fontWeight: '700' as const, letterSpacing: 0.4 },
+  numeric: { fontVariant: ['tabular-nums'] as ('tabular-nums')[] },
+};
+
 // Quiet shadows avoid expensive, blurred "floating" UI on older Android
 // devices while preserving hierarchy on iOS and web.
 export const SHADOWS = {
   small: Platform.select({
-    web: { boxShadow: '0 1px 2px rgba(0,0,0,0.22)' } as any,
-    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.14, shadowRadius: 2, elevation: 1 },
+    web: { boxShadow: '0 1px 1px rgba(0,0,0,0.18)' } as any,
+    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 1, elevation: 0 },
   }),
   medium: Platform.select({
     web: { boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } as any,
@@ -106,7 +115,7 @@ export const SURFACES = {
     backgroundColor: COLORS.backgroundCard,
     borderWidth: 1,
     borderColor: COLORS.border,
-    borderRadius: SIZES.radiusLg,
+    borderRadius: SIZES.radiusMd,
   },
   inset: {
     backgroundColor: COLORS.backgroundLight,

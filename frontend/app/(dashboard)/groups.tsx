@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { COLORS, SIZES } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
@@ -1293,7 +1293,7 @@ const styles = StyleSheet.create({
     paddingTop: SIZES.headerTop,
     paddingHorizontal: SIZES.lg,
     paddingBottom: SIZES.md,
-    backgroundColor: COLORS.marbleDark,
+    backgroundColor: COLORS.backgroundSubtle,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -1310,22 +1310,20 @@ const styles = StyleSheet.create({
   addButton: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: SIZES.radiusSm,
     backgroundColor: COLORS.gold,
     justifyContent: 'center',
     alignItems: 'center',
-    ...SHADOWS.medium,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: COLORS.backgroundCard,
     margin: SIZES.md,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: SIZES.radiusSm,
     paddingHorizontal: SIZES.md,
     borderWidth: 1,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   studentSearchContainer: {
     flexDirection: 'row',
@@ -1354,12 +1352,11 @@ const styles = StyleSheet.create({
   listContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingBottom: SIZES.xxl },
   groupCard: {
     backgroundColor: COLORS.backgroundCard,
-    borderRadius: SIZES.radiusMd,
+    borderRadius: 0,
     padding: SIZES.md,
-    marginBottom: SIZES.md,
-    borderWidth: 1,
+    marginBottom: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.border,
-    ...SHADOWS.small,
   },
   groupHeader: {
     flexDirection: 'row',
@@ -1372,8 +1369,8 @@ const styles = StyleSheet.create({
   groupIcon: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: COLORS.gold + '20',
+    borderRadius: 0,
+    backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: SIZES.md,
