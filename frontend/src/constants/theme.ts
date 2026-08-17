@@ -1,35 +1,35 @@
 import { Platform } from 'react-native';
 
 // Nurik's Academy operational design system.
-// The palette carries the public site's black-and-gold identity, while the
-// application stays flatter, quieter, and easier to scan for daily work.
+// It shares the public site's near-black, ivory, and warm-gold identity while
+// remaining deliberately restrained for long administrative work sessions.
 export const COLORS = {
-  gold: '#E0BE45',
-  goldLight: '#F0D56F',
-  goldDark: '#B89326',
-  goldMuted: '#746421',
+  gold: '#D9B84A',
+  goldLight: '#E8CC72',
+  goldDark: '#A9882D',
+  goldMuted: '#716128',
 
   // Legacy marble names remain as compatibility aliases used by existing
   // screens. Their values now map to the new neutral surface hierarchy.
-  marbleDark: '#0D0F0C',
-  marbleGray: '#2A2D24',
-  marbleMedium: '#5D6155',
-  marbleLight: '#96998E',
-  marbleVeryLight: '#D2D2C9',
+  marbleDark: '#0C0D0B',
+  marbleGray: '#292B25',
+  marbleMedium: '#5C5E56',
+  marbleLight: '#95968F',
+  marbleVeryLight: '#D2D0C7',
 
-  background: '#090A08',
-  backgroundLight: '#0D0F0C',
-  backgroundCard: '#11130F',
-  backgroundElevated: '#171913',
-  backgroundSubtle: '#0B0D0A',
+  background: '#080907',
+  backgroundLight: '#0D0E0C',
+  backgroundCard: '#11120F',
+  backgroundElevated: '#171813',
+  backgroundSubtle: '#0A0B09',
 
-  textPrimary: '#F4F1E7',
-  textSecondary: '#B4B4AA',
-  textTertiary: '#85877D',
-  textOnGold: '#14140E',
+  textPrimary: '#F3F0E7',
+  textSecondary: '#B6B3AA',
+  textTertiary: '#87877F',
+  textOnGold: '#11110D',
 
-  border: '#292C24',
-  borderStrong: '#41453A',
+  border: '#292A25',
+  borderStrong: '#41423B',
 
   success: '#67A873',
   warning: '#D7A13F',

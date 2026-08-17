@@ -1,98 +1,98 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-17T06:30:53Z",
+  "generatedAt": "2026-08-17T20:45:55Z",
   "title": "Design System: Nurik's Academy Operations Platform",
   "extensions": {
     "colorMeta": {
       "gold": {
         "role": "primary",
-        "displayName": "Ledger Brass Gold",
-        "canonical": "#E0BE45",
-        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+        "displayName": "Academy Brass",
+        "canonical": "#D9B84A",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#716128", "#A9882D", "#D9B84A", "#E8CC72", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
       },
       "gold-light": {
         "role": "primary",
-        "displayName": "Highlight Brass",
-        "canonical": "#F0D56F",
-        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+        "displayName": "Lit Brass Edge",
+        "canonical": "#E8CC72",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#716128", "#A9882D", "#D9B84A", "#E8CC72", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
       },
       "gold-dark": {
         "role": "primary",
-        "displayName": "Deep Brass",
-        "canonical": "#B89326",
-        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+        "displayName": "Deep Academy Brass",
+        "canonical": "#A9882D",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#716128", "#A9882D", "#D9B84A", "#E8CC72", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
       },
       "gold-muted": {
         "role": "primary",
-        "displayName": "Muted Brass",
-        "canonical": "#746421",
-        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#746421", "#B89326", "#E0BE45", "#F0D56F", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
+        "displayName": "Muted Academy Brass",
+        "canonical": "#716128",
+        "tonalRamp": ["oklch(15% 0.035 95)", "oklch(28% 0.06 95)", "#716128", "#A9882D", "#D9B84A", "#E8CC72", "oklch(91% 0.075 95)", "oklch(95% 0.035 95)"]
       },
       "background": {
         "role": "neutral",
-        "displayName": "Ink Black",
-        "canonical": "#090A08",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Warm Black Canvas",
+        "canonical": "#080907",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "background-light": {
         "role": "neutral",
-        "displayName": "Ledger Ink",
-        "canonical": "#0D0F0C",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Inset Warm Black",
+        "canonical": "#0D0E0C",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "background-card": {
         "role": "neutral",
         "displayName": "Register Surface",
-        "canonical": "#11130F",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "canonical": "#11120F",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "background-elevated": {
         "role": "neutral",
         "displayName": "Raised Register",
-        "canonical": "#171913",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "canonical": "#171813",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "background-subtle": {
         "role": "neutral",
-        "displayName": "Deep Band",
-        "canonical": "#0B0D0A",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Quiet Header Band",
+        "canonical": "#0A0B09",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "text-primary": {
         "role": "neutral",
-        "displayName": "Warm Chalk",
-        "canonical": "#F4F1E7",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Warm White",
+        "canonical": "#F3F0E7",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "text-secondary": {
         "role": "neutral",
-        "displayName": "Quiet Parchment",
-        "canonical": "#B4B4AA",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Quiet Warm Gray",
+        "canonical": "#B6B3AA",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "text-tertiary": {
         "role": "neutral",
-        "displayName": "Dim Register",
-        "canonical": "#85877D",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "displayName": "Dim Warm Gray",
+        "canonical": "#87877F",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "text-on-gold": {
         "role": "neutral",
         "displayName": "Ink on Brass",
-        "canonical": "#14140E",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "canonical": "#11110D",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "border": {
         "role": "neutral",
         "displayName": "Hairline Rule",
-        "canonical": "#292C24",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "canonical": "#292A25",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "border-strong": {
         "role": "neutral",
         "displayName": "Strong Rule",
-        "canonical": "#41453A",
-        "tonalRamp": ["#090A08", "#11130F", "#171913", "#292C24", "#41453A", "#85877D", "#B4B4AA", "#F4F1E7"]
+        "canonical": "#41423B",
+        "tonalRamp": ["#080907", "#11120F", "#171813", "#292A25", "#41423B", "#87877F", "#B6B3AA", "#F3F0E7"]
       },
       "success": {
         "role": "secondary",
@@ -122,15 +122,15 @@
     "typographyMeta": {
       "display": {
         "displayName": "Display",
-        "purpose": "High-level authentication and rare screen-defining statements."
+        "purpose": "Rare screen-defining statements and high-level authentication context."
       },
       "headline": {
         "displayName": "Headline",
-        "purpose": "Section headers and grouped ledger regions."
+        "purpose": "Section headers for familiar dashboard groups and operational regions."
       },
       "title": {
         "displayName": "Title",
-        "purpose": "Route title, current date, and primary page context."
+        "purpose": "Person, route, or page context."
       },
       "body": {
         "displayName": "Body",
@@ -138,7 +138,7 @@
       },
       "label": {
         "displayName": "Label",
-        "purpose": "Compact metadata, control labels, and register column headings."
+        "purpose": "Compact metadata and control labels."
       }
     },
     "shadows": [
@@ -160,24 +160,16 @@
     ],
     "breakpoints": [
       {
-        "name": "phone-ledger",
-        "value": "620px"
+        "name": "dashboard-compact",
+        "value": "760px"
       },
       {
-        "name": "mobile-shell",
+        "name": "mobile",
         "value": "768px"
       },
       {
-        "name": "login-wide",
-        "value": "900px"
-      },
-      {
-        "name": "desktop-shell",
+        "name": "desktop",
         "value": "1024px"
-      },
-      {
-        "name": "ledger-wide",
-        "value": "1080px"
       }
     ]
   },
@@ -186,68 +178,68 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The single brass-gold action that advances the current task.",
-      "html": "<button class=\"ds-btn-primary\">Record payment</button>",
-      "css": ".ds-btn-primary { min-height: 48px; padding: 13px 24px; border: 1px solid #F0D56F; border-radius: 6px; background: #E0BE45; color: #14140E; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 700; cursor: pointer; } .ds-btn-primary:hover { opacity: 0.92; } .ds-btn-primary:focus-visible { outline: 2px solid #F0D56F; outline-offset: 2px; } .ds-btn-primary:active { opacity: 0.82; } .ds-btn-primary:disabled { opacity: 0.5; cursor: default; }"
-    },
-    {
-      "name": "Secondary Button",
-      "kind": "button",
-      "refersTo": "button-secondary",
-      "description": "A quiet filled action for useful but non-primary choices.",
-      "html": "<button class=\"ds-btn-secondary\">View details</button>",
-      "css": ".ds-btn-secondary { min-height: 48px; padding: 13px 24px; border: 1px solid #292C24; border-radius: 6px; background: #0D0F0C; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 600; cursor: pointer; } .ds-btn-secondary:hover { background: #171913; } .ds-btn-secondary:focus-visible { outline: 2px solid #E0BE45; outline-offset: 2px; } .ds-btn-secondary:active { opacity: 0.7; } .ds-btn-secondary:disabled { opacity: 0.5; cursor: default; }"
-    },
-    {
-      "name": "Outline Button",
-      "kind": "button",
-      "refersTo": "button-outline",
-      "description": "A transparent bordered action for tertiary choices.",
-      "html": "<button class=\"ds-btn-outline\">Cancel</button>",
-      "css": ".ds-btn-outline { min-height: 48px; padding: 13px 24px; border: 1px solid #41453A; border-radius: 6px; background: transparent; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 600; cursor: pointer; } .ds-btn-outline:hover { background: #0D0F0C; } .ds-btn-outline:focus-visible { outline: 2px solid #E0BE45; outline-offset: 2px; } .ds-btn-outline:active { opacity: 0.7; } .ds-btn-outline:disabled { opacity: 0.5; cursor: default; }"
+      "description": "The academy-brass action that advances the current task; the login instance is 52px high.",
+      "html": "<button class=\"ds-btn-primary\">Sign In</button>",
+      "css": ".ds-btn-primary { min-height: 52px; padding: 0 24px; border: 1px solid #E8CC72; border-radius: 6px; background: #D9B84A; color: #11110D; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; font-size: 16px; font-weight: 800; cursor: pointer; } .ds-btn-primary:hover { opacity: 0.92; } .ds-btn-primary:focus-visible { outline: 2px solid #D9B84A; outline-offset: 2px; } .ds-btn-primary:active { opacity: 0.82; } .ds-btn-primary:disabled { opacity: 0.58; cursor: default; }"
     },
     {
       "name": "Text Field",
       "kind": "input",
       "refersTo": "input",
-      "description": "A substantial dark field with a persistent label and explicit error treatment.",
-      "html": "<label class=\"ds-input-group\"><span class=\"ds-input-label\">Phone number</span><input class=\"ds-input-field\" type=\"tel\" placeholder=\"+998 90 123 45 67\"></label>",
-      "css": ".ds-input-group { display: grid; gap: 4px; width: min(100%, 420px); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-input-label { color: #B4B4AA; font-size: 14px; font-weight: 600; } .ds-input-field { min-height: 52px; padding: 13px 16px; border: 1px solid #292C24; border-radius: 6px; background: #0D0F0C; color: #F4F1E7; font: inherit; font-size: 16px; } .ds-input-field::placeholder { color: #85877D; } .ds-input-field:hover { border-color: #41453A; } .ds-input-field:focus-visible { border-color: #E0BE45; outline: 2px solid #E0BE45; outline-offset: 1px; } .ds-input-field[aria-invalid=\"true\"] { border-color: #D86B57; }"
+      "description": "A substantial warm-black field with a persistent label and explicit focus or error treatment.",
+      "html": "<label class=\"ds-input-group\"><span class=\"ds-input-label\">Phone number</span><span class=\"ds-input-wrap\"><svg class=\"ds-input-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M7 3h3l1.4 4-2 1.5a14 14 0 0 0 6.1 6.1l1.5-2 4 1.4v3c0 1.1-.9 2-2 2A16 16 0 0 1 5 5c0-1.1.9-2 2-2Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><input class=\"ds-input-field\" type=\"tel\" placeholder=\"+998 90 123 45 67\"></span></label>",
+      "css": ".ds-input-group { display: grid; gap: 8px; width: min(100%, 420px); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-input-label { color: #B6B3AA; font-size: 14px; font-weight: 650; } .ds-input-wrap { display: flex; min-height: 52px; align-items: center; gap: 8px; padding: 0 16px; border: 1px solid #41423B; border-radius: 6px; background: #0D0E0C; color: #87877F; } .ds-input-icon { width: 19px; height: 19px; flex: none; } .ds-input-field { min-width: 0; flex: 1; min-height: 50px; padding: 12px 0; border: 0; outline: 0; background: transparent; color: #F3F0E7; font: inherit; font-size: 16px; } .ds-input-field::placeholder { color: #87877F; } .ds-input-wrap:hover { border-color: #B6B3AA; } .ds-input-wrap:focus-within { border-color: #D9B84A; outline: 2px solid #D9B84A; outline-offset: 1px; } .ds-input-wrap:has(.ds-input-field[aria-invalid=\"true\"]) { border-color: #D86B57; }"
     },
     {
-      "name": "Card",
+      "name": "Academy Metric",
       "kind": "card",
-      "refersTo": "card",
-      "description": "A bounded record or grouped form surface, never a decorative floating tile.",
-      "html": "<section class=\"ds-card\"><h3 class=\"ds-card-title\">Student record</h3><p class=\"ds-card-copy\">Current academy information stays grouped behind one quiet rule.</p></section>",
-      "css": ".ds-card { padding: 24px; border: 1px solid #292C24; border-radius: 8px; background: #11130F; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-card-title { margin: 0; font-size: 17px; line-height: 22px; font-weight: 700; } .ds-card-copy { margin: 8px 0 0; color: #B4B4AA; font-size: 15px; line-height: 22px; }"
+      "refersTo": "metric-card",
+      "description": "A compact Academy overview record with a tabular value and supporting label.",
+      "html": "<section class=\"ds-metric\"><div class=\"ds-metric-top\"><span class=\"ds-metric-mark\" aria-hidden=\"true\">●</span><strong>184</strong></div><span class=\"ds-metric-label\">Current Students</span></section>",
+      "css": ".ds-metric { display: flex; width: 180px; min-height: 96px; justify-content: space-between; flex-direction: column; padding: 16px; border: 1px solid #292A25; border-radius: 6px; background: #11120F; color: #F3F0E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-metric-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #D9B84A; } .ds-metric-top strong { font-size: 26px; line-height: 30px; font-weight: 800; font-variant-numeric: tabular-nums; } .ds-metric-mark { font-size: 12px; } .ds-metric-label { color: #B6B3AA; font-size: 14px; }"
     },
     {
-      "name": "Active Navigation Item",
+      "name": "Operational Summary",
+      "kind": "custom",
+      "refersTo": "summary-row",
+      "description": "A flat ruled group used for Today and Student Status summaries.",
+      "html": "<section class=\"ds-summary\"><div class=\"ds-summary-row\"><span class=\"ds-summary-icon\" aria-hidden=\"true\">●</span><span>Lessons Today</span><strong>12</strong></div><div class=\"ds-summary-row\"><span class=\"ds-summary-icon\" aria-hidden=\"true\">●</span><span>Support Bookings</span><strong>4</strong></div></section>",
+      "css": ".ds-summary { overflow: hidden; width: min(100%, 420px); border: 1px solid #292A25; border-radius: 6px; background: #11120F; color: #F3F0E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-summary-row { display: grid; min-height: 58px; grid-template-columns: 19px minmax(0,1fr) auto; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid #292A25; font-size: 14px; } .ds-summary-row:last-child { border-bottom: 0; } .ds-summary-icon { color: #D9B84A; font-size: 9px; } .ds-summary-row strong { min-width: 28px; color: #D9B84A; font-size: 19px; font-weight: 800; text-align: right; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "Role Action Row",
+      "kind": "custom",
+      "refersTo": "action-row",
+      "description": "A familiar Staff Management or Admin Tools destination with label, explanation, and forward cue.",
+      "html": "<button class=\"ds-action-row\"><span class=\"ds-action-icon\" aria-hidden=\"true\"><svg viewBox=\"0 0 24 24\"><path d=\"M5 20v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M9 7a3 3 0 1 0 6 0 3 3 0 0 0-6 0Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg></span><span class=\"ds-action-copy\"><strong>Teachers</strong><small>Teaching staff and assignments</small></span><span class=\"ds-action-chevron\" aria-hidden=\"true\">›</span></button>",
+      "css": ".ds-action-row { display: flex; width: min(100%, 440px); min-height: 78px; align-items: center; gap: 16px; padding: 8px 16px; border: 1px solid #292A25; border-radius: 6px; background: #11120F; color: #F3F0E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; text-align: left; cursor: pointer; } .ds-action-row:hover { border-color: #41423B; } .ds-action-row:focus-visible { outline: 2px solid #D9B84A; outline-offset: 2px; } .ds-action-row:active { opacity: 0.72; } .ds-action-icon { display: grid; width: 38px; height: 38px; flex: none; place-items: center; border: 1px solid #41423B; border-radius: 4px; background: #0D0E0C; color: #D9B84A; } .ds-action-icon svg { width: 20px; height: 20px; } .ds-action-copy { display: grid; min-width: 0; flex: 1; gap: 3px; } .ds-action-copy strong { font-size: 14px; font-weight: 700; } .ds-action-copy small { color: #B6B3AA; font-size: 12px; line-height: 17px; } .ds-action-chevron { color: #87877F; font-size: 24px; }"
+    },
+    {
+      "name": "Persistent Bottom Navigation",
       "kind": "nav",
       "refersTo": "navigation-item-active",
-      "description": "A transparent role-valid destination marked by one brass-gold edge.",
-      "html": "<nav class=\"ds-nav\" aria-label=\"Primary\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg class=\"ds-nav-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.8\"/></svg><span>Home</span></a></nav>",
-      "css": ".ds-nav { width: 216px; padding: 8px 0; border-right: 1px solid #292C24; background: #0B0D0A; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-nav-item { position: relative; display: flex; min-height: 48px; align-items: center; gap: 8px; padding: 0 16px; color: #B4B4AA; font-size: 13px; font-weight: 600; text-decoration: none; } .ds-nav-item:hover { background: #0D0F0C; color: #F4F1E7; } .ds-nav-item:focus-visible { outline: 2px solid #E0BE45; outline-offset: -2px; } .ds-nav-item-active { color: #E0BE45; } .ds-nav-item-active::before { position: absolute; inset: 0 auto 0 0; width: 2px; background: #E0BE45; content: \"\"; } .ds-nav-icon { width: 22px; height: 22px; }"
+      "description": "The role-filtered bottom bar used at every width; short role sets center, while larger sets scroll when space is tight.",
+      "html": "<nav class=\"ds-bottom-nav\" aria-label=\"Primary\"><div class=\"ds-nav-items\"><a class=\"ds-nav-item ds-nav-item-active\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 4h6v6H4V4Zm10 0h6v6h-6V4ZM4 14h6v6H4v-6Zm10 0h6v6h-6v-6Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><span>Home</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M5 20v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2M9 7a3 3 0 1 0 6 0 3 3 0 0 0-6 0Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><span>Students</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 7h16v11H4zM7 7V5h10v2M4 11h16\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><span>Finance</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 5h16v12H8l-4 3V5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><span>Chats</span></a><a class=\"ds-nav-item\" href=\"#\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><circle cx=\"12\" cy=\"8\" r=\"3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/><path d=\"M5 20a7 7 0 0 1 14 0\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\"/></svg><span>Profile</span></a></div></nav>",
+      "css": ".ds-bottom-nav { overflow-x: auto; min-height: 64px; padding-top: 5px; border-top: 1px solid #41423B; background: #11120F; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; scrollbar-width: none; } .ds-bottom-nav::-webkit-scrollbar { display: none; } .ds-nav-items { display: flex; width: max-content; min-width: 100%; min-height: 56px; justify-content: center; padding: 0 8px; } .ds-nav-item { position: relative; display: flex; width: 76px; min-width: 64px; max-width: 112px; min-height: 56px; flex: 1 1 76px; flex-direction: column; align-items: center; justify-content: center; padding: 0 4px; color: #87877F; font-size: 9px; line-height: 12px; font-weight: 650; text-decoration: none; } .ds-nav-item svg { width: 21px; height: 21px; margin-bottom: 1px; } .ds-nav-item::before { position: absolute; top: -1px; left: 4px; right: 4px; height: 1px; background: transparent; content: \"\"; } .ds-nav-item:hover { color: #B6B3AA; } .ds-nav-item:focus-visible { outline: 2px solid #D9B84A; outline-offset: -2px; } .ds-nav-item-active { color: #D9B84A; } .ds-nav-item-active::before { background: #D9B84A; } @media (max-width: 380px) { .ds-nav-items[data-large-role=\"true\"] { justify-content: flex-start; padding: 0 4px; } .ds-nav-items[data-large-role=\"true\"] .ds-nav-item { width: 76px; min-width: 76px; flex: 0 0 76px; } }"
     },
     {
-      "name": "Day Ledger Row",
+      "name": "Login Atmosphere",
       "kind": "custom",
-      "refersTo": "ledger-row",
-      "description": "The signature chronological row for time, event, ownership, location, and labeled status.",
-      "html": "<div class=\"ds-ledger-row\"><div class=\"ds-ledger-time\"><strong>18:00</strong><span>19:30</span></div><div class=\"ds-ledger-marker\" aria-hidden=\"true\"><i></i></div><div class=\"ds-ledger-event\"><strong>QA Live Finance Group</strong><span>1 student · Live Teacher · QA Live</span></div><b class=\"ds-ledger-status\">Scheduled</b></div>",
-      "css": ".ds-ledger-row { display: grid; grid-template-columns: 74px 32px minmax(0, 1fr) auto; min-height: 88px; align-items: center; padding: 0 16px; border-bottom: 1px solid #292C24; background: #11130F; color: #F4F1E7; font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-ledger-time { display: grid; gap: 3px; font-variant-numeric: tabular-nums; } .ds-ledger-time strong { font-size: 16px; font-weight: 800; } .ds-ledger-time span { color: #85877D; font-size: 10px; } .ds-ledger-marker { position: relative; display: grid; align-self: stretch; place-items: center; } .ds-ledger-marker::before { position: absolute; inset-block: 0; width: 1px; background: #41453A; content: \"\"; } .ds-ledger-marker i { z-index: 1; width: 17px; height: 17px; border: 1px solid #E0BE45; border-radius: 999px; background: #11130F; } .ds-ledger-marker i::after { display: block; width: 7px; height: 7px; margin: 4px; border-radius: 999px; background: #E0BE45; content: \"\"; } .ds-ledger-event { display: grid; min-width: 0; gap: 4px; } .ds-ledger-event strong { font-size: 16px; font-weight: 750; } .ds-ledger-event span { overflow: hidden; color: #B4B4AA; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; } .ds-ledger-status { color: #E0BE45; font-size: 10px; font-weight: 800; letter-spacing: 0.35px; text-transform: uppercase; } @media (max-width: 520px) { .ds-ledger-row { grid-template-columns: 64px 24px minmax(0, 1fr) auto; padding: 0 12px; } .ds-ledger-event span { font-size: 11px; } }"
+      "refersTo": "login-panel",
+      "description": "A compact authentication panel over the lightweight public-site-derived gradient and static brass specks.",
+      "html": "<section class=\"ds-login-stage\"><span class=\"ds-speck ds-speck-a\"></span><span class=\"ds-speck ds-speck-b\"></span><span class=\"ds-speck ds-speck-c\"></span><div class=\"ds-login-panel\"><p class=\"ds-login-kicker\">Nurik's Academy</p><h3>Sign In</h3><p>Use your approved academy account</p></div></section>",
+      "css": ".ds-login-stage { position: relative; overflow: hidden; display: grid; min-height: 240px; place-items: center; padding: 24px; background: linear-gradient(90deg, rgba(8,9,7,.78), rgba(8,9,7,0), rgba(8,9,7,.78)), linear-gradient(180deg, #151208 0%, #0B0B0B 55%, #080907 100%); font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif; } .ds-speck { position: absolute; width: 2px; height: 2px; border-radius: 999px; background: #D4AF37; } .ds-speck-a { top: 14%; left: 7%; opacity: .28; } .ds-speck-b { top: 32%; left: 82%; opacity: .22; } .ds-speck-c { top: 76%; left: 78%; opacity: .16; } .ds-login-panel { z-index: 1; width: min(100%, 360px); padding: 24px; border: 1px solid #41423B; border-radius: 8px; background: rgba(17,18,15,.94); color: #F3F0E7; } .ds-login-panel h3 { margin: 16px 0 4px; padding-top: 16px; border-top: 1px solid #292A25; font-size: 26px; line-height: 31px; font-weight: 800; } .ds-login-panel p { margin: 0; color: #B6B3AA; font-size: 14px; } .ds-login-panel .ds-login-kicker { color: #D9B84A; font-size: 12px; font-weight: 700; letter-spacing: .45px; }"
     }
   ],
   "narrative": {
-    "northStar": "Day Ledger",
-    "overview": "Day Ledger turns academy operations into one continuous working register. Ink-black surfaces hold warm-white information, while brass gold identifies the current destination, the next valid action, and the moments that require deliberate attention. The mood is serious, direct, trustworthy, and pleasant: operational rather than promotional.\n\nStructure comes from tonal bands, hairline rules, aligned columns, and a visible chronology instead of stacked decorative cards. Wide screens use a compact role-aware rail and ledger columns; compact screens move navigation to a five-destination bottom bar and collapse records into a single readable flow. Small functional corners soften controls without making the product feel bubbly.\n\nThe login surface shares the same materials, logo, typography, borders, and gold action language. Across every surface, familiar controls, multilingual resilience, exact financial reading, and fast mobile work take precedence over decoration.",
+    "northStar": "Nurik's Institutional Register",
+    "overview": "Nurik's Institutional Register makes academy operations feel disciplined, branded, and dependable. Warm-black working fields carry warm-white information; brass gold identifies the current destination and the next valid action; the real academy mark establishes ownership before the interface asks anyone to work. The product is serious and pleasant, never promotional, childish, or styled like a futuristic AI dashboard.\n\nIdentity and current operational status lead the reading order. Familiar role tasks follow in stable groups, with one-pixel rules, flat tonal surfaces, compact type, and tabular values doing the organizational work. Decoration stays quiet enough for repeated use at reception, in lessons, and during finance review.\n\nThe same world extends to authentication through a compact form over a lightweight cross-platform gradient and sparse static gold specks derived from the public Nurik's Academy site. The atmosphere establishes family resemblance without importing marketing-page scale, motion, or composition.",
     "keyCharacteristics": [
-      "Ink-black tonal bands create the working canvas.",
-      "Brass gold marks active navigation and the single primary action.",
-      "Warm-white type and tabular numerals keep records legible.",
-      "Hairline rules organize chronology, columns, and grouped records.",
-      "Compact radii and restrained shadows keep the interface operational."
+      "Warm-black fields and warm-white copy create a focused operational canvas.",
+      "Brass gold marks active navigation, primary action, and decisive links with restraint.",
+      "The real academy mark and role identity lead before grouped work begins.",
+      "One-pixel rules, modest radii, and tabular values support fast scanning.",
+      "A persistent role-specific bottom bar preserves familiar destinations at every width."
     ],
     "rules": [
       {
@@ -256,29 +248,46 @@
         "section": "colors"
       },
       {
+        "name": "The Status Is Language Rule",
+        "body": "Semantic color reinforces a visible label, value, or icon; color never carries operational meaning by itself.",
+        "section": "colors"
+      },
+      {
         "name": "The Numeric Trust Rule",
-        "body": "Money, dates, times, and counts always use tabular numerals.",
+        "body": "Money, dates, times, counts, and dashboard values use tabular numerals.",
+        "section": "typography"
+      },
+      {
+        "name": "The Workhorse Type Rule",
+        "body": "System type carries controls and operational content; custom display type and oversized marketing headlines do not enter the app shell.",
         "section": "typography"
       },
       {
         "name": "The Flat Register Rule",
         "body": "Resting work surfaces stay flat; shadow belongs only to a menu, modal, or temporary overlay.",
         "section": "elevation"
+      },
+      {
+        "name": "The Quiet Atmosphere Rule",
+        "body": "The login gradient and gold specks are static background material, never glow, blur, parallax, or continuous animation.",
+        "section": "elevation"
       }
     ],
     "dos": [
-      "Do use gold for the active navigation marker, the primary action, and short decisive links.",
-      "Do organize dense information with one-pixel rules, flat tonal bands, and explicit labels.",
-      "Do keep interactive targets at least 48px high and inputs at least 52px high.",
+      "Do lead with the academy identity and current role or operational status.",
+      "Do preserve Academy overview, Today, Student Status, Staff Management, and Admin Tools as the familiar dashboard groups.",
+      "Do use gold for the active navigation rule, one primary action, and short decisive links.",
+      "Do keep interactive targets at least 48px and inputs at least 52px high.",
       "Do pair every status color with text and use tabular numerals for dates, times, counts, and UZS.",
-      "Do collapse wide ledger columns into a single readable flow on compact screens."
+      "Do keep every role-valid destination reachable in the persistent bottom bar, using horizontal scroll only when required."
     ],
     "donts": [
-      "Don't turn operational sections into nested floating card stacks.",
-      "Don't use large decorative radii, gradients, texture, heavy blur, or custom-display typography.",
-      "Don't fill the active navigation item with a rounded tile; use one gold edge marker.",
-      "Don't use shadows on resting content surfaces or color as the only status cue.",
-      "Don't introduce a second primary action inside the same task context."
+      "Don't replace familiar operational grouping with a timeline, novel dashboard narrative, or compensation-first summary.",
+      "Don't move primary navigation away from the persistent bottom bar or change the role's established route set for visual neatness.",
+      "Don't turn operational sections into nested floating card stacks or bento layouts.",
+      "Don't use large decorative radii, gradient text, texture, heavy blur, glow, huge type, or continuous animation.",
+      "Don't fill the active navigation item with a rounded tile; use one thin gold top rule.",
+      "Don't use shadows on resting content surfaces, color as the only status cue, or a second primary action in one task context."
     ]
   }
 }

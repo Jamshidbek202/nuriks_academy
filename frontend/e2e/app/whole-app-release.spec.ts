@@ -121,7 +121,7 @@ type Session = {
   dialogs: string[];
 };
 
-const roleLogins: Record<RoleKey, string> = REMOTE_LIVE_AUDIT ? {
+const roleLogins: Record<RoleKey, string> = {
   super_admin: '+998990000001',
   manager: '+998990000002',
   reception: '+998990000004',
@@ -129,14 +129,6 @@ const roleLogins: Record<RoleKey, string> = REMOTE_LIVE_AUDIT ? {
   student: '+998990000006',
   parent: '+998990000007',
   support: '+998990000008',
-} : {
-  super_admin: 'qa_superadmin',
-  manager: 'qa_manager_a',
-  reception: 'qa_reception_a',
-  teacher: 'qa_teacher_a',
-  student: 'qa_student_a',
-  parent: 'qa_parent_a',
-  support: 'qa_support_a',
 };
 
 type RoleTab = { name: string; path: RegExp };
@@ -146,9 +138,6 @@ const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
-    { name: 'Groups', path: /\/groups/ },
-    { name: 'Teachers', path: /\/teachers/ },
-    { name: 'Leads', path: /\/leads/ },
     { name: 'Chats', path: /\/chats/ },
     { name: 'Profile', path: /\/profile/ },
   ],
@@ -156,20 +145,18 @@ const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
-    { name: 'Groups', path: /\/groups/ },
-    { name: 'Teachers', path: /\/teachers/ },
     { name: 'Leads', path: /\/leads/ },
     { name: 'Profile', path: /\/profile/ },
   ],
   reception: [
     { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Students', path: /\/students/ },
     { name: 'Leads', path: /\/leads/ },
     { name: 'Payments', path: /\/finance/ },
+    { name: 'Students', path: /\/students/ },
     { name: 'Profile', path: /\/profile/ },
   ],
   teacher: [
-    { name: 'Today', path: /\/(?:$|\?)/ },
+    { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Groups', path: /\/groups/ },
     { name: 'Attendance', path: /\/attendance/ },
     { name: 'Earnings', path: /\/earnings/ },
@@ -204,42 +191,12 @@ const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
 };
 
 const phoneRoleTabs: Record<RoleKey, RoleTab[]> = {
-  super_admin: [
-    { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Students', path: /\/students/ },
-    { name: 'Finance', path: /\/finance/ },
-    { name: 'Chats', path: /\/chats/ },
-    { name: 'Profile', path: /\/profile/ },
-  ],
-  manager: [
-    { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Students', path: /\/students/ },
-    { name: 'Finance', path: /\/finance/ },
-    { name: 'Leads', path: /\/leads/ },
-    { name: 'Profile', path: /\/profile/ },
-  ],
+  super_admin: desktopRoleTabs.super_admin,
+  manager: desktopRoleTabs.manager,
   reception: desktopRoleTabs.reception,
-  teacher: [
-    { name: 'Today', path: /\/(?:$|\?)/ },
-    { name: 'Groups', path: /\/groups/ },
-    { name: 'Attendance', path: /\/attendance/ },
-    { name: 'Earnings', path: /\/earnings/ },
-    { name: 'More', path: /\/more/ },
-  ],
-  student: [
-    { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Groups', path: /\/groups/ },
-    { name: 'Homework', path: /\/homework/ },
-    { name: 'Payments', path: /\/payments/ },
-    { name: 'More', path: /\/more/ },
-  ],
-  parent: [
-    { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Progress', path: /\/progress/ },
-    { name: 'Homework', path: /\/homework/ },
-    { name: 'Payments', path: /\/payments/ },
-    { name: 'More', path: /\/more/ },
-  ],
+  teacher: desktopRoleTabs.teacher,
+  student: desktopRoleTabs.student,
+  parent: desktopRoleTabs.parent,
   support: desktopRoleTabs.support,
 };
 

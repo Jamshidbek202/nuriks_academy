@@ -15,7 +15,7 @@ const REMOTE_IDENTITIES: Record<string, string> = {
   qa_parent_a: '+998990000007',
   qa_support_a: '+998990000008',
 };
-const loginIdentity = (value: string) => REMOTE_LIVE_AUDIT ? (REMOTE_IDENTITIES[value] || value) : value;
+const loginIdentity = (value: string) => REMOTE_IDENTITIES[value] || value;
 
 const ids = {
   login: 'login-email-input',

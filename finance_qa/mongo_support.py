@@ -55,6 +55,20 @@ QA_USERS = {
     "support_a": "qa_support_a",
 }
 
+# Disposable phone identities let browser QA exercise the same formatted
+# phone-login path as production while retaining readable QA aliases for
+# direct setup calls and diagnostics.
+QA_PHONES = {
+    "super_admin": "+998990000001",
+    "manager_a": "+998990000002",
+    "manager_b": "+998990000003",
+    "reception_a": "+998990000004",
+    "teacher_a": "+998990000005",
+    "student_a": "+998990000006",
+    "parent_a": "+998990000007",
+    "support_a": "+998990000008",
+}
+
 
 async def ensure_qa_indexes(db) -> None:
     await db.users.create_index("login", unique=True)
@@ -100,21 +114,24 @@ async def seed_finance_qa_database(db) -> dict:
 
     password_hash = get_password_hash(QA_PASSWORD)
     user_templates = (
-        (QA_USERS["super_admin"], "QA Super Admin", "super_admin", None),
-        (QA_USERS["manager_a"], "QA Manager A", "manager", str(branch_a["_id"])),
-        (QA_USERS["manager_b"], "QA Manager B", "manager", str(branch_b["_id"])),
-        (QA_USERS["reception_a"], "QA Reception A", "reception", str(branch_a["_id"])),
-        (QA_USERS["teacher_a"], "Live Teacher", "teacher", str(branch_a["_id"])),
-        (QA_USERS["student_a"], "Live Student", "student", str(branch_a["_id"])),
-        (QA_USERS["parent_a"], "Live Parent", "parent", str(branch_a["_id"])),
-        (QA_USERS["support_a"], "Live Support", "support", str(branch_a["_id"])),
+        ("super_admin", QA_USERS["super_admin"], "QA Super Admin", "super_admin", None),
+        ("manager_a", QA_USERS["manager_a"], "QA Manager A", "manager", str(branch_a["_id"])),
+        ("manager_b", QA_USERS["manager_b"], "QA Manager B", "manager", str(branch_b["_id"])),
+        ("reception_a", QA_USERS["reception_a"], "QA Reception A", "reception", str(branch_a["_id"])),
+        ("teacher_a", QA_USERS["teacher_a"], "Live Teacher", "teacher", str(branch_a["_id"])),
+        ("student_a", QA_USERS["student_a"], "Live Student", "student", str(branch_a["_id"])),
+        ("parent_a", QA_USERS["parent_a"], "Live Parent", "parent", str(branch_a["_id"])),
+        ("support_a", QA_USERS["support_a"], "Live Support", "support", str(branch_a["_id"])),
     )
     users = {}
-    for login, full_name, role, branch_id in user_templates:
+    for fixture_key, login, full_name, role, branch_id in user_templates:
+        phone = QA_PHONES[fixture_key]
         await db.users.update_one(
             {"login": login},
             {"$setOnInsert": {
                 "login": login,
+                "phone": phone,
+                "phone_normalized": phone,
                 "password_hash": password_hash,
                 "full_name": full_name,
                 "role": role,
