@@ -21,6 +21,7 @@ export const LOGIN = {
 	// Legacy alias retained for the existing release test selector.
 	emailInput: 'login-email-input',
 	passwordInput: 'login-password-input',
+	passwordVisibilityButton: 'login-password-visibility-button',
 	submitButton: 'login-submit-button',
 	forgotPasswordLink: 'login-forgot-password-link',
 	registerLink: 'login-register-link',

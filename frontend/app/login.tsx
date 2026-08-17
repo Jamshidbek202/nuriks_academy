@@ -17,11 +17,13 @@ import { Text, TextInput } from '../src/components/LocalizedText';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useLanguage } from '../src/contexts/LanguageContext';
 import { COLORS, LAYOUT, SIZES } from '../src/constants/theme';
+import { formatUzbekPhoneInput, isCompleteUzbekPhone, normalizeUzbekPhone } from '../src/utils/phone';
 import { LOGIN } from '../constants/testIds';
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState('+998');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
   const { login: authLogin, sessionNotice, clearSessionNotice } = useAuth();
@@ -31,13 +33,15 @@ export default function LoginScreen() {
   const isWide = width >= 900;
 
   const handleLogin = async () => {
-    const trimmedPhone = phone.trim();
-    setPhone(trimmedPhone);
+    const normalizedPhone = normalizeUzbekPhone(phone);
+    setPhone(formatUzbekPhoneInput(phone));
     setErrorMessage('');
     clearSessionNotice();
 
-    if (!trimmedPhone || !password) {
-      const message = 'Please enter phone number and password';
+    if (!isCompleteUzbekPhone(phone) || !password) {
+      const message = !isCompleteUzbekPhone(phone)
+        ? t('Enter a complete phone number')
+        : t('Please enter phone number and password');
       setErrorMessage(message);
       Alert.alert('Error', message);
       return;
@@ -45,7 +49,7 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await authLogin(trimmedPhone, password);
+      await authLogin(normalizedPhone, password);
       router.replace('/(dashboard)');
     } catch (error: any) {
       const message = error.message || 'Invalid login or password';
@@ -117,8 +121,10 @@ export default function LoginScreen() {
                     placeholder="+998 90 123 45 67"
                     placeholderTextColor={COLORS.textTertiary}
                     value={phone}
-                    onChangeText={setPhone}
+                    onChangeText={(value) => setPhone(formatUzbekPhoneInput(value))}
                     keyboardType="phone-pad"
+                    textContentType="telephoneNumber"
+                    autoComplete="tel"
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="next"
@@ -137,12 +143,29 @@ export default function LoginScreen() {
                     placeholderTextColor={COLORS.textTertiary}
                     value={password}
                     onChangeText={setPassword}
-                    secureTextEntry
+                    secureTextEntry={!passwordVisible}
+                    textContentType="password"
+                    autoComplete="current-password"
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="done"
                     onSubmitEditing={handleLogin}
                   />
+                  <TouchableOpacity
+                    testID={LOGIN.passwordVisibilityButton}
+                    style={styles.passwordVisibilityButton}
+                    onPress={() => setPasswordVisible((visible) => !visible)}
+                    accessibilityRole="button"
+                    accessibilityLabel={t(passwordVisible ? 'Hide password' : 'Show password')}
+                    hitSlop={8}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={passwordVisible ? 'eye-off-outline' : 'eye-outline'}
+                      size={21}
+                      color={COLORS.textSecondary}
+                    />
+                  </TouchableOpacity>
                 </View>
               </View>
 
@@ -236,6 +259,7 @@ const styles = StyleSheet.create({
   label: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginBottom: SIZES.sm, fontWeight: '700' },
   inputWrapper: { minHeight: SIZES.inputHeight, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border },
   input: { flex: 1, minHeight: SIZES.inputHeight, paddingVertical: 12, fontSize: SIZES.fontMd, color: COLORS.textPrimary },
+  passwordVisibilityButton: { width: 44, height: 44, marginRight: -10, alignItems: 'center', justifyContent: 'center' },
   loginButton: { minHeight: 52, marginTop: SIZES.sm, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold, borderWidth: 1, borderColor: COLORS.goldLight },
   loginButtonDisabled: { opacity: 0.58 },
   loginButtonText: { fontSize: SIZES.fontMd, fontWeight: '800', color: COLORS.textOnGold },

@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../src/components/LocalizedText';
 import { api, apiErrorMessage } from '../src/services/api';
 import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
+import { formatUzbekPhoneInput, normalizeUzbekPhone } from '../src/utils/phone';
 import { ACTIVATE } from '../constants/testIds/auth';
 
 export default function ActivateAccountScreen() {
@@ -38,7 +39,7 @@ export default function ActivateAccountScreen() {
     }
     setLoading(true);
     try {
-      await api.post('/auth/invitations/accept', { phone: phone.trim(), code, password });
+      await api.post('/auth/invitations/accept', { phone: normalizeUzbekPhone(phone), code, password });
       Alert.alert('Account activated', 'Your password is ready. Sign in with your phone number.');
       router.replace('/login');
     } catch (error: any) {
@@ -53,7 +54,7 @@ export default function ActivateAccountScreen() {
     setErrorMessage('');
     setResending(true);
     try {
-      await api.post('/auth/invitations/resend', { phone: phone.trim() });
+      await api.post('/auth/invitations/resend', { phone: normalizeUzbekPhone(phone) });
       Alert.alert('Code requested', 'If this account is awaiting activation and Telegram is connected, a new code was sent.');
     } catch (error: any) {
       setErrorMessage(apiErrorMessage(error, 'Could not request another code'));
@@ -72,7 +73,7 @@ export default function ActivateAccountScreen() {
             {!!errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
 
             <Text style={styles.label}>Phone number</Text>
-            <TextInput testID={ACTIVATE.phoneInput} style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+998 90 123 45 67" />
+            <TextInput testID={ACTIVATE.phoneInput} style={styles.input} value={phone} onChangeText={(value) => setPhone(formatUzbekPhoneInput(value))} keyboardType="phone-pad" textContentType="telephoneNumber" autoComplete="tel" placeholder="+998 90 123 45 67" />
             <Text style={styles.label}>Six-digit code</Text>
             <TextInput testID={ACTIVATE.codeInput} style={styles.input} value={code} onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))} keyboardType="number-pad" placeholder="000000" />
             <Text style={styles.label}>New password</Text>

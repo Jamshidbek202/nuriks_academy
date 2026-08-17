@@ -14,6 +14,7 @@ import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../src/components/LocalizedText';
 import { api, apiErrorMessage } from '../src/services/api';
 import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
+import { formatUzbekPhoneInput, normalizeUzbekPhone } from '../src/utils/phone';
 import { PASSWORD_RESET } from '../constants/testIds/auth';
 
 export default function ForgotPasswordScreen() {
@@ -31,7 +32,7 @@ export default function ForgotPasswordScreen() {
     setLoading(true);
     setErrorMessage('');
     try {
-      await api.post('/auth/password-reset/request', { phone: phone.trim() });
+      await api.post('/auth/password-reset/request', { phone: normalizeUzbekPhone(phone) });
       setCodeRequested(true);
       Alert.alert('Code requested', 'If an active account uses this number and Telegram is connected, a reset code was sent.');
     } catch (error: any) {
@@ -53,7 +54,7 @@ export default function ForgotPasswordScreen() {
     }
     setLoading(true);
     try {
-      await api.post('/auth/password-reset/confirm', { phone: phone.trim(), code, password });
+      await api.post('/auth/password-reset/confirm', { phone: normalizeUzbekPhone(phone), code, password });
       Alert.alert('Password changed', 'Sign in with your new password.');
       router.replace('/login');
     } catch (error: any) {
@@ -73,7 +74,7 @@ export default function ForgotPasswordScreen() {
             {!!errorMessage && <Text style={styles.error}>{errorMessage}</Text>}
 
             <Text style={styles.label}>Phone number</Text>
-            <TextInput testID={PASSWORD_RESET.phoneInput} style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" editable={!codeRequested} placeholder="+998 90 123 45 67" />
+            <TextInput testID={PASSWORD_RESET.phoneInput} style={styles.input} value={phone} onChangeText={(value) => setPhone(formatUzbekPhoneInput(value))} keyboardType="phone-pad" textContentType="telephoneNumber" autoComplete="tel" editable={!codeRequested} placeholder="+998 90 123 45 67" />
 
             {!codeRequested ? (
               <TouchableOpacity testID={PASSWORD_RESET.requestButton} style={styles.primary} onPress={requestCode} disabled={loading}>
