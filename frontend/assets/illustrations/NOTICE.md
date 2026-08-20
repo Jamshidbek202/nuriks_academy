@@ -1,28 +1,13 @@
 # Third-party illustration notice
 
-`classroom.svg` is adapted from `woman-tutoring-classroom-dark.svg` in
-[Flowbite Illustrations](https://github.com/themesberg/flowbite-illustrations).
-The blue accent colors were changed to Nurik's Academy gold. `classroom.png`
-is the bundled raster export used by the mobile and web applications.
+`reader.svg` is adapted from `undraw_continuous-learning_a1ld.svg`, created by
+Katerina Limpitsouni for [unDraw](https://undraw.co/). The source SVG was
+obtained from the open GitHub collection at
+[`lgwanai/ppt-skill`](https://github.com/lgwanai/ppt-skill/tree/main/assets/Illustration).
 
-Flowbite Illustrations is distributed under the MIT License:
+The purple accent and neutral colors were changed to Nurik's Academy gold and
+warm charcoal. `reader.png` is the bundled raster export used by the web, iOS,
+and Android applications.
 
-Copyright (c) Themesberg
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+The original artwork is used under the
+[unDraw license](https://undraw.co/license).

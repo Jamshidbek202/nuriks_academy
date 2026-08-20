@@ -234,12 +234,11 @@ export default function LoginScreen() {
                   pointerEvents="none"
                   style={[styles.illustrationStage, !isWide && styles.illustrationStageCompact]}
                 >
-                  <View style={styles.illustrationGround} />
                   <Image
-                    source={require('../assets/illustrations/classroom.png')}
-                    style={[styles.classroomIllustration, !isWide && styles.classroomIllustrationCompact]}
+                    source={require('../assets/illustrations/reader.png')}
+                    style={styles.readerIllustration}
                     resizeMode="contain"
-                    accessibilityLabel={t('Teacher leading a classroom lesson')}
+                    accessibilityLabel={t('Student reading a book')}
                   />
                 </View>
               </Animated.View>
@@ -413,25 +412,14 @@ const styles = StyleSheet.create({
   systemName: { color: COLORS.gold, fontSize: SIZES.fontXs, marginTop: SIZES.xs, letterSpacing: 0.45 },
   brandIllustration: { width: '100%', marginTop: SIZES.md, alignItems: 'center' },
   illustrationStage: {
-    width: 430,
-    height: 338,
+    width: 300,
+    height: 248,
     maxWidth: '100%',
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  illustrationStageCompact: { width: 230, height: 184 },
-  illustrationGround: {
-    position: 'absolute',
-    left: '8%',
-    right: '8%',
-    bottom: '4%',
-    height: '20%',
-    borderRadius: 999,
-    backgroundColor: 'rgba(217,184,74,0.075)',
-    transform: [{ scaleY: 0.34 }],
-  },
-  classroomIllustration: { width: '100%', height: '100%' },
-  classroomIllustrationCompact: { width: '100%', height: '100%' },
+  illustrationStageCompact: { width: 138, height: 122 },
+  readerIllustration: { width: '100%', height: '100%' },
   brandNote: { maxWidth: 360, marginTop: SIZES.lg, paddingTop: SIZES.md, borderTopWidth: 1, borderTopColor: COLORS.goldHairline },
   brandNoteLabel: { color: COLORS.goldLight, fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.25 },
   brandNoteText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginTop: SIZES.sm },
