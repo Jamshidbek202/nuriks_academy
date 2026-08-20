@@ -1,35 +1,47 @@
 import { Platform } from 'react-native';
 
 // Nurik's Academy operational design system.
-// It shares the public site's near-black, ivory, and warm-gold identity while
-// remaining deliberately restrained for long administrative work sessions.
+// The palette keeps the public site's black-and-gold identity, then adds a
+// restrained material system that stays light enough for daily use
+// on older phones as well as the web dashboard.
 export const COLORS = {
   gold: '#D9B84A',
-  goldLight: '#E8CC72',
+  goldLight: '#F0D67B',
   goldDark: '#A9882D',
   goldMuted: '#716128',
+  goldGlass: 'rgba(217, 184, 74, 0.14)',
+  goldHairline: 'rgba(240, 214, 123, 0.34)',
+  coolGlass: 'rgba(94, 126, 160, 0.12)',
 
   // Legacy marble names remain as compatibility aliases used by existing
   // screens. Their values now map to the new neutral surface hierarchy.
-  marbleDark: '#0C0D0B',
-  marbleGray: '#292B25',
+  marbleDark: '#0A0C0D',
+  marbleGray: '#32352F',
   marbleMedium: '#5C5E56',
   marbleLight: '#95968F',
   marbleVeryLight: '#D2D0C7',
 
-  background: '#080907',
-  backgroundLight: '#0D0E0C',
-  backgroundCard: '#11120F',
-  backgroundElevated: '#171813',
-  backgroundSubtle: '#0A0B09',
+  // Route foundations are intentionally opaque. React Navigation keeps tab
+  // scenes mounted, so transparency here would expose the previous route.
+  background: '#070806',
+  backgroundSolid: '#050604',
+  backgroundLight: '#0D100D',
+  backgroundCard: '#121510',
+  backgroundElevated: '#191D16',
+  backgroundSubtle: '#0A0C09',
+
+  // Glass is opt-in and only belongs on bounded foreground surfaces.
+  glass: 'rgba(20, 24, 19, 0.88)',
+  glassStrong: 'rgba(25, 29, 23, 0.94)',
 
   textPrimary: '#F3F0E7',
   textSecondary: '#B6B3AA',
   textTertiary: '#87877F',
   textOnGold: '#11110D',
 
-  border: '#292A25',
-  borderStrong: '#41423B',
+  border: 'rgba(255, 255, 255, 0.085)',
+  borderStrong: 'rgba(240, 214, 123, 0.25)',
+  glassHighlight: 'rgba(255, 255, 255, 0.13)',
 
   success: '#67A873',
   warning: '#D7A13F',
@@ -56,11 +68,11 @@ export const SIZES = {
   fontXl: 26,
   fontXxl: 34,
 
-  radiusXs: 4,
-  radiusSm: 6,
-  radiusMd: 8,
-  radiusLg: 10,
-  radiusXl: 12,
+  radiusXs: 8,
+  radiusSm: 12,
+  radiusMd: 16,
+  radiusLg: 20,
+  radiusXl: 24,
   radiusFull: 999,
 
   touchTarget: 48,
@@ -93,16 +105,17 @@ export const TYPOGRAPHY = {
   numeric: { fontVariant: ['tabular-nums'] as ('tabular-nums')[] },
 };
 
-// Quiet shadows avoid expensive, blurred "floating" UI on older Android
-// devices while preserving hierarchy on iOS and web.
+// Soft black shadows establish elevation without colored glow. Repeated cards
+// stay nearly flat; heavier shadows are reserved for bounded heroes/modals so
+// long Android lists remain responsive.
 export const SHADOWS = {
   small: Platform.select({
-    web: { boxShadow: '0 1px 1px rgba(0,0,0,0.18)' } as any,
-    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 1, elevation: 0 },
+    web: { boxShadow: '0 3px 10px rgba(0,0,0,0.14)' } as any,
+    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.10, shadowRadius: 4, elevation: 1 },
   }),
   medium: Platform.select({
-    web: { boxShadow: '0 8px 24px rgba(0,0,0,0.18)' } as any,
-    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.16, shadowRadius: 8, elevation: 3 },
+    web: { boxShadow: '0 14px 38px rgba(0,0,0,0.28)' } as any,
+    default: { shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.20, shadowRadius: 18, elevation: 4 },
   }),
   large: Platform.select({
     web: { boxShadow: '0 18px 48px rgba(0,0,0,0.28)' } as any,
@@ -114,8 +127,9 @@ export const SURFACES = {
   card: {
     backgroundColor: COLORS.backgroundCard,
     borderWidth: 1,
-    borderColor: COLORS.border,
+    borderColor: COLORS.glassHighlight,
     borderRadius: SIZES.radiusMd,
+    ...SHADOWS.small,
   },
   inset: {
     backgroundColor: COLORS.backgroundLight,

@@ -1,7 +1,10 @@
 import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Linking,
   Modal,
   RefreshControl,
@@ -13,6 +16,7 @@ import {
 } from 'react-native';
 import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -326,6 +330,7 @@ export default function FinanceScreen() {
   const isReception = role === 'reception';
   const isSuperAdmin = role === 'super_admin';
   const [activeTab, setActiveTab] = useState<FinanceTab>(isReception ? 'receivables' : 'overview');
+  const tabProgress = useRef(new Animated.Value(1)).current;
   const [month, setMonth] = useState(currentMonth());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -438,6 +443,25 @@ export default function FinanceScreen() {
   const [replacementForm, setReplacementForm] = useState({
     starts_at: `${tashkentDate()}T09:00`, ends_at: `${tashkentDate()}T10:30`, reason: '',
   });
+
+  useEffect(() => {
+    let mounted = true;
+    tabProgress.setValue(0);
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
+      if (!mounted) return;
+      if (reduceMotion) {
+        tabProgress.setValue(1);
+        return;
+      }
+      Animated.timing(tabProgress, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => { mounted = false; };
+  }, [activeTab, tabProgress]);
 
   const studentMap = useMemo(
     () => Object.fromEntries(students.map((student) => [student.id, student])),
@@ -1350,16 +1374,7 @@ export default function FinanceScreen() {
 
   const renderOverview = () => position && (
     <>
-      <View style={styles.modeBanner}>
-        <Ionicons name={position.operation_mode === 'shadow' ? 'eye' : 'radio'} size={20} color={COLORS.gold} />
-        <View style={styles.flex}>
-          <Text style={styles.modeTitle}>{position.operation_mode === 'shadow' ? 'Parallel shadow mode' : 'Live finance mode'}</Text>
-          <Text style={styles.modeText}>
-            {position.is_provisional ? 'This month is provisional; drafts or the current period can still change.' : 'This period contains finalized financial records.'}
-          </Text>
-        </View>
-      </View>
-      <Section title="Needs attention" subtitle="Start here. These queues are ordered by work staff must resolve, not by accounting terminology.">
+      <Section title="Needs attention" subtitle="Open work is shown first so the daily finance routine starts with action, not reports.">
         <View style={styles.workQueueGrid}>
           <WorkQueueItem icon="card" label="Transfers to verify" value={unresolvedCardReports.length} tone="warning" onPress={() => setActiveTab('online')} />
           <WorkQueueItem icon="call" label="Payment calls" value={callList.length} tone="warning" onPress={() => setActiveTab('receivables')} />
@@ -1368,53 +1383,40 @@ export default function FinanceScreen() {
           <WorkQueueItem icon="people-circle" label="Unpaid payroll" value={earnings.filter((row) => row.outstanding_amount_uzs > 0).length} onPress={() => setActiveTab('payroll')} />
         </View>
       </Section>
-      <Section title={`Month close · ${month}`} subtitle="Draft generation is repeatable. Finalization fails closed if any source changed or any scheduled lesson is unresolved.">
-        <View style={styles.actionRow}>
-          <Button
-            testID={FINANCE.recalculateDrafts}
-            title="Recalculate drafts"
-            variant="outline"
-            style={styles.flexButton}
-            loading={busy === 'drafts'}
-            onPress={() => void runAction('drafts', () => api.post('/finance/invoices/generate-drafts', {
-              service_month: month,
-              branch_id: null,
-            }), 'Draft invoices recalculated from current locked source data.')}
-          />
-          <Button
-            testID={FINANCE.finalizeMonth}
-            title="Finalize month"
-            style={styles.flexButton}
-            loading={busy === 'finalize'}
-            onPress={finalizeSelectedMonth}
-          />
+      <FinancialPositionCard position={position} month={month} />
+      <Section title="Cash and debt" subtitle="Collections and outstanding balances are kept separate from accrued revenue.">
+        <View style={styles.financeDetailGrid}>
+          <FinanceDetailMetric testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle-outline" color={COLORS.info} />
+          <FinanceDetailMetric testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card-outline" color={COLORS.success} />
+          <FinanceDetailMetric testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash-outline" color={COLORS.gold} />
+          <FinanceDetailMetric testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass-outline" color={COLORS.warning} />
+          <FinanceDetailMetric testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle-outline" color={COLORS.error} />
         </View>
       </Section>
-      <View style={styles.kpiGrid}>
-        <Kpi testID={FINANCE.accruedRevenue} label="Accrued revenue" value={position.net_tuition_uzs + position.other_income_uzs} icon="trending-up" color={COLORS.success} />
-        <Kpi testID={FINANCE.accruedProfit} label="Accrued profit" value={position.accrued_operating_profit_uzs} icon="pie-chart" color={position.accrued_operating_profit_uzs >= 0 ? COLORS.gold : COLORS.error} />
-        <Kpi testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle" color={COLORS.info} />
-        <Kpi testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card" color={COLORS.success} />
-        <Kpi testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} icon="wallet" color={COLORS.gold} />
-        <Kpi testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash" color={COLORS.gold} />
-        <Kpi testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass" color={COLORS.warning} />
-        <Kpi testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle" color={COLORS.error} />
+      <View style={styles.overviewColumns}>
+        <View style={styles.overviewColumn}><Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
+          <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
+          <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
+          <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
+          <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
+        </Section></View>
+        <View style={styles.overviewColumn}><Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
+          <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
+          {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
+          <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
+          <MoneyRow testID={FINANCE.salaryOutstanding} label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
+          <MoneyRow testID={FINANCE.expensesOutstanding} label="Expense outstanding" value={position.expenses_outstanding_uzs} />
+          <MoneyRow testID={FINANCE.cashOutflow} label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
+          <MoneyRow testID={FINANCE.advances} label="Student advances held" value={position.advance_balances_uzs} />
+        </Section></View>
       </View>
-      <Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
-        <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
-        <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
-        <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
-        <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
-      </Section>
-      <Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
-        <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
-        {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
-        <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
-        <MoneyRow testID={FINANCE.salaryOutstanding} label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
-        <MoneyRow testID={FINANCE.expensesOutstanding} label="Expense outstanding" value={position.expenses_outstanding_uzs} />
-        <MoneyRow testID={FINANCE.cashOutflow} label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
-        <MoneyRow testID={FINANCE.advances} label="Student advances held" value={position.advance_balances_uzs} />
-      </Section>
+      <View style={styles.monthCloseCard}>
+        <View style={styles.monthCloseCopy}><View style={styles.monthCloseIcon}><Ionicons name="lock-closed-outline" size={22} color={COLORS.gold} /></View><View style={styles.flex}><Text style={styles.monthCloseTitle}>Month close · {month}</Text><Text style={styles.monthCloseText}>Recalculate safely, then finalize only when all scheduled lessons and source records are resolved.</Text></View></View>
+        <View style={styles.monthCloseActions}>
+          <Button testID={FINANCE.recalculateDrafts} title="Recalculate drafts" variant="outline" style={styles.flexButton} loading={busy === 'drafts'} onPress={() => void runAction('drafts', () => api.post('/finance/invoices/generate-drafts', { service_month: month, branch_id: null }), 'Draft invoices recalculated from current locked source data.')} />
+          <Button testID={FINANCE.finalizeMonth} title="Finalize month" style={styles.flexButton} loading={busy === 'finalize'} onPress={finalizeSelectedMonth} />
+        </View>
+      </View>
     </>
   );
 
@@ -2156,15 +2158,17 @@ export default function FinanceScreen() {
         </ScrollView>
       )}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInset} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
-        {activeTab === 'overview' && renderOverview()}
-        {activeTab === 'receivables' && renderReceivables()}
-        {activeTab === 'online' && renderOnlinePayments()}
-        {activeTab === 'expenses' && renderExpenses()}
-        {activeTab === 'payroll' && renderPayroll()}
-        {!isReception && activeTab === 'cash' && renderCash()}
-        {activeTab === 'pricing' && renderPricing()}
-        {activeTab === 'closures' && renderClosures()}
-        <View style={styles.bottomSpace} />
+        <Animated.View style={{ opacity: tabProgress, transform: [{ translateY: tabProgress.interpolate({ inputRange: [0, 1], outputRange: [7, 0] }) }] }}>
+          {activeTab === 'overview' && renderOverview()}
+          {activeTab === 'receivables' && renderReceivables()}
+          {activeTab === 'online' && renderOnlinePayments()}
+          {activeTab === 'expenses' && renderExpenses()}
+          {activeTab === 'payroll' && renderPayroll()}
+          {!isReception && activeTab === 'cash' && renderCash()}
+          {activeTab === 'pricing' && renderPricing()}
+          {activeTab === 'closures' && renderClosures()}
+          <View style={styles.bottomSpace} />
+        </Animated.View>
       </ScrollView>
     </View>
   );
@@ -2175,13 +2179,70 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 }
 
 function WorkQueueItem({ icon, label, value, tone, onPress }: { icon: string; label: string; value: number; tone?: 'warning'; onPress: () => void }) {
-  const color = tone === 'warning' && value > 0 ? COLORS.warning : COLORS.gold;
+  const color = value > 0 ? (tone === 'warning' ? COLORS.warning : COLORS.gold) : COLORS.textTertiary;
   return (
     <TouchableOpacity accessibilityRole="button" style={styles.workQueueItem} onPress={onPress}>
-      <View style={[styles.workQueueIcon, { backgroundColor: color + '18' }]}><Ionicons name={icon as any} size={20} color={color} /></View>
+      <Ionicons name={icon as any} size={21} color={color} />
       <View style={styles.flex}><Text style={styles.workQueueLabel}>{label}</Text><Text style={styles.workQueueHint}>{value > 0 ? 'Open queue' : 'Nothing waiting'}</Text></View>
       <Text style={[styles.workQueueValue, { color }]}>{value}</Text>
     </TouchableOpacity>
+  );
+}
+
+function FinancialPositionCard({ position, month }: { position: Position; month: string }) {
+  const profitColor = position.accrued_operating_profit_uzs >= 0 ? COLORS.goldLight : COLORS.error;
+  return (
+    <View style={styles.financialPositionCard}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(217,184,74,0.16)', 'rgba(25,29,22,0.98)', 'rgba(10,12,9,0.98)']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.positionHeader}>
+        <View>
+          <Text style={styles.positionTitle}>Financial position</Text>
+          <Text style={styles.positionPeriod}>{month} · earned, collected, and accrued</Text>
+        </View>
+        <View style={styles.positionStatus}>
+          <Ionicons name={position.operation_mode === 'shadow' ? 'eye-outline' : 'radio-outline'} size={16} color={COLORS.gold} />
+          <Text style={styles.positionStatusText}>{position.operation_mode === 'shadow' ? 'Shadow mode' : 'Live mode'} · {position.is_provisional ? 'Provisional' : 'Finalized'}</Text>
+        </View>
+      </View>
+      <View style={styles.positionBody}>
+        <View testID={FINANCE.accruedProfit} style={styles.positionLead}>
+          <Text style={styles.positionLabel}>Accrued operating profit</Text>
+          <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.64} style={[styles.positionLeadValue, { color: profitColor }]}>{uzs(position.accrued_operating_profit_uzs)}</Text>
+          <Text style={styles.positionHint}>Revenue earned minus salaries and operating expenses accrued.</Text>
+        </View>
+        <View style={styles.positionLedger}>
+          <PositionLedgerRow testID={FINANCE.accruedRevenue} label="Accrued revenue" value={position.net_tuition_uzs + position.other_income_uzs} color={COLORS.success} />
+          <PositionLedgerRow testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} color={COLORS.info} last />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function PositionLedgerRow({ label, value, color, testID, last = false }: { label: string; value: number; color: string; testID?: string; last?: boolean }) {
+  return (
+    <View testID={testID} style={[styles.positionLedgerRow, last && styles.positionLedgerRowLast]}>
+      <View style={[styles.positionDot, { backgroundColor: color }]} />
+      <Text style={styles.positionLedgerLabel}>{label}</Text>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.positionLedgerValue}>{uzs(value)}</Text>
+    </View>
+  );
+}
+
+function FinanceDetailMetric({ label, value, icon, color, testID }: { label: string; value: number; icon: string; color: string; testID?: string }) {
+  return (
+    <View testID={testID} style={styles.financeDetailMetric}>
+      <Ionicons name={icon as any} size={19} color={color} />
+      <View style={styles.flex}><Text style={styles.financeDetailLabel}>{label}</Text></View>
+      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.financeDetailValue, { color: value < 0 ? COLORS.error : COLORS.textPrimary }]}>{uzs(value)}</Text>
+    </View>
   );
 }
 
@@ -2229,8 +2290,8 @@ function FinanceActionModal({
   );
 }
 
-function Kpi({ label, value, icon, color, testID }: { label: string; value: number; icon: string; color: string; testID?: string }) {
-  return <View testID={testID} style={styles.kpi}><Ionicons name={icon as any} size={20} color={color} /><Text style={styles.kpiValue}>{uzs(value)}</Text><Text style={styles.kpiLabel}>{label}</Text></View>;
+function Kpi({ label, value, icon, color, testID, featured = false }: { label: string; value: number; icon: string; color: string; testID?: string; featured?: boolean }) {
+  return <View testID={testID} style={[styles.kpi, featured && styles.kpiFeatured, { borderTopColor: color }]}><View style={[styles.kpiIcon, { backgroundColor: color + '18', borderColor: color + '45' }]}><Ionicons name={icon as any} size={20} color={color} /></View><Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={[styles.kpiValue, featured && styles.kpiValueFeatured]}>{uzs(value)}</Text><Text style={styles.kpiLabel}>{label}</Text></View>;
 }
 
 function MoneyRow({ label, value, strong, negative, valuePrefix = '', valueSuffix = '', raw = false, testID }: { label: string; value: number; strong?: boolean; negative?: boolean; valuePrefix?: string; valueSuffix?: string; raw?: boolean; testID?: string }) {
@@ -2260,37 +2321,69 @@ function OutgoingPanel({ outgoing, amount, setAmount, busy, onPay, onCancel }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
-  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: '800' },
-  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, maxWidth: 270 },
+  header: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
+  title: { color: COLORS.textPrimary, fontSize: 30, lineHeight: 36, fontWeight: '850' as any },
+  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, maxWidth: 520, lineHeight: 20 },
   monthInput: { width: 180, marginBottom: 0 },
-  tabScroll: { flexGrow: 0, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
-  tabs: { paddingHorizontal: SIZES.md, paddingBottom: 0, gap: 2 },
-  tabsWrapped: { flexDirection: 'row', flexWrap: 'wrap', paddingTop: SIZES.sm },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, height: 48, borderRadius: 0, backgroundColor: 'transparent', borderBottomWidth: 2, borderBottomColor: 'transparent' },
-  activeTab: { borderBottomColor: COLORS.gold },
+  tabScroll: { flexGrow: 0, width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, overflow: 'hidden' },
+  tabs: { padding: SIZES.xs, gap: SIZES.xs, alignItems: 'center' },
+  tabsWrapped: { flexDirection: 'row', flexWrap: 'wrap' },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, minHeight: 46, borderRadius: SIZES.radiusMd, backgroundColor: 'transparent', borderWidth: 1, borderColor: 'transparent' },
+  activeTab: { borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass },
   tabText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600' },
   activeTabText: { color: COLORS.gold },
   content: { flex: 1 },
-  contentInset: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
-  modeBanner: { flexDirection: 'row', gap: SIZES.md, backgroundColor: COLORS.gold + '08', borderLeftWidth: 2, borderLeftColor: COLORS.gold + '88', padding: SIZES.md, marginBottom: SIZES.md },
+  contentInset: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.lg, paddingBottom: SIZES.xxl },
+  modeBanner: { flexDirection: 'row', gap: SIZES.md, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusLg, padding: SIZES.md, marginBottom: SIZES.md },
   modeTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   modeText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
-  workQueueGrid: { flexDirection: 'row', flexWrap: 'wrap', borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.border },
-  workQueueItem: { flexGrow: 1, flexBasis: 220, minHeight: 66, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.sm, borderRadius: 0, backgroundColor: 'transparent', borderBottomWidth: StyleSheet.hairlineWidth, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray },
-  workQueueIcon: { width: 34, height: 39, alignItems: 'flex-start', justifyContent: 'center', borderRadius: 0 },
+  financeHeroGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md, marginBottom: SIZES.lg },
+  workQueueGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
+  workQueueItem: { flexGrow: 1, flexBasis: 220, minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.border },
   workQueueLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   workQueueHint: { color: COLORS.textTertiary, fontSize: 11, marginTop: 2 },
   workQueueValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontXl, fontWeight: '800' },
+  financialPositionCard: { position: 'relative', padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: COLORS.goldHairline, overflow: 'hidden', ...SHADOWS.medium },
+  positionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md, paddingBottom: SIZES.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.glassHighlight },
+  positionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
+  positionPeriod: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: SIZES.xs },
+  positionStatus: { minHeight: 38, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusFull, backgroundColor: COLORS.goldGlass },
+  positionStatusText: { color: COLORS.textSecondary, fontSize: 11, fontWeight: '700' },
+  positionBody: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: SIZES.lg, paddingTop: SIZES.lg },
+  positionLead: { flex: 1.2, minWidth: 260, justifyContent: 'center' },
+  positionLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '700' },
+  positionLeadValue: { color: COLORS.goldLight, fontSize: 38, lineHeight: 45, fontWeight: '850' as any, letterSpacing: -0.8, marginTop: SIZES.sm, fontVariant: ['tabular-nums'] },
+  positionHint: { maxWidth: 420, color: COLORS.textTertiary, fontSize: 11, lineHeight: 17, marginTop: SIZES.sm },
+  positionLedger: { flex: 1, minWidth: 260, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: 'rgba(7,8,6,0.58)', overflow: 'hidden' },
+  positionLedgerRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
+  positionLedgerRowLast: { borderBottomWidth: 0 },
+  positionDot: { width: 7, height: 7, borderRadius: 4 },
+  positionLedgerLabel: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
+  positionLedgerValue: { maxWidth: '52%', color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', textAlign: 'right', fontVariant: ['tabular-nums'] },
+  financeDetailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
+  financeDetailMetric: { flexGrow: 1, flexBasis: 280, minWidth: 240, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight },
+  financeDetailLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm },
+  financeDetailValue: { maxWidth: '46%', color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '800', textAlign: 'right', fontVariant: ['tabular-nums'] },
   flex: { flex: 1 },
-  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 0, marginBottom: SIZES.lg, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border },
-  kpi: { minWidth: '46%', flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderRightWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border, padding: SIZES.md },
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
+  kpi: { minWidth: 180, flexGrow: 1, flexBasis: 200, minHeight: 128, justifyContent: 'flex-end', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderTopWidth: 3, borderColor: COLORS.border, padding: SIZES.md, ...SHADOWS.small },
+  kpiFeatured: { flexBasis: 300, minHeight: 172, backgroundColor: COLORS.backgroundElevated, padding: SIZES.lg },
+  kpiIcon: { position: 'absolute', top: SIZES.md, right: SIZES.md, width: 38, height: 38, borderRadius: SIZES.radiusSm, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   kpiValue: { color: COLORS.textPrimary, fontWeight: '800', fontSize: SIZES.fontMd, marginTop: SIZES.sm, fontVariant: ['tabular-nums'] },
+  kpiValueFeatured: { fontSize: 28, lineHeight: 34, color: COLORS.textPrimary },
   kpiLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs },
-  section: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.border, padding: SIZES.md, marginBottom: SIZES.lg },
+  overviewColumns: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: SIZES.md },
+  overviewColumn: { flex: 1, minWidth: 300 },
+  section: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, marginBottom: SIZES.lg, ...SHADOWS.small },
   sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   sectionSubtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: SIZES.xs },
   sectionBody: { marginTop: SIZES.md },
+  monthCloseCard: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: SIZES.lg, padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.backgroundElevated, ...SHADOWS.medium },
+  monthCloseCopy: { flex: 2, minWidth: 260, flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+  monthCloseIcon: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  monthCloseTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
+  monthCloseText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 18, marginTop: SIZES.xs },
+  monthCloseActions: { flex: 1, minWidth: 280, flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
   moneyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: SIZES.sm, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray, paddingVertical: SIZES.sm },
   moneyLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, flex: 1 },
   moneyValue: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '600', textAlign: 'right', fontVariant: ['tabular-nums'] },
@@ -2299,7 +2392,7 @@ const styles = StyleSheet.create({
   barBlock: { marginBottom: SIZES.md },
   barTrack: { height: 8, borderRadius: 4, backgroundColor: COLORS.backgroundLight, marginTop: SIZES.sm, overflow: 'hidden' },
   barFill: { height: 8, borderRadius: 4 },
-  recordCard: { backgroundColor: 'transparent', borderRadius: 0, padding: SIZES.md, marginBottom: 0, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.marbleGray },
+  recordCard: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.border },
   recordTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.sm },
   recordTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700', flex: 1 },
   recordMeta: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
@@ -2337,7 +2430,7 @@ const styles = StyleSheet.create({
   receiptNoticeWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '77' },
   receiptNoticeText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontXs, lineHeight: 18 },
   modalOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SIZES.md, backgroundColor: '#000000B8' },
-  modalCard: { width: '100%', maxWidth: 540, maxHeight: '90%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', ...SHADOWS.large },
+  modalCard: { width: '100%', maxWidth: 540, maxHeight: '90%', backgroundColor: COLORS.backgroundElevated, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', ...SHADOWS.large },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
   modalTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   modalSubtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: SIZES.xs },

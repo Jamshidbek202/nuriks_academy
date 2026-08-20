@@ -12,10 +12,10 @@ if (existsSync(source)) {
 const htmlPath = join(__dirname, '..', 'dist', 'index.html');
 const designContract = `<!--
 THESIS: Nurik's Academy operations feel like a disciplined branded register, not a marketing page, children's product, or futuristic AI dashboard.
-OWN-WORLD: Warm black fields, brass-gold active markers, warm-white copy, the real academy mark, precise rules, and role-specific controls.
+OWN-WORLD: Warm black fields, quiet liquid-glass panels, brass-gold active markers, warm-white copy, the real academy mark, and precise controls.
 STORY: Identity and current operational status lead; familiar role tasks follow; decorative content never competes with the work.
 FIRST VIEWPORT: Academy identity, overview, today and status, and the original role bottom navigation; login uses a compact panel over quiet gold atmosphere.
-FORM: Serious institutional register, user-pinned direction, seed 6abe2f43.
+FORM: Layered but restrained institutional glass, user-pinned direction, seed 6abe2f43.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
 -->`;
 

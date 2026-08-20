@@ -9,14 +9,14 @@ export default function Root({ children }: PropsWithChildren) {
         Impeccable direction · seed 6abe2f43
         THESIS: Nurik's Academy operations feel like a disciplined branded register,
         not a marketing page, children's product, or futuristic AI dashboard.
-        OWN-WORLD: warm black fields, brass-gold active markers, warm-white copy,
-        the real academy mark, precise rules, and role-specific controls.
+        OWN-WORLD: warm black fields, quiet liquid-glass panels, brass-gold active
+        markers, warm-white copy, the real academy mark, and precise controls.
         STORY: identity and current operational status lead; familiar role tasks
         follow; decorative content never competes with the work.
         FIRST VIEWPORT: academy identity, overview, today/status, and the original
         role bottom navigation; login uses a compact panel over quiet gold atmosphere.
-        FORM: modest radii, flat ruled surfaces, tabular values, 48px touch targets,
-        minimal motion, and no glass, bento, gradient text, glow, or huge type.
+        FORM: layered but restrained operational glass, tabular values, 48px touch
+        targets, minimal motion, and no bento, gradient text, glow, or huge type.
         FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md
       */}
       <head>

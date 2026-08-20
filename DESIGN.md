@@ -3,20 +3,24 @@ name: Nurik's Academy Operations Platform
 description: A disciplined branded register for clear, role-aware academy operations.
 colors:
   gold: "#D9B84A"
-  gold-light: "#E8CC72"
+  gold-light: "#F0D67B"
   gold-dark: "#A9882D"
   gold-muted: "#716128"
-  background: "#080907"
-  background-light: "#0D0E0C"
-  background-card: "#11120F"
-  background-elevated: "#171813"
-  background-subtle: "#0A0B09"
+  background-solid: "#050604"
+  background: "#070806"
+  background-light: "#0D100D"
+  background-card: "#121510"
+  background-elevated: "#191D16"
+  background-subtle: "#0A0C09"
+  glass: "rgba(20, 24, 19, 0.88)"
+  glass-strong: "rgba(25, 29, 23, 0.94)"
   text-primary: "#F3F0E7"
   text-secondary: "#B6B3AA"
   text-tertiary: "#87877F"
   text-on-gold: "#11110D"
-  border: "#292A25"
-  border-strong: "#41423B"
+  border: "rgba(255, 255, 255, 0.10)"
+  border-strong: "rgba(240, 214, 123, 0.25)"
+  glass-highlight: "rgba(255, 255, 255, 0.13)"
   success: "#67A873"
   warning: "#D7A13F"
   error: "#D86B57"
@@ -53,11 +57,11 @@ typography:
     lineHeight: 1.333
     letterSpacing: "0.4px"
 rounded:
-  xs: "4px"
-  sm: "6px"
-  md: "8px"
-  lg: "10px"
-  xl: "12px"
+  xs: "8px"
+  sm: "12px"
+  md: "16px"
+  lg: "20px"
+  xl: "24px"
   full: "999px"
 spacing:
   xs: "4px"
@@ -104,7 +108,7 @@ components:
     width: "76px"
     height: "56px"
   navigation-item-active:
-    backgroundColor: "transparent"
+    backgroundColor: "rgba(217, 184, 74, 0.14)"
     textColor: "{colors.gold}"
     padding: "0 4px"
     width: "76px"
@@ -122,18 +126,19 @@ components:
 
 **Creative North Star: "Nurik's Institutional Register"**
 
-Nurik's Institutional Register makes academy operations feel disciplined, branded, and dependable. Warm-black working fields carry warm-white information; brass gold identifies the current destination and the next valid action; the real academy mark establishes ownership before the interface asks anyone to work. The product is serious and pleasant, never promotional, childish, or styled like a futuristic AI dashboard.
+Nurik's Institutional Register makes academy operations feel disciplined, branded, and dependable. Warm-black working fields carry warm-white information; brass gold identifies the current destination and the next valid action; the real academy mark establishes ownership before the interface asks anyone to work. A quiet glass layer and restrained atmospheric color give the product finish without turning it into a promotional, childish, or futuristic AI dashboard.
 
-Identity and current operational status lead the reading order. Familiar role tasks follow in stable groups, with one-pixel rules, flat tonal surfaces, compact type, and tabular values doing the organizational work. Decoration stays quiet enough for repeated use at reception, in lessons, and during finance review.
+Identity and current operational status lead the reading order. Familiar role tasks follow in stable groups, with one-pixel rules, solid tonal surfaces, compact type, and tabular values doing the organizational work. Decoration stays quiet enough for repeated use at reception, in lessons, and during finance review.
 
-The same world extends to authentication through a compact form over a lightweight cross-platform gradient and sparse static gold specks derived from the public Nurik's Academy site. The atmosphere establishes family resemblance without importing marketing-page scale, motion, or composition.
+The same world extends to authentication through a compact glass form over a lightweight cross-platform gradient, restrained warm and cool light pools, and sparse static gold specks derived from the public Nurik's Academy site. The atmosphere establishes family resemblance without importing marketing-page scale, motion, or composition.
 
 **Key Characteristics:**
 
 - Warm-black fields and warm-white copy create a focused operational canvas.
 - Brass gold marks active navigation, primary action, and decisive links with restraint.
 - The real academy mark and role identity lead before grouped work begins.
-- One-pixel rules, modest radii, and tabular values support fast scanning.
+- One-pixel highlights, generous but controlled radii, and tabular values support fast scanning.
+- Liquid-glass material is reserved for the shell and important summaries; ordinary lists stay inexpensive and responsive.
 - A persistent role-specific bottom bar preserves familiar destinations at every width.
 
 ## Colors
@@ -156,7 +161,8 @@ The palette combines low-chroma warm blacks with a scarce brass accent and seman
 
 ### Neutral
 
-- **Warm Black Canvas** (`background`): the application canvas and deepest persistent field.
+- **Warm Black Foundation** (`background-solid`): the deepest persistent shell field.
+- **Opaque Working Canvas** (`background`): the route-isolation boundary painted by every tab scene and page.
 - **Inset Warm Black** (`background-light`): inputs and quiet inset controls.
 - **Register Surface** (`background-card`): bounded records, summary groups, the bottom bar, and form panels.
 - **Raised Register** (`background-elevated`): the tonal step for genuinely emphasized surfaces.
@@ -165,14 +171,17 @@ The palette combines low-chroma warm blacks with a scarce brass accent and seman
 - **Quiet Warm Gray** (`text-secondary`): descriptions and supporting labels.
 - **Dim Warm Gray** (`text-tertiary`): metadata, placeholders, and inactive navigation.
 - **Ink on Brass** (`text-on-gold`): high-contrast content on gold controls.
-- **Hairline Rule** (`border`): routine record and field separation.
+- **Hairline Rule** (`border`): routine record and field separation on solid surfaces.
 - **Strong Rule** (`border-strong`): major boundaries, focused regions, and outlined controls.
+- **Glass Highlight** (`glass-highlight`): the fine light-catching edge on glass panels.
 
 ### Named Rules
 
 **The Brass Scarcity Rule.** Gold marks the current selection, one primary action, or a decisive link; it is never a decorative wash.
 
 **The Status Is Language Rule.** Semantic color reinforces a visible label, value, or icon; color never carries operational meaning by itself.
+
+**The Route Isolation Rule.** Every navigator scene, loading view, empty state, and operational page paints an opaque canvas. Atmospheric gradients belong to the active route only; glass is never used as a full-screen foundation.
 
 ## Typography
 
@@ -200,7 +209,9 @@ The palette combines low-chroma warm blacks with a scarce brass accent and seman
 
 The core spacing rhythm is 4, 8, 16, 24, 32, 48, and 64px. Standard page padding is 24px on wider screens and 16px below the compact dashboard threshold. The shared content container is capped at 1240px, readable content at 760px, and forms at 560px.
 
-The dashboard keeps its original groups and reading order: Academy overview, Today, Student Status, Staff Management, and, for authorized super administrators, Admin Tools. The overview presents four metrics across when room permits and a 2×2 arrangement on compact screens. Today and Student Status sit side by side at wider widths and stack below 760px. Staff and admin actions use two columns when each row can retain useful width, then become one readable column on compact screens.
+The dashboard keeps every familiar route and authority boundary while using a clearer reading order: one strong Today register, one live academy-status surface, then people/schedule actions and lower-frequency academy tools. The Today register gives the current lesson count visual priority and keeps bookings and student counts compact; it stacks cleanly below 760px. Staff and admin actions use two columns when each row can retain useful width, then become one readable column on compact screens.
+
+Finance is organized by work before terminology. Needs Attention comes first, followed by one coherent Financial Position surface that keeps accrued profit, accrued revenue, and collections visibly distinct. Cash/debt, revenue bridge, obligations, and month close follow as separate solid operational regions. Reception continues to receive its restricted student-payment workspace rather than the centre-wide finance hierarchy.
 
 Navigation is a persistent bottom bar at every width. Role sets of five or fewer destinations remain centered and width-constrained instead of stretching across a desktop viewport. Larger role sets retain every familiar destination; on narrow screens they scroll horizontally with 76px-wide, 56px-high items so targets remain at least 48px. The bar accounts for the platform safe area and content retains enough bottom padding to remain unobscured.
 
@@ -208,23 +219,25 @@ Authentication remains one compact, centered column. The academy identity leads,
 
 ## Elevation & Depth
 
-The system is flat by default. Tonal shifts and one-pixel rules distinguish resting surfaces; the shared bottom navigation explicitly disables shadow and platform elevation. Small shadow is nearly imperceptible, while medium and large shadows are reserved for menus, modals, and temporary overlays that genuinely sit above the workspace.
+The system uses three quiet layers: an opaque warm-black route canvas, a route-owned low-contrast atmospheric accent, and solid operational surfaces. True platform blur is limited to the login panel, navigation, and one important summary; repeated scrolling cards use opaque tonal fills and a restrained black shadow, keeping Android, iOS, and web responsive. Gold never becomes a glow.
 
 ### Shadow Vocabulary
 
-- **Quiet Edge** (`0 1px 1px rgba(0,0,0,0.18)`): minimal web separation where a hairline alone is insufficient.
-- **Temporary Overlay** (`0 8px 24px rgba(0,0,0,0.18)`): menus, popovers, and medium transient surfaces.
+- **Resting Glass** (`0 8px 22px rgba(0,0,0,0.20)`): low, soft separation for important cards and navigation.
+- **Temporary Overlay** (`0 14px 38px rgba(0,0,0,0.28)`): menus, popovers, and medium transient surfaces.
 - **Modal Lift** (`0 18px 48px rgba(0,0,0,0.28)`): large modal or overlay separation only.
 
 ### Named Rules
 
-**The Flat Register Rule.** Resting work surfaces stay flat; shadow belongs only to a menu, modal, or temporary overlay.
+**The Layered Register Rule.** Depth communicates grouping, not spectacle: a resting surface may have one soft black shadow, while nested records rely on tonal separation.
 
-**The Quiet Atmosphere Rule.** The login gradient and gold specks are static background material, never glow, blur, parallax, or continuous animation.
+**The Quiet Atmosphere Rule.** Gradient pools and gold specks are static background material, never parallax, colored glow, or continuous animation.
+
+**The Trustworthy Motion Rule.** Home sections may enter once with a restrained 6–10px rise and short stagger; Finance may transition only when the user changes tabs. Live money refreshes and all numeric values update directly without counting, bounce, shimmer, or repeated animation. Reduced-motion settings disable these transitions.
 
 ## Shapes
 
-Corners are compact and functional: 4px for small icon frames and details, 6px for buttons, fields, dashboard records, and compact controls, 8px for ordinary cards and the login panel, 10px for larger grouped controls, and 12px only where an established larger shell needs it. Circular status dots, badges, and avatars use the full 999px radius. Structural bands and navigation remain square so their ruled edges join cleanly.
+Corners are friendly but controlled: 8px for small details, 12px for buttons and compact controls, 16px for fields and ordinary cards, 20px for important grouped panels, and 24px for major authentication or summary surfaces. Circular status dots, badges, and avatars use the full 999px radius. Nested radii step down consistently so panels still read as operational rather than playful.
 
 Borders are normally one pixel and low contrast. Stronger rules identify major region boundaries, fields, or explicitly outlined controls; they do not become decorative frames. Content clips only when a bounded control or grouped row set requires it.
 
@@ -234,41 +247,46 @@ Borders are normally one pixel and low contrast. Stronger rules identify major r
 
 Buttons are direct, compact, and task-specific.
 
-- **Shape:** functional 6px corners with a minimum 48px target; the login primary action is 52px high.
+- **Shape:** controlled 12px corners with a minimum 48px target; the login primary action is 52px high.
 - **Primary:** academy-brass fill, ink-on-brass 800-weight label, and a one-pixel lit-brass border; use once per task context.
 - **Hover / Focus:** preserve the color role, show a visible two-pixel brass outline on web, and use restrained opacity feedback for press state.
 - **Disabled / Loading:** lower opacity without losing the control's silhouette; replace the label with a correctly colored progress indicator while work is pending.
 
 ### Cards / Containers
 
-Containers are bounded operational records, not decorative tiles.
+Containers are bounded, mostly solid operational records, not decorative tiles. Glass is an opt-in focal material rather than a global card treatment.
 
-- **Metric Records:** 6px corners, one hairline border, 16px padding, a tabular value, and a short supporting label; four across or 2×2 compact.
+- **Today Register:** one 24px bounded anchor with a dominant current-work value, compact supporting facts, and restrained brand geometry rather than a peer grid of generic KPIs.
+- **Financial Position:** one large, solid high-trust surface containing accrued profit as the lead value and ruled accrued-revenue/collection rows; never three unrelated decorative money cards.
 - **Summary Groups:** one bounded surface containing 58px ruled rows for Today or Student Status.
-- **Action Rows:** 6px corners, a 38px outlined icon frame, label, description, and forward cue; two columns wide and one column compact.
-- **Login Panel:** a single 8px form surface with a strong border and 24px padding over the quiet atmosphere.
-- **Shadow Strategy:** flat at rest; use the elevation vocabulary only when a container becomes an overlay.
+- **Action Rows:** 16px corners, a 38px outlined icon frame, label, description, and forward cue; two columns wide and one column compact.
+- **Login Panel:** a single 24px blurred form surface with a highlight border and 24px padding over the quiet atmosphere.
+- **Shadow Strategy:** one soft black resting shadow may separate a major raised surface; nested rows stay tonal and shadow-free.
 
 ### Inputs / Fields
 
 Inputs feel substantial and native without becoming oversized.
 
-- **Style:** inset-warm-black fill, strong-rule stroke, 6px corners, 16px horizontal padding, and a 52px minimum height.
+- **Style:** inset-warm-black fill, strong-rule stroke, 16px corners, 16px horizontal padding, and a 52px minimum height.
 - **Focus:** a visible academy-brass border or outline without glow or layout shift.
 - **Error / Disabled:** use exception coral for error border and supporting copy; disabled states reduce opacity while retaining readable text.
 - **Labels:** quiet-warm-gray text at 14px and 600–700 weight, separated from the field by 8px.
 
 ### Navigation
 
-The role-filtered navigation stays at the bottom on phone, tablet, and desktop. Each item combines a familiar icon with a short translated label. The active item remains transparent and gains one thin gold top rule; inactive content uses dim warm gray. Five or fewer destinations form a centered constrained group. Larger role sets keep every route and scroll horizontally only when the available width cannot preserve their touch targets. Navigation never uses a filled rounded selection tile.
+The role-filtered navigation stays at the bottom on phone, tablet, and desktop. The bar uses a restrained blurred surface and glass highlight. Each item combines a familiar icon with a short translated label. The active item gains a low-opacity gold pill and a thin gold rule; inactive content uses dim warm gray. Five or fewer destinations form a centered constrained group. Larger role sets keep every route and scroll horizontally only when the available width cannot preserve their touch targets.
 
 ### Operational Dashboard Groups
 
-Academy overview establishes current counts first. Today and Student Status present familiar summaries in ruled rows. Staff Management and permission-gated Admin Tools follow as labeled action rows. These groups preserve operational memory and route authority; they are not reinterpreted as a timeline, compensation summary, or novel information architecture.
+Today establishes current work first. Academy status presents current population, team, and student-journey facts inside one live register. Staff Management and permission-gated Admin Tools follow as labeled action rows. These groups preserve operational memory and route authority; they are not reinterpreted as a timeline or compensation summary.
 
 ### Login Atmosphere
 
-The login uses the real academy mark, a compact form panel, a lightweight cross-platform warm-black gradient, and sparse static gold specks derived from `nuriks-academy.uz`. It has no continuous animation, blur, glow, promotional copy block, or oversized type. Error and session-ended notices remain visibly distinct through their semantic border and icon colors.
+The login uses the real academy mark, a compact blurred form panel, a lightweight cross-platform warm-black gradient, restrained warm/cool light pools, and sparse static gold specks derived from `nuriks-academy.uz`. It has no continuous animation, colored glow, promotional copy block, or oversized type. Error and session-ended notices remain visibly distinct through their semantic border and icon colors.
+
+### Learning Illustration
+
+Illustration is brand-owned, geometric, and lightweight: the Nurik's mark, open-book/learning glyphs, orbital lines, and sparse points assembled from cross-platform vector icons and native shapes. It may support Login and the Student/Parent learning identity, but never Finance or dense staff records. Stock characters, mascots, classroom clip-art, and generic startup illustration libraries are excluded.
 
 ## Do's and Don'ts
 
@@ -280,12 +298,14 @@ The login uses the real academy mark, a compact form panel, a lightweight cross-
 - **Do** keep interactive targets at least 48px and inputs at least 52px high.
 - **Do** pair every status color with text and use tabular numerals for dates, times, counts, and UZS.
 - **Do** keep every role-valid destination reachable in the persistent bottom bar, using horizontal scroll only when required.
+- **Do** keep route canvases, dense lists, forms, and modal cards opaque; use glass only for bounded focal surfaces.
 
 ### Don't:
 
 - **Don't** replace familiar operational grouping with a timeline, novel dashboard narrative, or compensation-first summary.
 - **Don't** move primary navigation away from the persistent bottom bar or change the role's established route set for visual neatness.
 - **Don't** turn operational sections into nested floating card stacks or bento layouts.
-- **Don't** use large decorative radii, gradient text, texture, heavy blur, glow, huge type, or continuous animation.
-- **Don't** fill the active navigation item with a rounded tile; use one thin gold top rule.
-- **Don't** use shadows on resting content surfaces, color as the only status cue, or a second primary action in one task context.
+- **Don't** use bubble-like radii, gradient text, texture, heavy full-screen blur, colored glow, huge type, or continuous animation.
+- **Don't** make the active navigation pill brighter than the primary action or remove its thin gold rule.
+- **Don't** stack multiple shadows, use color as the only status cue, or introduce a second primary action in one task context.
+- **Don't** make a navigator scene transparent or allow inactive route content to show beneath the active page.

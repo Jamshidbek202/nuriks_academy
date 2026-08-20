@@ -16,7 +16,7 @@ function RootNavigator() {
         key={language}
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: COLORS.background },
+          contentStyle: { backgroundColor: COLORS.backgroundSolid },
         }}
       >
         <Stack.Screen name="index" />

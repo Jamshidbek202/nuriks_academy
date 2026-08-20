@@ -8,17 +8,20 @@ import {
   ScrollView,
   StyleSheet,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../src/components/LocalizedText';
 import { useAuth } from '../src/contexts/AuthContext';
 import { useLanguage } from '../src/contexts/LanguageContext';
-import { COLORS, LAYOUT, SIZES } from '../src/constants/theme';
+import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
 import { formatUzbekPhoneInput, isCompleteUzbekPhone, normalizeUzbekPhone } from '../src/utils/phone';
 import { LOGIN } from '../constants/testIds';
+import { AcademyIllustration } from '../src/components/AcademyIllustration';
 
 const AMBIENT_SPECKS = [
   { left: '7%', top: '14%', size: 2, opacity: 0.28 },
@@ -57,6 +60,20 @@ function BrandAtmosphere() {
         end={{ x: 1, y: 0.5 }}
         style={StyleSheet.absoluteFill}
       />
+      <LinearGradient
+        colors={['rgba(217,184,74,0.24)', 'rgba(217,184,74,0.04)', 'rgba(217,184,74,0)']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0.1, y: 0.1 }}
+        end={{ x: 0.9, y: 0.9 }}
+        style={[styles.ambientPool, styles.ambientPoolGold]}
+      />
+      <LinearGradient
+        colors={['rgba(73,99,126,0.16)', 'rgba(73,99,126,0.03)', 'rgba(73,99,126,0)']}
+        locations={[0, 0.52, 1]}
+        start={{ x: 0.1, y: 0.15 }}
+        end={{ x: 0.9, y: 0.85 }}
+        style={[styles.ambientPool, styles.ambientPoolCool]}
+      />
       {AMBIENT_SPECKS.map((speck, index) => (
         <View
           key={index}
@@ -86,6 +103,8 @@ export default function LoginScreen() {
   const { login: authLogin, sessionNotice, clearSessionNotice } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isWide = width >= 900;
 
   const handleLogin = async () => {
     const normalizedPhone = normalizeUzbekPhone(phone);
@@ -120,8 +139,8 @@ export default function LoginScreen() {
       <View style={styles.container}>
         <BrandAtmosphere />
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-          <View style={styles.shell}>
-            <View style={styles.brand}>
+          <View style={[styles.shell, isWide && styles.shellWide]}>
+            <View style={[styles.brand, isWide && styles.brandWide]}>
               <Image
                 source={require('../assets/images/logo.png')}
                 style={styles.logo}
@@ -130,9 +149,27 @@ export default function LoginScreen() {
               />
               <Text style={styles.academyName}>Nurik&apos;s Academy</Text>
               <Text style={styles.systemName}>{t('Academy management system')}</Text>
+              <View style={styles.brandIllustration}>
+                <AcademyIllustration variant="login" compact={!isWide} />
+              </View>
+              {isWide && (
+                <View style={styles.brandNote}>
+                  <Text style={styles.brandNoteLabel}>{t('ONE ACADEMY · ONE SYSTEM')}</Text>
+                  <Text style={styles.brandNoteText}>{t('Classes, progress, communication, and finance in one secure workspace.')}</Text>
+                </View>
+              )}
             </View>
 
-            <View style={styles.formPanel}>
+            <View style={styles.formColumn}>
+              <View style={styles.formPanel}>
+              <BlurView pointerEvents="none" tint="dark" intensity={38} style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0.075)', 'rgba(217,184,74,0.025)', 'rgba(255,255,255,0.008)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
               <View style={styles.formHeading}>
                 <Text style={styles.title}>{t('Sign In')}</Text>
                 <Text style={styles.subtitle}>{t('Use your approved academy account')}</Text>
@@ -242,11 +279,12 @@ export default function LoginScreen() {
                   <Text style={styles.primaryLink}>{t('I have an invitation code')}</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+              </View>
 
-            <View style={styles.accessNote}>
-              <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.textTertiary} />
-              <Text style={styles.accessNoteText}>{t('Access is limited to approved Nurik’s Academy accounts')}</Text>
+              <View style={styles.accessNote}>
+                <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.textTertiary} />
+                <Text style={styles.accessNoteText}>{t('Access is limited to approved Nurik’s Academy accounts')}</Text>
+              </View>
             </View>
           </View>
         </ScrollView>
@@ -259,14 +297,24 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, backgroundColor: COLORS.background },
   atmosphere: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
+  ambientPool: { position: 'absolute', borderRadius: 999 },
+  ambientPoolGold: { width: '88%', aspectRatio: 1.12, top: '-28%', right: '-28%', transform: [{ rotate: '-14deg' }] },
+  ambientPoolCool: { width: '74%', aspectRatio: 1.06, bottom: '-32%', left: '-30%', transform: [{ rotate: '16deg' }] },
   ambientSpeck: { position: 'absolute', backgroundColor: '#D4AF37' },
   scrollContent: { flexGrow: 1, justifyContent: 'center', padding: SIZES.lg, position: 'relative' },
   shell: { width: '100%', maxWidth: LAYOUT.formMaxWidth, alignSelf: 'center' },
+  shellWide: { maxWidth: 1040, flexDirection: 'row', alignItems: 'center', gap: 72 },
   brand: { alignItems: 'center', marginBottom: SIZES.xl },
+  brandWide: { flex: 1, alignItems: 'flex-start', marginBottom: 0 },
   logo: { width: 76, height: 76, marginBottom: SIZES.md },
   academyName: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 31, fontWeight: '800', letterSpacing: -0.4 },
   systemName: { color: COLORS.gold, fontSize: SIZES.fontXs, marginTop: SIZES.xs, letterSpacing: 0.45 },
-  formPanel: { backgroundColor: 'rgba(17,18,15,0.94)', borderWidth: 1, borderColor: COLORS.borderStrong, borderRadius: SIZES.radiusMd, padding: SIZES.lg },
+  brandIllustration: { marginTop: SIZES.lg },
+  brandNote: { maxWidth: 360, marginTop: SIZES.lg, paddingTop: SIZES.md, borderTopWidth: 1, borderTopColor: COLORS.goldHairline },
+  brandNoteLabel: { color: COLORS.goldLight, fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.25 },
+  brandNoteText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginTop: SIZES.sm },
+  formColumn: { width: '100%', maxWidth: LAYOUT.formMaxWidth },
+  formPanel: { backgroundColor: 'rgba(17,20,18,0.60)', borderWidth: 1, borderColor: COLORS.glassHighlight, borderRadius: SIZES.radiusLg, padding: SIZES.lg, overflow: 'hidden', ...SHADOWS.medium },
   formHeading: { marginBottom: SIZES.lg, paddingBottom: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 31, fontWeight: '800', letterSpacing: -0.3 },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs },

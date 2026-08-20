@@ -9,9 +9,11 @@ import {
   RefreshControl,
   Platform,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../../src/services/api';
@@ -31,6 +33,8 @@ const showAlert = (title: string, message: string) => {
 export default function ChatsScreen() {
   const { user } = useAuth();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const compact = width < 760;
   const [conversations, setConversations] = useState<any[]>([]);
   const [contacts, setContacts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -176,103 +180,128 @@ export default function ChatsScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Messages</Text>
-        <View style={styles.headerBadge}>
-          <Text style={styles.headerBadgeText}>
-            {conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0)} unread
-          </Text>
+    <View testID="chats-screen" style={styles.container}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(217,184,74,0.105)', 'rgba(217,184,74,0.02)', 'rgba(7,8,6,0)']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0.92, y: 0 }}
+        end={{ x: 0.1, y: 1 }}
+        style={styles.pageAtmosphere}
+      />
+      <View style={[styles.pageShell, compact && styles.pageShellCompact]}>
+        <View style={[styles.header, compact && styles.headerCompact]}>
+          <View style={styles.headerIdentity}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="chatbubbles-outline" size={22} color={COLORS.gold} />
+            </View>
+            <Text style={[styles.headerTitle, compact && styles.headerTitleCompact]}>Messages</Text>
+          </View>
+          <View style={[styles.headerBadge, conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0) === 0 && styles.headerBadgeQuiet]}>
+            <Text style={[styles.headerBadgeText, conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0) === 0 && styles.headerBadgeTextQuiet]}>
+              {conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0) === 0
+                ? 'All caught up'
+                : `${conversations.reduce((sum, c) => sum + (c.unread_count || 0), 0)} unread`}
+            </Text>
+          </View>
         </View>
-      </View>
 
-      {user?.role === 'super_admin' && (
-        <View style={styles.adminFilterShell}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminFilterContent}>
-            {adminRoleFilters.map((filter) => (
-              <TouchableOpacity
-                key={filter.key}
-                style={[
-                  styles.adminFilterButton,
-                  adminRoleFilter === filter.key && styles.adminFilterButtonActive,
-                ]}
-                onPress={() => setAdminRoleFilter(filter.key)}
-              >
-                <Text
-                  style={[
-                    styles.adminFilterText,
-                    adminRoleFilter === filter.key && styles.adminFilterTextActive,
-                  ]}
-                >
-                  {filter.label}
-                </Text>
+        <View style={styles.controlPanel}>
+          {user?.role === 'super_admin' && (
+            <View style={styles.adminFilterShell}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminFilterContent}>
+                {adminRoleFilters.map((filter) => (
+                  <TouchableOpacity
+                    key={filter.key}
+                    style={[
+                      styles.adminFilterButton,
+                      adminRoleFilter === filter.key && styles.adminFilterButtonActive,
+                    ]}
+                    onPress={() => setAdminRoleFilter(filter.key)}
+                  >
+                    <Text
+                      style={[
+                        styles.adminFilterText,
+                        adminRoleFilter === filter.key && styles.adminFilterTextActive,
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color={COLORS.textTertiary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder={activeTab === 'chats' ? 'Search chats...' : 'Search contacts...'}
+              placeholderTextColor={COLORS.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Clear message search" style={styles.clearButton} onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color={COLORS.textTertiary} />
               </TouchableOpacity>
-            ))}
-          </ScrollView>
+            ) : null}
+          </View>
+
+          <View style={[styles.tabContainer, !compact && styles.tabContainerWide]}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'chats' && styles.activeTab]}
+              onPress={() => setActiveTab('chats')}
+            >
+              <Text style={[styles.tabText, activeTab === 'chats' && styles.activeTabText]}>
+                Chats ({conversations.length})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === 'contacts' && styles.activeTab]}
+              onPress={() => setActiveTab('contacts')}
+            >
+              <Text
+                  style={[
+                    styles.tabText,
+                    activeTab === 'contacts' && styles.activeTabText,
+                  ]}
+              >
+                Contacts ({contacts.length})
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      )}
 
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={COLORS.textTertiary} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search conversations..."
-          placeholderTextColor={COLORS.textTertiary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-        {searchQuery ? (
-          <TouchableOpacity onPress={() => setSearchQuery('')}>
-            <Ionicons name="close-circle" size={20} color={COLORS.textTertiary} />
-          </TouchableOpacity>
-        ) : null}
-      </View>
-
-      {/* Tabs */}
-      <View style={styles.tabContainer}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'chats' && styles.activeTab]}
-          onPress={() => setActiveTab('chats')}
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadData();
+              }}
+              tintColor={COLORS.gold}
+            />
+          }
         >
-          <Text style={[styles.tabText, activeTab === 'chats' && styles.activeTabText]}>
-            Chats ({conversations.length})
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'contacts' && styles.activeTab]}
-          onPress={() => setActiveTab('contacts')}
-        >
-          <Text style={[styles.tabText, activeTab === 'contacts' && styles.activeTabText]}>
-            Contacts ({contacts.length})
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Content */}
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => {
-              setRefreshing(true);
-              loadData();
-            }}
-            tintColor={COLORS.gold}
-          />
-        }
-      >
         {activeTab === 'chats' ? (
           // Conversations List
           filteredConversations.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="chatbubble-ellipses-outline" size={60} color={COLORS.textTertiary} />
+              <View style={styles.emptyIcon}>
+                <Ionicons name="chatbubble-ellipses-outline" size={30} color={COLORS.gold} />
+              </View>
               <Text style={styles.emptyTitle}>No Conversations</Text>
               <Text style={styles.emptyText}>
                 Start a conversation from the Contacts tab
               </Text>
+              <TouchableOpacity style={styles.emptyAction} onPress={() => setActiveTab('contacts')}>
+                <Text style={styles.emptyActionText}>View contacts</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             filteredConversations.map((conv) => (
@@ -331,7 +360,9 @@ export default function ChatsScreen() {
           // Contacts List
           filteredContacts.length === 0 ? (
             <View style={styles.emptyContainer}>
-              <Ionicons name="people-outline" size={60} color={COLORS.textTertiary} />
+              <View style={styles.emptyIcon}>
+                <Ionicons name="people-outline" size={30} color={COLORS.gold} />
+              </View>
               <Text style={styles.emptyTitle}>No Contacts</Text>
               <Text style={styles.emptyText}>
                 {user?.role === 'student' 
@@ -386,7 +417,8 @@ export default function ChatsScreen() {
             ))
           )
         )}
-      </ScrollView>
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -396,6 +428,9 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  pageAtmosphere: { position: 'absolute', top: 0, left: 0, right: 0, height: 300 },
+  pageShell: { flex: 1, width: '100%', maxWidth: 1040, alignSelf: 'center', paddingHorizontal: SIZES.lg },
+  pageShellCompact: { paddingHorizontal: SIZES.md },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -426,45 +461,55 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: SIZES.headerTop,
-    paddingHorizontal: SIZES.lg,
-    paddingBottom: SIZES.md,
-    backgroundColor: COLORS.marbleDark,
+    paddingBottom: SIZES.lg,
   },
+  headerCompact: { paddingBottom: SIZES.md },
+  headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+  headerIcon: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
   headerTitle: {
-    fontSize: SIZES.fontXxl,
-    fontWeight: 'bold',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
     color: COLORS.textPrimary,
   },
+  headerTitleCompact: { fontSize: 26, lineHeight: 32 },
   headerBadge: {
-    backgroundColor: COLORS.gold + '30',
+    backgroundColor: COLORS.goldGlass,
     paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.xs,
+    minHeight: 36,
+    justifyContent: 'center',
     borderRadius: SIZES.radiusFull,
+    borderWidth: 1,
+    borderColor: COLORS.goldHairline,
   },
+  headerBadgeQuiet: { backgroundColor: COLORS.backgroundCard, borderColor: COLORS.border },
   headerBadgeText: {
     fontSize: SIZES.fontSm,
     color: COLORS.gold,
     fontWeight: '600',
   },
+  headerBadgeTextQuiet: { color: COLORS.textSecondary },
+  controlPanel: { padding: SIZES.sm, marginBottom: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
   adminFilterShell: {
-    backgroundColor: COLORS.marbleDark,
+    backgroundColor: 'transparent',
     paddingBottom: SIZES.sm,
   },
   adminFilterContent: {
-    paddingHorizontal: SIZES.md,
+    paddingHorizontal: 0,
     gap: SIZES.sm,
   },
   adminFilterButton: {
     paddingHorizontal: SIZES.md,
-    paddingVertical: SIZES.sm,
+    minHeight: 42,
+    justifyContent: 'center',
     borderRadius: SIZES.radiusFull,
     borderWidth: 1,
     borderColor: COLORS.marbleGray,
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundLight,
   },
   adminFilterButtonActive: {
-    backgroundColor: COLORS.gold,
-    borderColor: COLORS.gold,
+    backgroundColor: COLORS.goldGlass,
+    borderColor: COLORS.goldHairline,
   },
   adminFilterText: {
     fontSize: SIZES.fontSm,
@@ -472,34 +517,37 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   adminFilterTextActive: {
-    color: COLORS.marbleDark,
+    color: COLORS.goldLight,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: COLORS.backgroundCard,
-    marginHorizontal: SIZES.md,
-    marginVertical: SIZES.sm,
+    minHeight: 48,
+    backgroundColor: COLORS.backgroundLight,
     paddingHorizontal: SIZES.md,
     borderRadius: SIZES.radiusMd,
     borderWidth: 1,
-    borderColor: COLORS.marbleGray,
+    borderColor: COLORS.border,
   },
   searchInput: {
     flex: 1,
+    minHeight: 46,
     paddingVertical: SIZES.sm,
     paddingHorizontal: SIZES.sm,
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
   },
+  clearButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -SIZES.sm },
   tabContainer: {
     flexDirection: 'row',
-    marginHorizontal: SIZES.md,
-    marginBottom: SIZES.sm,
-    backgroundColor: COLORS.backgroundCard,
+    marginTop: SIZES.sm,
+    backgroundColor: COLORS.backgroundLight,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.xs,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
+  tabContainerWide: { width: 380, alignSelf: 'flex-end' },
   tab: {
     flex: 1,
     paddingVertical: SIZES.sm,
@@ -507,7 +555,9 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusSm,
   },
   activeTab: {
-    backgroundColor: COLORS.gold,
+    backgroundColor: COLORS.goldGlass,
+    borderWidth: 1,
+    borderColor: COLORS.goldHairline,
   },
   tabText: {
     fontSize: SIZES.fontSm,
@@ -515,18 +565,24 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
   },
   activeTabText: {
-    color: COLORS.marbleDark,
+    color: COLORS.goldLight,
   },
   content: {
     flex: 1,
-    paddingHorizontal: SIZES.md,
   },
+  contentContainer: { flexGrow: 1, paddingBottom: SIZES.xxl },
   emptyContainer: {
     flex: 1,
+    minHeight: 320,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: SIZES.xl * 2,
+    padding: SIZES.xl,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundCard,
   },
+  emptyIcon: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
   emptyTitle: {
     fontSize: SIZES.fontLg,
     fontWeight: 'bold',
@@ -540,6 +596,8 @@ const styles = StyleSheet.create({
     marginTop: SIZES.xs,
     paddingHorizontal: SIZES.lg,
   },
+  emptyAction: { minHeight: 44, marginTop: SIZES.md, paddingHorizontal: SIZES.lg, alignItems: 'center', justifyContent: 'center', borderRadius: SIZES.radiusMd, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  emptyActionText: { color: COLORS.goldLight, fontSize: SIZES.fontSm, fontWeight: '700' },
   conversationCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -547,6 +605,8 @@ const styles = StyleSheet.create({
     borderRadius: SIZES.radiusMd,
     padding: SIZES.md,
     marginBottom: SIZES.sm,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   avatarContainer: {

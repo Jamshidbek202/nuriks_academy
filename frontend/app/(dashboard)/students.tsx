@@ -10,18 +10,22 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
-import { COLORS, SIZES } from '../../src/constants/theme';
+import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  const compact = width < 760;
   const [students, setStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -257,130 +261,186 @@ export default function StudentsScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.headerTitle}>Students</Text>
-          <Text style={styles.headerSubtitle}>
-            {students.length} {isReception ? 'students · read-only payment view' : `${statusFilter === 'current' ? 'current' : statusFilter} students`}
-          </Text>
+    <View testID="students-screen" style={styles.container}>
+      <LinearGradient
+        pointerEvents="none"
+        colors={['rgba(217,184,74,0.115)', 'rgba(217,184,74,0.025)', 'rgba(7,8,6,0)']}
+        locations={[0, 0.48, 1]}
+        start={{ x: 0.92, y: 0 }}
+        end={{ x: 0.1, y: 1 }}
+        style={styles.pageAtmosphere}
+      />
+      <View style={[styles.pageShell, compact && styles.pageShellCompact]}>
+        <View style={[styles.header, compact && styles.headerCompact]}>
+          <View style={styles.headerIdentity}>
+            <View style={styles.headerIcon}>
+              <Ionicons name="people-outline" size={22} color={COLORS.gold} />
+            </View>
+            <View style={styles.headerCopy}>
+              <Text style={[styles.headerTitle, compact && styles.headerTitleCompact]}>Students</Text>
+              <Text style={styles.headerSubtitle}>
+                {filteredStudents.length} shown · {isReception ? 'read-only payment view' : `${statusFilter === 'current' ? 'current' : statusFilter}`}
+              </Text>
+            </View>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color={COLORS.textTertiary} style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search students..."
-          placeholderTextColor={COLORS.textTertiary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
+        <View style={[styles.toolbar, compact && styles.toolbarCompact]}>
+          <View style={styles.searchContainer}>
+            <Ionicons name="search" size={20} color={COLORS.textTertiary} style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search students..."
+              placeholderTextColor={COLORS.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+            {searchQuery ? (
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Clear student search"
+                style={styles.clearButton}
+                onPress={() => setSearchQuery('')}
+              >
+                <Ionicons name="close-circle" size={20} color={COLORS.textTertiary} />
+              </TouchableOpacity>
+            ) : null}
+          </View>
 
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filterScroll}
-        contentContainerStyle={styles.filterContainer}
-      >
-        {filterOptions.map(([value, label]) => {
-          const active = statusFilter === value;
-          return (
-            <TouchableOpacity
-              key={value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: active }}
-              style={[styles.filterOption, active && styles.filterOptionActive]}
-              onPress={() => setStatusFilter(value)}
-            >
-              <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>{label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      <FlatList
-        style={styles.list}
-        contentContainerStyle={styles.listContent}
-        data={filteredStudents}
-        keyExtractor={(student: any) => student.id}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStudents(); }} tintColor={COLORS.gold} />
-        }
-        renderItem={({ item: student }: { item: any }) => (
-          <TouchableOpacity
-            testID={`student-card-${student.id}`}
-            style={styles.studentCard}
-            disabled={isReception}
-            onPress={() => !isReception && openEditModal(student)}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={[styles.filterScroll, !compact && styles.filterScrollWide]}
+            contentContainerStyle={styles.filterContainer}
           >
-            <View style={styles.studentHeader}>
-              <View style={styles.studentAvatar}>
-                <Text style={styles.studentAvatarText}>
-                  {student.first_name[0]}{student.last_name[0]}
-                </Text>
-              </View>
-              <View style={styles.studentInfo}>
-                <Text style={styles.studentName}>
-                  {student.first_name} {student.last_name}
-                </Text>
-                <Text style={styles.studentId}>{student.student_id}</Text>
-                {isReception && <Text style={styles.studentId}>{student.phone || 'No student phone'}{student.parent_phone ? ` · parent ${student.parent_phone}` : ''}</Text>}
-                <View style={styles.studentMeta}>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(student.status) + '20' }]}>
-                    <Text style={[styles.statusText, { color: getStatusColor(student.status) }]}>
-                      {student.status}
-                    </Text>
-                  </View>
-                  {isReception && (
-                    <View style={[styles.statusBadge, { backgroundColor: (student.outstanding_uzs > 0 ? COLORS.error : COLORS.success) + '20' }]}>
-                      <Text style={[styles.statusText, { color: student.outstanding_uzs > 0 ? COLORS.error : COLORS.success }]}>
-                        {student.payment_status === 'no_bill' ? 'no bill' : `${student.payment_status}${student.outstanding_uzs > 0 ? ` · ${new Intl.NumberFormat('ru-RU').format(student.outstanding_uzs)} UZS` : ''}`}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-              {!isReception && student.status !== 'archived' && (
+            {filterOptions.map(([value, label]) => {
+              const active = statusFilter === value;
+              return (
                 <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleArchiveStudent(student);
-                  }}
+                  key={value}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  style={[styles.filterOption, active && styles.filterOptionActive]}
+                  onPress={() => setStatusFilter(value)}
                 >
-                  <Ionicons name="archive-outline" size={20} color={COLORS.error} />
+                  <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>{label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <FlatList
+          style={styles.list}
+          contentContainerStyle={[styles.listContent, filteredStudents.length === 0 && styles.listContentEmpty]}
+          data={filteredStudents}
+          keyExtractor={(student: any) => student.id}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStudents(); }} tintColor={COLORS.gold} />
+          }
+          ListEmptyComponent={(
+            <View style={styles.emptyPanel}>
+              <View style={styles.emptyIcon}>
+                <Ionicons name={students.length === 0 ? 'people-outline' : 'search-outline'} size={28} color={COLORS.gold} />
+              </View>
+              <Text style={styles.emptyTitle}>{students.length === 0 ? 'No students yet' : 'No matching students'}</Text>
+              <Text style={styles.emptyText}>
+                {students.length === 0 ? 'Students will appear here after they are created or converted from leads.' : 'Try another name, phone number, ID, or status.'}
+              </Text>
+              {students.length > 0 && (
+                <TouchableOpacity style={styles.emptyAction} onPress={() => { setSearchQuery(''); setStatusFilter('current'); }}>
+                  <Text style={styles.emptyActionText}>Clear filters</Text>
                 </TouchableOpacity>
               )}
-              {!isReception && student.status === 'archived' && (
-                <View style={styles.archivedActions}>
+            </View>
+          )}
+          renderItem={({ item: student }: { item: any }) => (
+            <View
+              testID={`student-card-${student.id}`}
+              style={styles.studentCard}
+            >
+              <View style={styles.studentHeader}>
+                <TouchableOpacity
+                  accessibilityRole={isReception ? undefined : 'button'}
+                  accessibilityLabel={isReception ? undefined : `Open ${student.first_name} ${student.last_name}`}
+                  style={styles.studentOpenButton}
+                  disabled={isReception}
+                  activeOpacity={isReception ? 1 : 0.76}
+                  onPress={() => !isReception && openEditModal(student)}
+                >
+                  <View style={styles.studentAvatar}>
+                    <Text style={styles.studentAvatarText}>
+                      {student.first_name[0]}{student.last_name[0]}
+                    </Text>
+                  </View>
+                  <View style={styles.studentInfo}>
+                    <Text style={styles.studentName}>
+                      {student.first_name} {student.last_name}
+                    </Text>
+                    <Text style={styles.studentId}>{student.student_id}</Text>
+                    {isReception && <Text style={styles.studentId}>{student.phone || 'No student phone'}{student.parent_phone ? ` · parent ${student.parent_phone}` : ''}</Text>}
+                    <View style={styles.studentMeta}>
+                      <View style={[styles.statusBadge, { backgroundColor: getStatusColor(student.status) + '20' }]}>
+                        <Text style={[styles.statusText, { color: getStatusColor(student.status) }]}>
+                          {student.status}
+                        </Text>
+                      </View>
+                      {isReception && (
+                        <View style={[styles.statusBadge, { backgroundColor: (student.outstanding_uzs > 0 ? COLORS.error : COLORS.success) + '20' }]}>
+                          <Text style={[styles.statusText, { color: student.outstanding_uzs > 0 ? COLORS.error : COLORS.success }]}>
+                            {student.payment_status === 'no_bill' ? 'no bill' : `${student.payment_status}${student.outstanding_uzs > 0 ? ` · ${new Intl.NumberFormat('ru-RU').format(student.outstanding_uzs)} UZS` : ''}`}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </View>
+                </TouchableOpacity>
+                {!isReception && student.status !== 'archived' && (
                   <TouchableOpacity
-                    style={styles.restoreButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Archive ${student.first_name} ${student.last_name}`}
+                    style={styles.deleteButton}
                     onPress={(e) => {
                       e.stopPropagation();
-                      handleRestoreStudent(student);
+                      handleArchiveStudent(student);
                     }}
                   >
-                    <Ionicons name="refresh-outline" size={21} color={COLORS.success} />
+                    <Ionicons name="archive-outline" size={20} color={COLORS.error} />
                   </TouchableOpacity>
-                  {Platform.OS === 'web' && user?.role === 'super_admin' && (
+                )}
+                {!isReception && student.status === 'archived' && (
+                  <View style={styles.archivedActions}>
                     <TouchableOpacity
-                      style={styles.deleteButton}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restore ${student.first_name} ${student.last_name}`}
+                      style={styles.restoreButton}
                       onPress={(e) => {
                         e.stopPropagation();
-                        handlePermanentDelete(student);
+                        handleRestoreStudent(student);
                       }}
                     >
-                      <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                      <Ionicons name="refresh-outline" size={21} color={COLORS.success} />
                     </TouchableOpacity>
-                  )}
-                </View>
-              )}
+                    {Platform.OS === 'web' && user?.role === 'super_admin' && (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Permanently delete ${student.first_name} ${student.last_name}`}
+                        style={styles.deleteButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handlePermanentDelete(student);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+              </View>
             </View>
-          </TouchableOpacity>
-        )}
-      />
+          )}
+        />
+      </View>
 
       <Modal
         visible={modalVisible}
@@ -454,6 +514,21 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
+  pageAtmosphere: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 300,
+  },
+  pageShell: {
+    flex: 1,
+    width: '100%',
+    maxWidth: 1160,
+    alignSelf: 'center',
+    paddingHorizontal: SIZES.lg,
+  },
+  pageShellCompact: { paddingHorizontal: SIZES.md },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -465,17 +540,28 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingTop: SIZES.headerTop,
-    paddingHorizontal: SIZES.lg,
-    paddingBottom: SIZES.md,
-    backgroundColor: COLORS.backgroundSubtle,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    paddingBottom: SIZES.lg,
   },
+  headerCompact: { paddingBottom: SIZES.md },
+  headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+  headerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: SIZES.radiusMd,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.goldGlass,
+    borderWidth: 1,
+    borderColor: COLORS.goldHairline,
+  },
+  headerCopy: { flex: 1, minWidth: 0 },
   headerTitle: {
-    fontSize: SIZES.fontXxl,
-    fontWeight: 'bold',
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
     color: COLORS.textPrimary,
   },
+  headerTitleCompact: { fontSize: 26, lineHeight: 32 },
   headerSubtitle: {
     fontSize: SIZES.fontSm,
     color: COLORS.textSecondary,
@@ -489,12 +575,26 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  searchContainer: {
+  toolbar: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: SIZES.sm,
+    padding: SIZES.sm,
+    marginBottom: SIZES.md,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     backgroundColor: COLORS.backgroundCard,
-    margin: SIZES.md,
-    borderRadius: SIZES.radiusSm,
+    ...SHADOWS.small,
+  },
+  toolbarCompact: { flexDirection: 'column', alignItems: 'stretch' },
+  searchContainer: {
+    flex: 1,
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.backgroundLight,
+    borderRadius: SIZES.radiusMd,
     paddingHorizontal: SIZES.md,
     borderWidth: 1,
     borderColor: COLORS.border,
@@ -504,30 +604,41 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    padding: SIZES.md,
+    minHeight: 46,
+    paddingVertical: SIZES.sm,
     fontSize: SIZES.fontMd,
     color: COLORS.textPrimary,
   },
-  filterScroll: { flexGrow: 0, marginBottom: SIZES.md },
-  filterContainer: { paddingHorizontal: SIZES.md, gap: SIZES.xs },
-  filterOption: { minHeight: 38, justifyContent: 'center', paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.backgroundCard },
-  filterOptionActive: { borderColor: COLORS.gold, backgroundColor: COLORS.gold + '12' },
+  clearButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', marginRight: -SIZES.sm },
+  filterScroll: { flexGrow: 0, maxWidth: '100%' },
+  filterScrollWide: { flexShrink: 1 },
+  filterContainer: { gap: SIZES.xs, alignItems: 'center' },
+  filterOption: { minHeight: 44, justifyContent: 'center', paddingHorizontal: SIZES.md, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight },
+  filterOptionActive: { borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass },
   filterOptionText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, fontWeight: '650' as any },
   filterOptionTextActive: { color: COLORS.gold },
   list: {
     flex: 1,
-    paddingHorizontal: SIZES.md,
   },
-  listContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingBottom: SIZES.xxl },
+  listContent: { width: '100%', paddingBottom: SIZES.xxl },
+  listContentEmpty: { flexGrow: 1 },
   studentCard: {
     backgroundColor: COLORS.backgroundCard,
-    borderRadius: 0,
+    borderRadius: SIZES.radiusMd,
     padding: SIZES.md,
-    marginBottom: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
+    marginBottom: SIZES.sm,
+    borderWidth: 1,
     borderColor: COLORS.border,
+    ...SHADOWS.small,
   },
   studentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  studentOpenButton: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 52,
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -535,7 +646,9 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: COLORS.gold,
+    backgroundColor: COLORS.goldGlass,
+    borderWidth: 1,
+    borderColor: COLORS.goldHairline,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: SIZES.md,
@@ -543,7 +656,7 @@ const styles = StyleSheet.create({
   studentAvatarText: {
     fontSize: SIZES.fontLg,
     fontWeight: 'bold',
-    color: COLORS.marbleDark,
+    color: COLORS.goldLight,
   },
   studentInfo: {
     flex: 1,
@@ -560,6 +673,8 @@ const styles = StyleSheet.create({
   },
   studentMeta: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: SIZES.xs,
     marginTop: SIZES.xs,
   },
   statusBadge: {
@@ -573,15 +688,46 @@ const styles = StyleSheet.create({
     textTransform: 'capitalize',
   },
   deleteButton: {
-    padding: SIZES.sm,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.error + '10',
+    borderWidth: 1,
+    borderColor: COLORS.error + '30',
   },
   restoreButton: {
-    padding: SIZES.sm,
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: SIZES.radiusSm,
+    backgroundColor: COLORS.success + '10',
+    borderWidth: 1,
+    borderColor: COLORS.success + '30',
   },
   archivedActions: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: SIZES.xs,
   },
+  emptyPanel: {
+    flex: 1,
+    minHeight: 280,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: SIZES.xl,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.backgroundCard,
+  },
+  emptyIcon: { width: 60, height: 60, borderRadius: 30, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, lineHeight: 26, fontWeight: '750' as any, marginTop: SIZES.md },
+  emptyText: { maxWidth: 440, color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, textAlign: 'center', marginTop: SIZES.xs },
+  emptyAction: { minHeight: 44, marginTop: SIZES.md, paddingHorizontal: SIZES.lg, alignItems: 'center', justifyContent: 'center', borderRadius: SIZES.radiusMd, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  emptyActionText: { color: COLORS.goldLight, fontSize: SIZES.fontSm, fontWeight: '700' },
   modalOverlay: {
     flex: 1,
     backgroundColor: COLORS.overlay,
@@ -592,13 +738,13 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: Platform.OS === 'web' ? 680 : undefined,
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundElevated,
     borderTopLeftRadius: SIZES.radiusXl,
     borderTopRightRadius: SIZES.radiusXl,
     borderBottomLeftRadius: Platform.OS === 'web' ? SIZES.radiusXl : 0,
     borderBottomRightRadius: Platform.OS === 'web' ? SIZES.radiusXl : 0,
     borderWidth: Platform.OS === 'web' ? 1 : 0,
-    borderColor: COLORS.border,
+    borderColor: COLORS.glassHighlight,
     maxHeight: '90%',
     paddingBottom: 40,
   },

@@ -297,7 +297,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View testID="profile-screen" style={styles.container}>
       <LinearGradient
         colors={[COLORS.marbleDark, COLORS.background]}
         style={styles.header}
@@ -317,7 +317,7 @@ export default function ProfileScreen() {
         </View>
       </LinearGradient>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {/* Account Info */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Account Information</Text>
@@ -740,22 +740,32 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingTop: SIZES.headerTop,
-    paddingBottom: SIZES.xxl,
+    paddingHorizontal: SIZES.lg,
+    paddingBottom: SIZES.lg,
   },
   profileHeader: {
     alignItems: 'center',
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 880,
+    backgroundColor: COLORS.backgroundElevated,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusLg,
+    paddingVertical: SIZES.lg,
+    paddingHorizontal: SIZES.md,
   },
   avatar: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: COLORS.gold,
     justifyContent: 'center',
     alignItems: 'center',
     ...SHADOWS.large,
   },
   avatarText: {
-    fontSize: 36,
+    fontSize: 28,
     fontWeight: 'bold',
     color: COLORS.marbleDark,
   },
@@ -780,7 +790,13 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  contentContainer: {
+    width: '100%',
+    maxWidth: 880,
+    alignSelf: 'center',
     padding: SIZES.lg,
+    paddingTop: SIZES.md,
   },
   section: {
     marginBottom: SIZES.lg,
@@ -795,6 +811,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
     padding: SIZES.md,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     ...SHADOWS.small,
   },
   infoRow: {
@@ -827,6 +845,8 @@ const styles = StyleSheet.create({
   menuCard: {
     backgroundColor: COLORS.backgroundCard,
     borderRadius: SIZES.radiusMd,
+    borderWidth: 1,
+    borderColor: COLORS.border,
     overflow: 'hidden',
     ...SHADOWS.small,
   },
@@ -880,7 +900,7 @@ const styles = StyleSheet.create({
     padding: SIZES.lg,
   },
   modalContent: {
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundElevated,
     borderRadius: SIZES.radiusLg,
     padding: SIZES.xl,
     width: '100%',
@@ -889,7 +909,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.large,
   },
   languageModalContent: {
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundElevated,
     borderRadius: SIZES.radiusLg,
     padding: SIZES.lg,
     width: '100%',
@@ -984,7 +1004,7 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
   notificationModalContent: {
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundElevated,
     borderRadius: SIZES.radiusLg,
     padding: SIZES.lg,
     width: '100%',
@@ -993,7 +1013,7 @@ const styles = StyleSheet.create({
     ...SHADOWS.large,
   },
   helpModalContent: {
-    backgroundColor: COLORS.backgroundCard,
+    backgroundColor: COLORS.backgroundElevated,
     borderRadius: SIZES.radiusLg,
     padding: SIZES.lg,
     width: '100%',

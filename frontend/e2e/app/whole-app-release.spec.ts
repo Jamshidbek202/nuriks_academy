@@ -256,6 +256,31 @@ async function assertPhoneGeometry(page: Page, label: string) {
   expect(geometry.bodyHeight, `${label} did not render usable content`).toBeGreaterThan(80);
 }
 
+async function expectOpaqueScreen(page: Page, testId: string) {
+  const screen = page.getByTestId(testId);
+  await expect(screen).toBeVisible();
+  const background = await screen.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const rgba = background.match(/^rgba?\(([^)]+)\)$/i);
+  expect(rgba, `${testId} has an unreadable computed background: ${background}`).toBeTruthy();
+  const components = rgba![1].split(',').map((value) => value.trim());
+  const alpha = components.length === 4 ? Number(components[3]) : 1;
+  expect(alpha, `${testId} must paint an opaque route-isolation canvas (${background})`).toBe(1);
+}
+
+async function expectInactiveMarkerCovered(page: Page, activeTestId: string, markerText: string) {
+  const covered = await page.evaluate(({ activeTestId: screenId, markerText: text }) => {
+    const active = document.querySelector(`[data-testid="${screenId}"]`);
+    const marker = Array.from(document.querySelectorAll('div')).find((node) => node.textContent === text);
+    if (!(active instanceof HTMLElement) || !(marker instanceof HTMLElement)) return false;
+    const rect = marker.getBoundingClientRect();
+    const x = Math.min(window.innerWidth - 1, Math.max(0, rect.left + rect.width / 2));
+    const y = Math.min(window.innerHeight - 1, Math.max(0, rect.top + rect.height / 2));
+    const topElement = document.elementFromPoint(x, y);
+    return Boolean(topElement && active.contains(topElement) && !marker.contains(topElement));
+  }, { activeTestId, markerText });
+  expect(covered, `${markerText} from an inactive route is not fully covered by ${activeTestId}`).toBe(true);
+}
+
 async function apiLogin(request: APIRequestContext, role: RoleKey) {
   const response = await request.post(`${API_URL}/auth/login`, {
     data: { login: roleLogins[role], password: PASSWORD },
@@ -349,6 +374,50 @@ for (const viewport of ['desktop', 'phone'] as const) {
       } finally {
         await session.context.close();
       }
+    }
+  });
+}
+
+for (const viewport of ['desktop', 'phone'] as const) {
+  test(`tab scenes remain visually isolated on ${viewport}`, async ({ browser }) => {
+    const session = await loginUi(browser, 'super_admin', viewport === 'phone');
+    try {
+      await session.page.getByRole('tab', { name: 'Profile' }).click();
+      await expect(session.page).toHaveURL(/\/profile/);
+      await expectOpaqueScreen(session.page, 'profile-screen');
+      await expect(session.page.getByText('Account Information', { exact: true })).toBeVisible();
+
+      await session.page.getByRole('tab', { name: 'Students' }).click();
+      await expect(session.page).toHaveURL(/\/students/);
+      await expectOpaqueScreen(session.page, 'students-screen');
+      await expectInactiveMarkerCovered(session.page, 'students-screen', 'Account Information');
+
+      await session.page.getByRole('tab', { name: 'Chats' }).click();
+      await expect(session.page).toHaveURL(/\/chats/);
+      await expectOpaqueScreen(session.page, 'chats-screen');
+      await expectInactiveMarkerCovered(session.page, 'chats-screen', 'Account Information');
+
+      // Expo tab navigation intentionally replaces history. Create explicit
+      // history entries to verify browser Back/Forward route restoration.
+      await session.page.goto('/students');
+      await expect(session.page).toHaveURL(/\/students/);
+      await expectOpaqueScreen(session.page, 'students-screen');
+      await session.page.goto('/chats');
+      await expect(session.page).toHaveURL(/\/chats/);
+      await expectOpaqueScreen(session.page, 'chats-screen');
+      await session.page.goBack();
+      await expect(session.page).toHaveURL(/\/students/);
+      await expectOpaqueScreen(session.page, 'students-screen');
+      await session.page.goForward();
+      await expect(session.page).toHaveURL(/\/chats/);
+      await expectOpaqueScreen(session.page, 'chats-screen');
+
+      await session.page.reload();
+      await expect(session.page).toHaveURL(/\/chats/);
+      await expectOpaqueScreen(session.page, 'chats-screen');
+      await assertHealthy(session, `route isolation/${viewport}`);
+    } finally {
+      await session.context.close();
     }
   });
 }
