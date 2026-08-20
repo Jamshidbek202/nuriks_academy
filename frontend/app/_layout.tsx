@@ -1,4 +1,5 @@
 import React from 'react';
+import { Platform } from 'react-native';
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../src/contexts/AuthContext';
 import { NotificationProvider } from '../src/contexts/NotificationContext';
@@ -17,6 +18,8 @@ function RootNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: COLORS.backgroundSolid },
+          animation: Platform.OS === 'web' ? 'fade' : 'fade_from_bottom',
+          animationDuration: 220,
         }}
       >
         <Stack.Screen name="index" />

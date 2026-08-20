@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -21,7 +24,6 @@ import { useLanguage } from '../src/contexts/LanguageContext';
 import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
 import { formatUzbekPhoneInput, isCompleteUzbekPhone, normalizeUzbekPhone } from '../src/utils/phone';
 import { LOGIN } from '../constants/testIds';
-import { AcademyIllustration } from '../src/components/AcademyIllustration';
 
 const AMBIENT_SPECKS = [
   { left: '7%', top: '14%', size: 2, opacity: 0.28 },
@@ -105,6 +107,64 @@ export default function LoginScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
+  const brandEntrance = useRef(new Animated.Value(0)).current;
+  const formEntrance = useRef(new Animated.Value(0)).current;
+  const illustrationFloat = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    let floatAnimation: Animated.CompositeAnimation | undefined;
+    let cancelled = false;
+
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
+      if (cancelled) return;
+      if (reduceMotion) {
+        brandEntrance.setValue(1);
+        formEntrance.setValue(1);
+        return;
+      }
+
+      Animated.stagger(90, [
+        Animated.timing(brandEntrance, {
+          toValue: 1,
+          duration: 560,
+          easing: Easing.out(Easing.exp),
+          useNativeDriver: true,
+        }),
+        Animated.timing(formEntrance, {
+          toValue: 1,
+          duration: 460,
+          easing: Easing.out(Easing.exp),
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      floatAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(illustrationFloat, {
+            toValue: 1,
+            duration: 2600,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(illustrationFloat, {
+            toValue: 0,
+            duration: 2600,
+            easing: Easing.inOut(Easing.quad),
+            useNativeDriver: true,
+          }),
+        ]),
+      );
+      floatAnimation.start();
+    });
+
+    return () => {
+      cancelled = true;
+      floatAnimation?.stop();
+      brandEntrance.stopAnimation();
+      formEntrance.stopAnimation();
+      illustrationFloat.stopAnimation();
+    };
+  }, [brandEntrance, formEntrance, illustrationFloat]);
 
   const handleLogin = async () => {
     const normalizedPhone = normalizeUzbekPhone(phone);
@@ -140,7 +200,18 @@ export default function LoginScreen() {
         <BrandAtmosphere />
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={[styles.shell, isWide && styles.shellWide]}>
-            <View style={[styles.brand, isWide && styles.brandWide]}>
+            <Animated.View
+              style={[
+                styles.brand,
+                isWide && styles.brandWide,
+                {
+                  opacity: brandEntrance,
+                  transform: [
+                    { translateY: brandEntrance.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+                  ],
+                },
+              ]}
+            >
               <Image
                 source={require('../assets/images/logo.png')}
                 style={styles.logo}
@@ -149,18 +220,49 @@ export default function LoginScreen() {
               />
               <Text style={styles.academyName}>Nurik&apos;s Academy</Text>
               <Text style={styles.systemName}>{t('Academy management system')}</Text>
-              <View style={styles.brandIllustration}>
-                <AcademyIllustration variant="login" compact={!isWide} />
-              </View>
+              <Animated.View
+                style={[
+                  styles.brandIllustration,
+                  {
+                    transform: [
+                      { translateY: illustrationFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -7] }) },
+                    ],
+                  },
+                ]}
+              >
+                <View
+                  pointerEvents="none"
+                  style={[styles.illustrationStage, !isWide && styles.illustrationStageCompact]}
+                >
+                  <View style={styles.illustrationGround} />
+                  <Image
+                    source={require('../assets/illustrations/classroom.png')}
+                    style={[styles.classroomIllustration, !isWide && styles.classroomIllustrationCompact]}
+                    resizeMode="contain"
+                    accessibilityLabel={t('Teacher leading a classroom lesson')}
+                  />
+                </View>
+              </Animated.View>
               {isWide && (
                 <View style={styles.brandNote}>
                   <Text style={styles.brandNoteLabel}>{t('ONE ACADEMY · ONE SYSTEM')}</Text>
                   <Text style={styles.brandNoteText}>{t('Classes, progress, communication, and finance in one secure workspace.')}</Text>
                 </View>
               )}
-            </View>
+            </Animated.View>
 
-            <View style={styles.formColumn}>
+            <Animated.View
+              style={[
+                styles.formColumn,
+                {
+                  opacity: formEntrance,
+                  transform: [
+                    { translateY: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
+                    { scale: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) },
+                  ],
+                },
+              ]}
+            >
               <View style={styles.formPanel}>
               <BlurView pointerEvents="none" tint="dark" intensity={38} style={StyleSheet.absoluteFill} />
               <LinearGradient
@@ -285,7 +387,7 @@ export default function LoginScreen() {
                 <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.textTertiary} />
                 <Text style={styles.accessNoteText}>{t('Access is limited to approved Nurik’s Academy accounts')}</Text>
               </View>
-            </View>
+            </Animated.View>
           </View>
         </ScrollView>
       </View>
@@ -309,7 +411,27 @@ const styles = StyleSheet.create({
   logo: { width: 76, height: 76, marginBottom: SIZES.md },
   academyName: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 31, fontWeight: '800', letterSpacing: -0.4 },
   systemName: { color: COLORS.gold, fontSize: SIZES.fontXs, marginTop: SIZES.xs, letterSpacing: 0.45 },
-  brandIllustration: { marginTop: SIZES.lg },
+  brandIllustration: { width: '100%', marginTop: SIZES.md, alignItems: 'center' },
+  illustrationStage: {
+    width: 430,
+    height: 338,
+    maxWidth: '100%',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+  },
+  illustrationStageCompact: { width: 230, height: 184 },
+  illustrationGround: {
+    position: 'absolute',
+    left: '8%',
+    right: '8%',
+    bottom: '4%',
+    height: '20%',
+    borderRadius: 999,
+    backgroundColor: 'rgba(217,184,74,0.075)',
+    transform: [{ scaleY: 0.34 }],
+  },
+  classroomIllustration: { width: '100%', height: '100%' },
+  classroomIllustrationCompact: { width: '100%', height: '100%' },
   brandNote: { maxWidth: 360, marginTop: SIZES.lg, paddingTop: SIZES.md, borderTopWidth: 1, borderTopColor: COLORS.goldHairline },
   brandNoteLabel: { color: COLORS.goldLight, fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.25 },
   brandNoteText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginTop: SIZES.sm },

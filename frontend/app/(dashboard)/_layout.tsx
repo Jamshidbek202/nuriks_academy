@@ -1,6 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
+  Animated,
+  Easing,
   Platform,
   ScrollView,
   StyleSheet,
@@ -125,6 +128,7 @@ export default function DashboardLayout() {
           headerShown: false,
           sceneStyle: styles.scene,
           tabBarHideOnKeyboard: true,
+          animation: 'fade',
         }}
       >
         {visibleTabs.map((definition) => (
@@ -194,34 +198,97 @@ function RoleTabBar({
           const label = translate(definition.label);
 
           return (
-            <TouchableOpacity
+            <RoleTabButton
               key={definition.name}
-              accessibilityRole="tab"
-              accessibilityLabel={label}
-              accessibilityState={focused ? { selected: true } : {}}
-              activeOpacity={0.72}
-              style={[styles.tabItem, !needsScroll && styles.tabItemFlexible, focused && styles.tabItemActive]}
+              definition={definition}
+              focused={focused}
+              label={label}
+              flexible={!needsScroll}
               onPress={() => {
                 const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
                 if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
               }}
               onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
-            >
-              <View style={styles.iconFrame}>
-                <View style={[styles.activeRule, focused && styles.activeRuleVisible]} />
-                <Ionicons
-                  name={definition.icon}
-                  size={21}
-                  color={focused ? COLORS.gold : COLORS.textTertiary}
-                />
-              </View>
-              <TextLabel focused={focused}>{label}</TextLabel>
-            </TouchableOpacity>
+            />
           );
           })}
         </ScrollView>
       </View>
     </View>
+  );
+}
+
+function RoleTabButton({
+  definition,
+  focused,
+  label,
+  flexible,
+  onPress,
+  onLongPress,
+}: {
+  definition: TabDefinition;
+  focused: boolean;
+  label: string;
+  flexible: boolean;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  const focusMotion = useRef(new Animated.Value(focused ? 1 : 0)).current;
+
+  useEffect(() => {
+    let cancelled = false;
+    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
+      if (cancelled) return;
+      if (reduceMotion) {
+        focusMotion.setValue(focused ? 1 : 0);
+        return;
+      }
+      Animated.timing(focusMotion, {
+        toValue: focused ? 1 : 0,
+        duration: focused ? 210 : 140,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    });
+    return () => {
+      cancelled = true;
+      focusMotion.stopAnimation();
+    };
+  }, [focusMotion, focused]);
+
+  return (
+    <TouchableOpacity
+      accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityState={focused ? { selected: true } : {}}
+      activeOpacity={0.72}
+      style={[styles.tabItem, flexible && styles.tabItemFlexible, focused && styles.tabItemActive]}
+      onPress={onPress}
+      onLongPress={onLongPress}
+    >
+      <Animated.View
+        style={[
+          styles.tabItemMotion,
+          {
+            opacity: focusMotion.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1] }),
+            transform: [
+              { translateY: focusMotion.interpolate({ inputRange: [0, 1], outputRange: [1, -1] }) },
+              { scale: focusMotion.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1] }) },
+            ],
+          },
+        ]}
+      >
+        <View style={styles.iconFrame}>
+          <View style={[styles.activeRule, focused && styles.activeRuleVisible]} />
+          <Ionicons
+            name={definition.icon}
+            size={21}
+            color={focused ? COLORS.gold : COLORS.textTertiary}
+          />
+        </View>
+        <TextLabel focused={focused}>{label}</TextLabel>
+      </Animated.View>
+    </TouchableOpacity>
   );
 }
 
@@ -275,6 +342,7 @@ const styles = StyleSheet.create({
   },
   tabItemActive: { backgroundColor: COLORS.goldGlass, borderColor: COLORS.goldHairline },
   tabItemFlexible: { width: 'auto', minWidth: 64, maxWidth: 112, flexGrow: 1, flexBasis: 76 },
+  tabItemMotion: { flex: 1, width: '100%', alignItems: 'center', justifyContent: 'center' },
   tabLabel: {
     fontSize: 11,
     lineHeight: 14,
