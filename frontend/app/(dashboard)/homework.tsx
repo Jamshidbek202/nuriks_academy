@@ -358,15 +358,21 @@ export default function HomeworkScreen() {
       {/* Homework List */}
       <ScrollView
         style={styles.homeworkList}
+        contentContainerStyle={styles.homeworkListContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadHomework(); }} tintColor={COLORS.gold} />
         }
       >
         {homeworkList.length > 0 ? (
-          homeworkList.map((hw) => {
+          <View style={styles.cardGrid}>
+          {homeworkList.map((hw) => {
             const status = getSubmissionStatus(hw);
             const overdue = isOverdue(hw.due_date);
             const dueSoon = isDueSoon(hw.due_date);
+            const accent = overdue ? COLORS.error : dueSoon ? COLORS.warning : COLORS.info;
+            const dueDate = new Date(hw.due_date);
+            const dueDay = Number.isNaN(dueDate.getTime()) ? '—' : String(dueDate.getDate()).padStart(2, '0');
+            const dueMonth = Number.isNaN(dueDate.getTime()) ? 'DUE' : dueDate.toLocaleDateString(getActiveLocale(), { month: 'short' }).toUpperCase();
             
             return (
               <TouchableOpacity
@@ -377,41 +383,41 @@ export default function HomeworkScreen() {
                 style={styles.homeworkCard}
                 onPress={() => { setSelectedHomework(hw); setDetailModalVisible(true); }}
               >
-                <View style={styles.homeworkHeader}>
-                  <View style={[styles.statusIndicator, { backgroundColor: overdue ? COLORS.error : dueSoon ? COLORS.warning : COLORS.success }]} />
-                  <View style={styles.homeworkInfo}>
-                    <Text style={styles.homeworkTitle}>{hw.title}</Text>
-                    <Text style={styles.homeworkDesc} numberOfLines={2}>{hw.description}</Text>
+                <View style={[styles.homeworkVisual, { backgroundColor: `${accent}16` }]}>
+                  <View style={[styles.dateTile, { backgroundColor: `${accent}20` }]}>
+                    <Text style={[styles.dateMonth, { color: accent }]}>{dueMonth}</Text>
+                    <Text style={styles.dateDay}>{dueDay}</Text>
                   </View>
+                  <View style={styles.visualCopy}>
+                    <Text style={[styles.statusLabel, { color: accent }]}>{overdue ? 'OVERDUE' : dueSoon ? 'DUE SOON' : 'ASSIGNMENT'}</Text>
+                    <Text style={styles.visualTitle} numberOfLines={2}>{hw.title}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward-circle" size={25} color={accent} />
                 </View>
 
-                <View style={styles.homeworkMeta}>
-                  <View style={styles.metaItem}>
-                    <Ionicons name="calendar" size={14} color={overdue ? COLORS.error : COLORS.textTertiary} />
-                    <Text style={[styles.metaText, overdue && { color: COLORS.error }]}>
-                      Due: {formatDate(hw.due_date)}
-                    </Text>
+                <View style={styles.homeworkBody}>
+                  <Text style={styles.homeworkDesc} numberOfLines={2}>{hw.description || 'Open to view assignment details.'}</Text>
+                  <View style={styles.homeworkMeta}>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="calendar-outline" size={15} color={overdue ? COLORS.error : COLORS.textTertiary} />
+                      <Text style={[styles.metaText, overdue && { color: COLORS.error }]}>Due {formatDate(hw.due_date)}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Ionicons name="people-outline" size={15} color={COLORS.textTertiary} />
+                      <Text style={styles.metaText}>{status.submitted}/{status.total} submitted</Text>
+                    </View>
                   </View>
-                  <View style={styles.metaItem}>
-                    <Ionicons name="people" size={14} color={COLORS.textTertiary} />
-                    <Text style={styles.metaText}>
-                      {status.submitted}/{status.total} submitted
-                    </Text>
+                  <View style={styles.progressRow}>
+                    <View style={styles.progressBar}>
+                      <View style={[styles.progressFill, { width: `${(status.submitted / Math.max(status.total, 1)) * 100}%`, backgroundColor: accent }]} />
+                    </View>
+                    <Text style={styles.gradedText}>{status.graded} graded</Text>
                   </View>
-                  <View style={styles.metaItem}>
-                    <Ionicons name="checkmark-done" size={14} color={COLORS.success} />
-                    <Text style={styles.metaText}>
-                      {status.graded} graded
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.progressBar}>
-                  <View style={[styles.progressFill, { width: `${(status.submitted / Math.max(status.total, 1)) * 100}%` }]} />
                 </View>
               </TouchableOpacity>
             );
-          })
+          })}
+          </View>
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="book-outline" size={64} color={COLORS.textTertiary} />
@@ -590,27 +596,35 @@ export default function HomeworkScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { width: '100%', maxWidth: 1120, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md },
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
-  groupSelector: { padding: SIZES.md, maxWidth: 720, width: '100%' },
+  groupSelector: { padding: SIZES.md, maxWidth: 1120, alignSelf: 'center', width: '100%' },
   selectorLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
   pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
   picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
   pickerItem: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
-  homeworkList: { flex: 1, paddingHorizontal: SIZES.md },
-  homeworkCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
-  homeworkHeader: { flexDirection: 'row', alignItems: 'flex-start' },
-  statusIndicator: { width: 4, height: '100%', minHeight: 50, borderRadius: 2, marginRight: SIZES.md },
-  homeworkInfo: { flex: 1 },
-  homeworkTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
-  homeworkDesc: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
+  homeworkList: { flex: 1 },
+  homeworkListContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingHorizontal: SIZES.md, paddingBottom: SIZES.xxl },
+  cardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md },
+  homeworkCard: { flexGrow: 1, flexBasis: 330, minWidth: 280, maxWidth: 544, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', ...SHADOWS.small },
+  homeworkVisual: { minHeight: 126, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.lg },
+  dateTile: { width: 66, height: 72, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center' },
+  dateMonth: { fontSize: 10, lineHeight: 13, fontWeight: '800', letterSpacing: 0.8 },
+  dateDay: { color: COLORS.textPrimary, fontSize: 28, lineHeight: 32, fontWeight: '850' as any, fontVariant: ['tabular-nums'] },
+  visualCopy: { flex: 1, minWidth: 0 },
+  statusLabel: { fontSize: 10, lineHeight: 13, fontWeight: '800', letterSpacing: 0.8 },
+  visualTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, lineHeight: 23, fontWeight: '800', marginTop: 4 },
+  homeworkBody: { padding: SIZES.md },
+  homeworkDesc: { minHeight: 40, fontSize: SIZES.fontSm, lineHeight: 20, color: COLORS.textSecondary },
   homeworkMeta: { flexDirection: 'row', flexWrap: 'wrap', marginTop: SIZES.md, gap: SIZES.md },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: SIZES.fontXs, color: COLORS.textTertiary },
-  progressBar: { height: 4, backgroundColor: COLORS.backgroundLight, borderRadius: 2, marginTop: SIZES.md, overflow: 'hidden' },
-  progressFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 2 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, marginTop: SIZES.md },
+  progressBar: { flex: 1, height: 5, backgroundColor: COLORS.backgroundLight, borderRadius: 3, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 3 },
+  gradedText: { color: COLORS.textTertiary, fontSize: 11, fontWeight: '700' },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: SIZES.xxl },
   emptyText: { fontSize: SIZES.fontMd, color: COLORS.textTertiary, marginTop: SIZES.md },
   emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs },

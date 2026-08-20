@@ -27,9 +27,8 @@ import { FINANCE } from '../../constants/testIds';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { DateTimePicker } from '../../src/components/DateTimePicker';
-import { MotionLine, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
-import { BrandFrame } from '../../src/components/BrandFrame';
 
 const Alert = { alert: showAlert };
 
@@ -2202,7 +2201,6 @@ export default function FinanceScreen() {
             <View style={[styles.headerMark, isPhone && styles.headerMarkCompact]}><Ionicons name={isReception ? 'receipt-outline' : 'wallet-outline'} size={isPhone ? 20 : 23} color={COLORS.goldLight} /></View>
             <View style={styles.flex}><Text style={styles.title}>{isReception ? 'Student payments' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Find students, check paid/unpaid status, contact families, and record cash—without centre financial totals.' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
           </View>
-          {!isPhone && <View pointerEvents="none" style={styles.headerRail}><MotionLine color={COLORS.goldHairline} style={styles.headerRailLine} /><View style={styles.headerRailNode} /></View>}
         </View>
         {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={[styles.monthInput, isPhone && styles.monthInputCompact]} />}
       </View>
@@ -2243,7 +2241,6 @@ function WorkQueueItem({ icon, label, value, tone, onPress, compact = false }: {
       <View style={[styles.workQueueIcon, { backgroundColor: `${color}14`, borderColor: `${color}50` }]}><Ionicons name={icon as any} size={20} color={color} /></View>
       <View style={styles.flex}><Text style={styles.workQueueLabel}>{label}</Text><Text style={styles.workQueueHint}>{value > 0 ? 'Open queue' : 'Nothing waiting'}</Text></View>
       <Text style={[styles.workQueueValue, { color }]}>{value}</Text>
-      <View pointerEvents="none" style={[styles.workQueueSignal, { backgroundColor: color }]} />
     </MotionTouchableOpacity>
   );
 }
@@ -2253,7 +2250,7 @@ function FinancialPositionCard({ position, month, compact = false }: { position:
   const accruedRevenue = position.net_tuition_uzs + position.other_income_uzs;
   const obligations = position.teacher_salary_earned_uzs + position.expenses_accrued_uzs;
   return (
-    <BrandFrame style={[styles.financialPositionCard, compact && styles.financialPositionCardCompact]} accent={profitColor}>
+    <View style={[styles.financialPositionCard, compact && styles.financialPositionCardCompact]}>
       <LinearGradient
         pointerEvents="none"
         colors={['rgba(217,184,74,0.16)', 'rgba(25,29,22,0.98)', 'rgba(10,12,9,0.98)']}
@@ -2283,22 +2280,23 @@ function FinancialPositionCard({ position, month, compact = false }: { position:
           <PositionLedgerRow testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} color={COLORS.info} last compact={compact} />
         </View>
       </View>
-      <View style={[styles.financeFlow, compact && styles.financeFlowCompact]}>
-        <MotionLine color={COLORS.goldHairline} style={styles.financeFlowLine} delay={180} />
-        <FinanceFlowNode label="Earned" value={accruedRevenue} color={COLORS.success} align="left" />
-        <FinanceFlowNode label="Obligations" value={obligations} color={COLORS.warning} align="center" />
-        <FinanceFlowNode label="Position" value={position.accrued_operating_profit_uzs} color={profitColor} align="right" />
+      <View style={[styles.financeBreakdown, compact && styles.financeBreakdownCompact]}>
+        <FinanceBreakdownItem icon="trending-up-outline" label="Earned" value={accruedRevenue} color={COLORS.success} />
+        <FinanceBreakdownItem icon="receipt-outline" label="Obligations" value={obligations} color={COLORS.warning} />
+        <FinanceBreakdownItem icon="wallet-outline" label="Position" value={position.accrued_operating_profit_uzs} color={profitColor} />
       </View>
-    </BrandFrame>
+    </View>
   );
 }
 
-function FinanceFlowNode({ label, value, color, align }: { label: string; value: number; color: string; align: 'left' | 'center' | 'right' }) {
+function FinanceBreakdownItem({ icon, label, value, color }: { icon: string; label: string; value: number; color: string }) {
   return (
-    <View style={[styles.financeFlowNode, align === 'center' && styles.financeFlowNodeCenter, align === 'right' && styles.financeFlowNodeRight]}>
-      <View style={[styles.financeFlowDot, { borderColor: color }]}><View style={[styles.financeFlowDotCore, { backgroundColor: color }]} /></View>
-      <Text style={styles.financeFlowLabel}>{label}</Text>
-      <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.financeFlowValue}>{uzs(value)}</Text>
+    <View style={styles.financeBreakdownItem}>
+      <Ionicons name={icon as any} size={18} color={color} />
+      <View style={styles.flex}>
+        <Text style={styles.financeBreakdownLabel}>{label}</Text>
+        <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7} style={styles.financeBreakdownValue}>{uzs(value)}</Text>
+      </View>
     </View>
   );
 }
@@ -2408,9 +2406,6 @@ const styles = StyleSheet.create({
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
   headerMark: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
   headerMarkCompact: { width: 42, height: 42, borderRadius: SIZES.radiusSm },
-  headerRail: { height: 16, marginLeft: 64, marginTop: SIZES.sm, justifyContent: 'center' },
-  headerRailLine: { position: 'absolute', left: 0, right: 0, top: 8 },
-  headerRailNode: { position: 'absolute', right: 0, top: 4, width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.gold, borderWidth: 2, borderColor: COLORS.background },
   title: { color: COLORS.textPrimary, fontSize: 30, lineHeight: 36, fontWeight: '850' as any },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, maxWidth: 520, lineHeight: 20 },
   monthInput: { width: 180, marginBottom: 0 },
@@ -2440,11 +2435,10 @@ const styles = StyleSheet.create({
   workQueueItem: { position: 'relative', flexGrow: 1, flexBasis: 220, minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
   workQueueItemCompact: { width: 188, flexGrow: 0, flexBasis: 188, minHeight: 72, gap: SIZES.sm, padding: SIZES.sm, borderRadius: SIZES.radiusSm },
   workQueueIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
-  workQueueSignal: { position: 'absolute', left: SIZES.md, right: SIZES.md, bottom: 0, height: 2, opacity: 0.68 },
   workQueueLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   workQueueHint: { color: COLORS.textTertiary, fontSize: 11, marginTop: 2 },
   workQueueValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontXl, fontWeight: '800' },
-  financialPositionCard: { position: 'relative', padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusXl, borderColor: COLORS.goldHairline, ...SHADOWS.medium },
+  financialPositionCard: { position: 'relative', padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: COLORS.borderStrong, backgroundColor: COLORS.backgroundElevated, overflow: 'hidden', ...SHADOWS.medium },
   financialPositionCardCompact: { padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusLg },
   positionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md, paddingBottom: SIZES.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.glassHighlight },
   positionHeaderCompact: { gap: SIZES.sm, paddingBottom: SIZES.md },
@@ -2469,16 +2463,11 @@ const styles = StyleSheet.create({
   positionDot: { width: 7, height: 7, borderRadius: 4 },
   positionLedgerLabel: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
   positionLedgerValue: { maxWidth: '52%', color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', textAlign: 'right', fontVariant: ['tabular-nums'] },
-  financeFlow: { position: 'relative', minHeight: 86, flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginTop: SIZES.lg, paddingTop: 4 },
-  financeFlowCompact: { minHeight: 76, marginTop: SIZES.md },
-  financeFlowLine: { position: 'absolute', left: 5, right: 5, top: 12 },
-  financeFlowNode: { width: '31%', alignItems: 'flex-start' },
-  financeFlowNodeCenter: { alignItems: 'center' },
-  financeFlowNodeRight: { alignItems: 'flex-end' },
-  financeFlowDot: { width: 18, height: 18, borderRadius: 9, alignItems: 'center', justifyContent: 'center', borderWidth: 1, backgroundColor: COLORS.backgroundCard },
-  financeFlowDotCore: { width: 7, height: 7, borderRadius: 4 },
-  financeFlowLabel: { color: COLORS.textTertiary, fontSize: 10, fontWeight: '700', marginTop: SIZES.sm, letterSpacing: 0.35 },
-  financeFlowValue: { maxWidth: '100%', color: COLORS.textPrimary, fontSize: 12, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] },
+  financeBreakdown: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.lg },
+  financeBreakdownCompact: { flexDirection: 'column', marginTop: SIZES.md },
+  financeBreakdownItem: { flex: 1, minWidth: 170, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight },
+  financeBreakdownLabel: { color: COLORS.textTertiary, fontSize: 11, fontWeight: '700' },
+  financeBreakdownValue: { maxWidth: '100%', color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] },
   financeDetailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
   financeDetailMetric: { position: 'relative', flexGrow: 1, flexBasis: 280, minWidth: 240, minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight, overflow: 'hidden' },
   financeDetailIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },

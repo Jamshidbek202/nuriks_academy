@@ -461,13 +461,16 @@ export default function TestsScreen() {
       {/* Tests List */}
       <ScrollView
         style={styles.testsList}
+        contentContainerStyle={styles.testsListContent}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTests(); }} tintColor={COLORS.gold} />
         }
       >
         {tests.length > 0 ? (
-          tests.map((test) => {
+          <View style={styles.cardGrid}>
+          {tests.map((test) => {
             const stats = getGroupStats(test);
+            const accent = test.test_type === 'mid_test' ? COLORS.info : COLORS.gold;
             return (
               <TouchableOpacity
                 key={test.id}
@@ -475,20 +478,20 @@ export default function TestsScreen() {
                 disabled={test.is_pending}
                 onPress={() => { setSelectedTest(test); setDetailModalVisible(true); }}
               >
-                <View style={styles.testHeader}>
-                  <View style={[styles.testTypeBadge, { backgroundColor: test.test_type === 'mid_test' ? COLORS.info + '20' : COLORS.gold + '20' }]}>
-                    <Ionicons name={test.test_type === 'mid_test' ? 'document-text' : 'trophy'} size={16} color={test.test_type === 'mid_test' ? COLORS.info : COLORS.gold} />
-                    <Text style={[styles.testTypeText, { color: test.test_type === 'mid_test' ? COLORS.info : COLORS.gold }]}>
-                      {test.test_type === 'mid_test' ? 'Mid Test' : 'End of Course'}
-                    </Text>
+                <View style={[styles.testVisual, { backgroundColor: `${accent}16` }]}>
+                  <View style={styles.visualTopRow}>
+                    <View style={[styles.testTypeBadge, { backgroundColor: `${accent}20` }]}>
+                      <Ionicons name={test.test_type === 'mid_test' ? 'document-text-outline' : 'trophy-outline'} size={16} color={accent} />
+                      <Text style={[styles.testTypeText, { color: accent }]}>{test.test_type === 'mid_test' ? 'MID TEST' : 'FINAL TEST'}</Text>
+                    </View>
+                    <Ionicons name="arrow-forward-circle" size={25} color={accent} />
                   </View>
-                  <Text style={styles.testDate}>
-                    {test.is_pending ? 'Creating…' : formatDate(test.test_date)}
-                  </Text>
+                  <Text style={styles.testVisualTitle} numberOfLines={2}>{test.title}</Text>
+                  <View style={styles.visualFooter}>
+                    <Text style={styles.testCourse} numberOfLines={1}>{getCourseName(test.course_id)}</Text>
+                    <Text style={styles.testDate}>{test.is_pending ? 'Creating…' : formatDate(test.test_date)}</Text>
+                  </View>
                 </View>
-
-                <Text style={styles.testTitle}>{test.title}</Text>
-                <Text style={styles.testCourse}>{getCourseName(test.course_id)}</Text>
 
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
@@ -508,7 +511,8 @@ export default function TestsScreen() {
                 </View>
               </TouchableOpacity>
             );
-          })
+          })}
+          </View>
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="clipboard-outline" size={64} color={COLORS.textTertiary} />
@@ -721,12 +725,12 @@ export default function TestsScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { width: '100%', maxWidth: 1120, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md },
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
   pendingTestCard: { opacity: 0.7 },
-  filters: { padding: SIZES.md, maxWidth: 720, width: '100%' },
+  filters: { padding: SIZES.md, maxWidth: 1120, alignSelf: 'center', width: '100%' },
   filterItem: { marginBottom: SIZES.sm },
   filterLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
   pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
@@ -737,15 +741,19 @@ const styles = StyleSheet.create({
   typeButtonActive: { backgroundColor: COLORS.gold, borderColor: COLORS.gold },
   typeButtonText: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   typeButtonTextActive: { color: COLORS.marbleDark, fontWeight: '600' },
-  testsList: { flex: 1, paddingHorizontal: SIZES.md },
-  testCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
-  testHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SIZES.sm },
-  testTypeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.sm, paddingVertical: 4, borderRadius: SIZES.radiusSm, gap: 4 },
-  testTypeText: { fontSize: SIZES.fontXs, fontWeight: '600' },
-  testDate: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
-  testTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
-  testCourse: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: SIZES.xs },
-  statsRow: { flexDirection: 'row', marginTop: SIZES.md, paddingTop: SIZES.md, borderTopWidth: 1, borderTopColor: COLORS.marbleGray },
+  testsList: { flex: 1 },
+  testsListContent: { width: '100%', maxWidth: 1120, alignSelf: 'center', paddingHorizontal: SIZES.md, paddingBottom: SIZES.xxl },
+  cardGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md },
+  testCard: { flexGrow: 1, flexBasis: 330, minWidth: 280, maxWidth: 544, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', ...SHADOWS.small },
+  testVisual: { minHeight: 172, justifyContent: 'space-between', padding: SIZES.lg },
+  visualTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  testTypeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.sm, paddingVertical: 5, borderRadius: SIZES.radiusSm, gap: 5 },
+  testTypeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.7 },
+  testVisualTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 28, fontWeight: '800', marginVertical: SIZES.md },
+  visualFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.sm },
+  testDate: { fontSize: SIZES.fontXs, color: COLORS.textSecondary },
+  testCourse: { flex: 1, fontSize: SIZES.fontSm, color: COLORS.textPrimary, fontWeight: '700' },
+  statsRow: { flexDirection: 'row', padding: SIZES.md, backgroundColor: COLORS.backgroundCard },
   statItem: { flex: 1, alignItems: 'center' },
   statValue: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textTertiary, marginTop: 2 },
