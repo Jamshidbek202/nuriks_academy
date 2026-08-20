@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Easing,
@@ -21,6 +20,7 @@ import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES } from '../../src/constants/theme';
 import { useLanguage } from '../../src/contexts/LanguageContext';
+import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
 
 type TabDefinition = {
   name: string;
@@ -107,6 +107,7 @@ const FALLBACK_TABS = [
 export default function DashboardLayout() {
   const { user, isLoading } = useAuth();
   const { t } = useLanguage();
+  const { reduceMotion, ready } = useMotionPreference();
   const visibleTabs = useMemo(() => ROLE_TABS[user?.role || ''] || FALLBACK_TABS, [user?.role]);
   const visibleByName = useMemo(() => new Set(visibleTabs.map((item) => item.name)), [visibleTabs]);
 
@@ -128,7 +129,14 @@ export default function DashboardLayout() {
           headerShown: false,
           sceneStyle: styles.scene,
           tabBarHideOnKeyboard: true,
-          animation: 'fade',
+          animation: !ready || reduceMotion ? 'none' : 'fade',
+          transitionSpec: {
+            animation: 'timing',
+            config: {
+              duration: !ready || reduceMotion ? 0 : MOTION.navigation,
+              easing: Easing.bezier(...MOTION.easing.standard),
+            },
+          },
         }}
       >
         {visibleTabs.map((definition) => (
@@ -234,27 +242,24 @@ function RoleTabButton({
   onLongPress: () => void;
 }) {
   const focusMotion = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  const { reduceMotion, ready } = useMotionPreference();
 
   useEffect(() => {
-    let cancelled = false;
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-      if (cancelled) return;
-      if (reduceMotion) {
-        focusMotion.setValue(focused ? 1 : 0);
-        return;
-      }
-      Animated.timing(focusMotion, {
-        toValue: focused ? 1 : 0,
-        duration: focused ? 210 : 140,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
-    });
+    focusMotion.stopAnimation();
+    if (!ready || reduceMotion) {
+      focusMotion.setValue(focused ? 1 : 0);
+      return;
+    }
+    Animated.timing(focusMotion, {
+      toValue: focused ? 1 : 0,
+      duration: focused ? MOTION.navigation : MOTION.feedback,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
     return () => {
-      cancelled = true;
       focusMotion.stopAnimation();
     };
-  }, [focusMotion, focused]);
+  }, [focusMotion, focused, ready, reduceMotion]);
 
   return (
     <TouchableOpacity

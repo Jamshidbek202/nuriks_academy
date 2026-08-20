@@ -1,0 +1,132 @@
+import React, { useEffect, useRef } from 'react';
+import {
+  Animated,
+  Easing,
+  StyleProp,
+  StyleSheet,
+  TouchableOpacity,
+  TouchableOpacityProps,
+  ViewStyle,
+} from 'react-native';
+import { MOTION, useMotionPreference } from '../contexts/MotionContext';
+
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
+export function MotionTouchableOpacity({
+  style,
+  disabled,
+  onPressIn,
+  onPressOut,
+  activeOpacity = 0.9,
+  pressScale = 0.982,
+  children,
+  ...props
+}: TouchableOpacityProps & { pressScale?: number }) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const scale = useRef(new Animated.Value(1)).current;
+  const flattenedStyle = StyleSheet.flatten(style as StyleProp<ViewStyle>) || {};
+  const inheritedTransform = flattenedStyle.transform || [];
+  const baseStyle = { ...flattenedStyle };
+  delete baseStyle.transform;
+
+  const moveTo = (value: number, duration: number) => {
+    if (!ready || reduceMotion || disabled) {
+      scale.setValue(1);
+      return;
+    }
+    Animated.timing(scale, {
+      toValue: value,
+      duration,
+      easing: value < 1 ? Easing.out(Easing.quad) : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <AnimatedTouchableOpacity
+      {...props}
+      disabled={disabled}
+      activeOpacity={activeOpacity}
+      onPressIn={(event) => {
+        moveTo(pressScale, MOTION.instant);
+        onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        moveTo(1, MOTION.feedback);
+        onPressOut?.(event);
+      }}
+      style={[baseStyle, { transform: [...(inheritedTransform as any[]), { scale }] } as any]}
+    >
+      {children}
+    </AnimatedTouchableOpacity>
+  );
+}
+
+export function MotionReveal({
+  children,
+  style,
+  delay = 0,
+  duration = MOTION.state,
+  distance = 8,
+  direction = 'up',
+  scaleFrom = 0.994,
+  testID,
+}: {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  delay?: number;
+  duration?: number;
+  distance?: number;
+  direction?: 'up' | 'down' | 'left' | 'right' | 'none';
+  scaleFrom?: number;
+  testID?: string;
+}) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const canAnimateFromMount = useRef(ready && !reduceMotion);
+  const progress = useRef(new Animated.Value(ready && !reduceMotion ? 0 : 1)).current;
+
+  useEffect(() => {
+    progress.stopAnimation();
+    if (!ready || reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    if (!canAnimateFromMount.current) {
+      canAnimateFromMount.current = true;
+      progress.setValue(1);
+      return;
+    }
+    progress.setValue(0);
+    Animated.timing(progress, {
+      toValue: 1,
+      delay,
+      duration,
+      easing: Easing.bezier(...MOTION.easing.enter),
+      useNativeDriver: true,
+    }).start();
+    return () => progress.stopAnimation();
+  }, [delay, duration, progress, ready, reduceMotion]);
+
+  const signedDistance = direction === 'up' || direction === 'left' ? distance : -distance;
+  const translate = progress.interpolate({ inputRange: [0, 1], outputRange: [signedDistance, 0] });
+  const transform = direction === 'left' || direction === 'right'
+    ? [{ translateX: translate }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }]
+    : direction === 'none'
+      ? [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }]
+      : [{ translateY: translate }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }];
+
+  return (
+    <Animated.View
+      testID={testID}
+      style={[
+        style,
+        {
+          opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }),
+          transform,
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}

@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Easing,
@@ -8,7 +7,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -22,6 +20,8 @@ import { COLORS, SHADOWS, SIZES, TYPOGRAPHY } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { useLanguage } from '../../src/contexts/LanguageContext';
+import { MotionTouchableOpacity } from '../../src/components/Motion';
+import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
 
 import ParentHomeScreen from './parent-home';
 import TeacherHomeScreen from './teacher-home';
@@ -56,13 +56,16 @@ export default function DashboardHome() {
   const router = useRouter();
   const unreadNotifications = useUnreadNotifications();
   const { width } = useWindowDimensions();
+  const { reduceMotion, ready: motionReady } = useMotionPreference();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dashboardError, setDashboardError] = useState(false);
-  const heroProgress = useRef(new Animated.Value(0)).current;
-  const statusProgress = useRef(new Animated.Value(0)).current;
-  const toolsProgress = useRef(new Animated.Value(0)).current;
+  const canAnimateFromMount = useRef(motionReady && !reduceMotion);
+  const initialMotionValue = motionReady && !reduceMotion ? 0.74 : 1;
+  const heroProgress = useRef(new Animated.Value(initialMotionValue)).current;
+  const statusProgress = useRef(new Animated.Value(initialMotionValue)).current;
+  const toolsProgress = useRef(new Animated.Value(initialMotionValue)).current;
   const isCompact = width < 760;
   const todayLabel = new Intl.DateTimeFormat(undefined, {
     weekday: 'long',
@@ -89,24 +92,25 @@ export default function DashboardHome() {
   }, [user]);
 
   useEffect(() => {
-    let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-      if (!mounted) return;
-      if (reduceMotion) {
-        heroProgress.setValue(1);
-        statusProgress.setValue(1);
-        toolsProgress.setValue(1);
-        return;
-      }
-      Animated.stagger(55, [heroProgress, statusProgress, toolsProgress].map((progress) => Animated.timing(progress, {
+    [heroProgress, statusProgress, toolsProgress].forEach((progress) => progress.stopAnimation());
+    if (!motionReady || reduceMotion || !canAnimateFromMount.current) {
+      heroProgress.setValue(1);
+      statusProgress.setValue(1);
+      toolsProgress.setValue(1);
+      canAnimateFromMount.current = motionReady && !reduceMotion;
+      return;
+    }
+    heroProgress.setValue(0.74);
+    statusProgress.setValue(0.74);
+    toolsProgress.setValue(0.74);
+    Animated.stagger(45, [heroProgress, statusProgress, toolsProgress].map((progress) => Animated.timing(progress, {
         toValue: 1,
-        duration: 220,
-        easing: Easing.out(Easing.cubic),
+        duration: MOTION.navigation,
+        easing: Easing.bezier(...MOTION.easing.enter),
         useNativeDriver: true,
-      }))).start();
-    });
-    return () => { mounted = false; };
-  }, [heroProgress, statusProgress, toolsProgress]);
+    }))).start();
+    return () => [heroProgress, statusProgress, toolsProgress].forEach((progress) => progress.stopAnimation());
+  }, [heroProgress, motionReady, reduceMotion, statusProgress, toolsProgress]);
 
   useLiveRefresh(
     loadDashboardData,
@@ -195,14 +199,13 @@ export default function DashboardHome() {
                   <Text style={styles.subtitle}>{todayLabel} · {t(roleTranslationKey(user.role))}</Text>
                 </View>
               </View>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Notifications" style={styles.notificationButton} onPress={() => router.push('/(dashboard)/notifications')}>
+              <MotionTouchableOpacity accessibilityRole="button" accessibilityLabel="Notifications" style={styles.notificationButton} onPress={() => router.push('/(dashboard)/notifications')}>
                 <Ionicons name="notifications-outline" size={21} color={COLORS.textPrimary} />
                 {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
-              </TouchableOpacity>
+              </MotionTouchableOpacity>
             </View>
             <View style={[styles.heroMetrics, isCompact && styles.heroMetricsCompact]}>
               <View style={styles.todayLead}>
-                <MetricOrbit />
                 <MaterialCommunityIcons name="calendar-month-outline" size={24} color={COLORS.goldLight} />
                 <Text style={styles.todayLeadLabel}>{t('Lessons Today')}</Text>
                 <Text style={styles.todayLeadValue}>{stats?.today?.lessons || 0}</Text>
@@ -278,10 +281,6 @@ function TodayRow({ icon, label, value, tone, last = false }: { icon: IconName; 
   );
 }
 
-function MetricOrbit() {
-  return <View pointerEvents="none" style={styles.metricOrbit}><View style={styles.metricOrbitOuter} /><View style={styles.metricOrbitInner} /><View style={styles.metricOrbitDot} /></View>;
-}
-
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
@@ -298,7 +297,7 @@ function SummaryRow({ icon, label, value, tone = COLORS.gold, last = false }: { 
 
 function ActionTile({ item, onPress, compact, translate }: { item: ActionItem; onPress: () => void; compact: boolean; translate: (value: string) => string }) {
   return (
-    <TouchableOpacity
+    <MotionTouchableOpacity
       testID={item.testID}
       accessibilityRole="button"
       accessibilityLabel={translate(item.label)}
@@ -314,7 +313,7 @@ function ActionTile({ item, onPress, compact, translate }: { item: ActionItem; o
         <Text numberOfLines={2} style={styles.actionDescription}>{translate(item.description)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={17} color={COLORS.textTertiary} />
-    </TouchableOpacity>
+    </MotionTouchableOpacity>
   );
 }
 
@@ -360,10 +359,6 @@ const styles = StyleSheet.create({
   todayRowLast: { borderBottomWidth: 0 },
   todayRowLabel: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
   todayRowValue: { minWidth: 34, textAlign: 'right', fontSize: SIZES.fontLg, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  metricOrbit: { position: 'absolute', width: 150, height: 150, right: -30, bottom: -44, opacity: 0.72 },
-  metricOrbitOuter: { ...StyleSheet.absoluteFillObject, borderRadius: 75, borderWidth: 1, borderColor: COLORS.goldHairline },
-  metricOrbitInner: { position: 'absolute', width: 96, height: 96, left: 27, top: 27, borderRadius: 48, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass },
-  metricOrbitDot: { position: 'absolute', width: 9, height: 9, borderRadius: 5, right: 18, top: 32, backgroundColor: COLORS.goldLight },
   sectionTitle: { ...TYPOGRAPHY.section, color: COLORS.textPrimary, marginTop: SIZES.xl, marginBottom: SIZES.md },
   academyPulse: { gap: SIZES.md, padding: SIZES.lg, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusXl, overflow: 'hidden', ...SHADOWS.small },
   academyPulseCompact: { padding: SIZES.md },

@@ -1,6 +1,7 @@
 import React from 'react';
-import { TouchableOpacity, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
+import { StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
 import { Text } from './LocalizedText';
+import { MotionTouchableOpacity } from './Motion';
 import { COLORS, SIZES } from '../constants/theme';
 
 interface ButtonProps {
@@ -24,7 +25,7 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
   if (variant === 'primary') {
     return (
-      <TouchableOpacity
+      <MotionTouchableOpacity
         testID={testID}
         accessibilityRole="button"
         style={[styles.button, styles.primary, disabled && styles.disabled, style]}
@@ -37,12 +38,12 @@ export const Button: React.FC<ButtonProps> = ({
         ) : (
           <Text style={styles.primaryText}>{title}</Text>
         )}
-      </TouchableOpacity>
+      </MotionTouchableOpacity>
     );
   }
 
   return (
-    <TouchableOpacity
+    <MotionTouchableOpacity
       testID={testID}
       accessibilityRole="button"
       style={[styles.button, styles[variant], disabled && styles.disabled, style]}
@@ -55,7 +56,7 @@ export const Button: React.FC<ButtonProps> = ({
       ) : (
         <Text style={[styles.text, styles[`${variant}Text`]]}>{title}</Text>
       )}
-    </TouchableOpacity>
+    </MotionTouchableOpacity>
   );
 };
 

@@ -18,6 +18,7 @@ import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
+import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 interface Child {
   id: string;
@@ -146,7 +147,7 @@ export default function ParentHomeScreen() {
           <Text style={styles.greeting}>Welcome, Parent</Text>
           <Text style={styles.subtitle}>{user?.full_name || 'Parent Portal'}</Text>
         </View>
-        <TouchableOpacity
+        <MotionTouchableOpacity
           style={styles.notificationButton}
           onPress={() => router.push('/(dashboard)/notifications')}
         >
@@ -156,18 +157,19 @@ export default function ParentHomeScreen() {
               <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </MotionTouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.content}
+        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadParentData(); }} tintColor={COLORS.gold} />
         }
       >
         {/* Child Profile Card */}
         {child && (
-          <View style={styles.childCard}>
+          <MotionReveal style={styles.childCard} duration={280} distance={10}>
             <View style={styles.childHeader}>
               <View style={styles.childAvatar}>
                 <Text style={styles.avatarText}>
@@ -187,52 +189,58 @@ export default function ParentHomeScreen() {
             <View style={styles.childArtwork}>
               <AcademyIllustration variant="parent" compact />
             </View>
-          </View>
+          </MotionReveal>
         )}
 
         {/* Quick Stats */}
-        <View style={styles.statsGrid}>
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
+        <MotionReveal style={styles.statsGrid} delay={55}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="calendar" size={24} color={COLORS.info} />
             <Text style={[styles.statValue, { color: attendanceStats?.rate && attendanceStats.rate >= 80 ? COLORS.success : COLORS.warning }]}>
               {attendanceStats?.rate || 0}%
             </Text>
             <Text style={styles.statLabel}>Attendance</Text>
-          </TouchableOpacity>
+          </MotionTouchableOpacity>
           
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/homework')}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/homework')}>
             <Ionicons name="book" size={24} color={COLORS.gold} />
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Homework</Text>
-          </TouchableOpacity>
+          </MotionTouchableOpacity>
           
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/tests')}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/tests')}>
             <Ionicons name="clipboard" size={24} color={COLORS.success} />
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Tests</Text>
-          </TouchableOpacity>
-        </View>
+          </MotionTouchableOpacity>
+        </MotionReveal>
 
         {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/progress')}>
+        <MotionReveal delay={95}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.actionsGrid}>
+          <MotionTouchableOpacity style={styles.actionCardFeatured} onPress={() => router.push('/(dashboard)/payments')}>
+            <View style={styles.actionFeaturedIcon}><Ionicons name="card" size={25} color={COLORS.gold} /></View>
+            <View style={styles.actionFeaturedCopy}>
+              <Text style={styles.actionFeaturedTitle}>Payments</Text>
+              <Text style={styles.actionFeaturedHint}>View balances, bills, and payment history</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={20} color={COLORS.gold} />
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/progress')}>
             <Ionicons name="analytics" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Progress</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/payments')}>
-            <Ionicons name="card" size={28} color={COLORS.gold} />
-            <Text style={styles.actionText}>Payments</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/certificates')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/certificates')}>
             <Ionicons name="ribbon" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Certificates</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="checkbox" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Attendance</Text>
-          </TouchableOpacity>
-        </View>
+          </MotionTouchableOpacity>
+          </View>
+        </MotionReveal>
 
         {/* Recent Payments */}
         <Text style={styles.sectionTitle}>Recent Payments</Text>
@@ -311,7 +319,8 @@ const styles = StyleSheet.create({
   notificationButton: { position: 'relative', padding: SIZES.sm },
   notificationBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: COLORS.error, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   notificationBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
-  content: { flex: 1, padding: SIZES.md },
+  content: { flex: 1 },
+  contentContainer: { width: '100%', maxWidth: 1080, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
   childCard: { minHeight: 164, justifyContent: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg, paddingRight: 130, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.goldHairline, overflow: 'hidden', ...SHADOWS.small },
   childHeader: { flexDirection: 'row', alignItems: 'center' },
   childArtwork: { position: 'absolute', right: -10, top: 24, opacity: 0.92 },
@@ -328,8 +337,13 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionCard: { flex: 1, minWidth: 100, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
+  actionCardFeatured: { width: '100%', minHeight: 88, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.backgroundElevated, ...SHADOWS.small },
+  actionFeaturedIcon: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  actionFeaturedCopy: { flex: 1 },
+  actionFeaturedTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800' },
+  actionFeaturedHint: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 3 },
   paymentItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.glassHighlight, ...SHADOWS.small },
   paymentInfo: { flex: 1 },
   paymentMonth: { fontSize: SIZES.fontMd, fontWeight: '500', color: COLORS.textPrimary },

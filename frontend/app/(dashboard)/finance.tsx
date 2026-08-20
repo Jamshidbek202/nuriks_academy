@@ -1,7 +1,6 @@
 import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Animated,
   Easing,
@@ -28,6 +27,8 @@ import { FINANCE } from '../../constants/testIds';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { DateTimePicker } from '../../src/components/DateTimePicker';
+import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
 
 const Alert = { alert: showAlert };
 
@@ -326,11 +327,14 @@ const tashkentTime = (value: string) => utcDate(value).toLocaleTimeString(getAct
 export default function FinanceScreen() {
   const { width } = useWindowDimensions();
   const { user, token } = useAuth();
+  const { reduceMotion, ready: motionReady } = useMotionPreference();
   const role = user?.role;
   const isReception = role === 'reception';
   const isSuperAdmin = role === 'super_admin';
   const [activeTab, setActiveTab] = useState<FinanceTab>(isReception ? 'receivables' : 'overview');
   const tabProgress = useRef(new Animated.Value(1)).current;
+  const tabShift = useRef(new Animated.Value(0)).current;
+  const previousTabIndexRef = useRef(tabs.findIndex((tab) => tab.key === (isReception ? 'receivables' : 'overview')));
   const [month, setMonth] = useState(currentMonth());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -445,23 +449,37 @@ export default function FinanceScreen() {
   });
 
   useEffect(() => {
-    let mounted = true;
-    tabProgress.setValue(0);
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-      if (!mounted) return;
-      if (reduceMotion) {
-        tabProgress.setValue(1);
-        return;
-      }
+    const nextIndex = tabs.findIndex((tab) => tab.key === activeTab);
+    const direction = nextIndex >= previousTabIndexRef.current ? 1 : -1;
+    previousTabIndexRef.current = nextIndex;
+    tabProgress.stopAnimation();
+    tabShift.stopAnimation();
+    if (!motionReady || reduceMotion) {
+      tabProgress.setValue(1);
+      tabShift.setValue(0);
+      return;
+    }
+    tabProgress.setValue(0.74);
+    tabShift.setValue(direction * 12);
+    Animated.parallel([
       Animated.timing(tabProgress, {
         toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
+        duration: MOTION.state,
+        easing: Easing.bezier(...MOTION.easing.enter),
         useNativeDriver: true,
-      }).start();
-    });
-    return () => { mounted = false; };
-  }, [activeTab, tabProgress]);
+      }),
+      Animated.timing(tabShift, {
+        toValue: 0,
+        duration: MOTION.navigation,
+        easing: Easing.bezier(...MOTION.easing.enter),
+        useNativeDriver: true,
+      }),
+    ]).start();
+    return () => {
+      tabProgress.stopAnimation();
+      tabShift.stopAnimation();
+    };
+  }, [activeTab, motionReady, reduceMotion, tabProgress, tabShift]);
 
   const studentMap = useMemo(
     () => Object.fromEntries(students.map((student) => [student.id, student])),
@@ -1372,8 +1390,10 @@ export default function FinanceScreen() {
     return <View style={styles.loading}><Text style={styles.muted}>Finance access is not available for this role.</Text></View>;
   }
 
-  const renderOverview = () => position && (
-    <>
+  const renderOverview = () => {
+    if (!position) return null;
+
+    const attentionPanel = (
       <Section title="Needs attention" subtitle="Open work is shown first so the daily finance routine starts with action, not reports.">
         <View style={styles.workQueueGrid}>
           <WorkQueueItem icon="card" label="Transfers to verify" value={unresolvedCardReports.length} tone="warning" onPress={() => setActiveTab('online')} />
@@ -1383,42 +1403,59 @@ export default function FinanceScreen() {
           <WorkQueueItem icon="people-circle" label="Unpaid payroll" value={earnings.filter((row) => row.outstanding_amount_uzs > 0).length} onPress={() => setActiveTab('payroll')} />
         </View>
       </Section>
-      <FinancialPositionCard position={position} month={month} />
-      <Section title="Cash and debt" subtitle="Collections and outstanding balances are kept separate from accrued revenue.">
-        <View style={styles.financeDetailGrid}>
-          <FinanceDetailMetric testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle-outline" color={COLORS.info} />
-          <FinanceDetailMetric testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card-outline" color={COLORS.success} />
-          <FinanceDetailMetric testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash-outline" color={COLORS.gold} />
-          <FinanceDetailMetric testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass-outline" color={COLORS.warning} />
-          <FinanceDetailMetric testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle-outline" color={COLORS.error} />
+    );
+
+    const positionPanel = <FinancialPositionCard position={position} month={month} />;
+
+    return (
+      <>
+        {width >= LAYOUT.desktopBreakpoint ? (
+          <View style={styles.overviewOpeningGrid}>
+            <View style={styles.overviewPosition}>{positionPanel}</View>
+            <View style={styles.overviewAttention}>{attentionPanel}</View>
+          </View>
+        ) : (
+          <>
+            {attentionPanel}
+            {positionPanel}
+          </>
+        )}
+        <Section title="Cash and debt" subtitle="Collections and outstanding balances are kept separate from accrued revenue.">
+          <View style={styles.financeDetailGrid}>
+            <FinanceDetailMetric testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle-outline" color={COLORS.info} />
+            <FinanceDetailMetric testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card-outline" color={COLORS.success} />
+            <FinanceDetailMetric testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash-outline" color={COLORS.gold} />
+            <FinanceDetailMetric testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass-outline" color={COLORS.warning} />
+            <FinanceDetailMetric testID={FINANCE.overdue} label="Overdue" value={position.overdue_uzs} icon="alert-circle-outline" color={COLORS.error} />
+          </View>
+        </Section>
+        <View style={styles.overviewColumns}>
+            <View style={styles.overviewColumn}><Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
+              <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
+              <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
+              <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
+              <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
+            </Section></View>
+            <View style={styles.overviewColumn}><Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
+              <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
+              {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
+              <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
+              <MoneyRow testID={FINANCE.salaryOutstanding} label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
+              <MoneyRow testID={FINANCE.expensesOutstanding} label="Expense outstanding" value={position.expenses_outstanding_uzs} />
+              <MoneyRow testID={FINANCE.cashOutflow} label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
+              <MoneyRow testID={FINANCE.advances} label="Student advances held" value={position.advance_balances_uzs} />
+            </Section></View>
         </View>
-      </Section>
-      <View style={styles.overviewColumns}>
-        <View style={styles.overviewColumn}><Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
-          <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
-          <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
-          <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
-          <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
-        </Section></View>
-        <View style={styles.overviewColumn}><Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
-          <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
-          {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
-          <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
-          <MoneyRow testID={FINANCE.salaryOutstanding} label="Salary outstanding" value={position.teacher_salary_outstanding_uzs} />
-          <MoneyRow testID={FINANCE.expensesOutstanding} label="Expense outstanding" value={position.expenses_outstanding_uzs} />
-          <MoneyRow testID={FINANCE.cashOutflow} label="Cash outflow this period" value={position.period_cash_outflow_uzs} />
-          <MoneyRow testID={FINANCE.advances} label="Student advances held" value={position.advance_balances_uzs} />
-        </Section></View>
-      </View>
-      <View style={styles.monthCloseCard}>
+        <View style={styles.monthCloseCard}>
         <View style={styles.monthCloseCopy}><View style={styles.monthCloseIcon}><Ionicons name="lock-closed-outline" size={22} color={COLORS.gold} /></View><View style={styles.flex}><Text style={styles.monthCloseTitle}>Month close · {month}</Text><Text style={styles.monthCloseText}>Recalculate safely, then finalize only when all scheduled lessons and source records are resolved.</Text></View></View>
         <View style={styles.monthCloseActions}>
           <Button testID={FINANCE.recalculateDrafts} title="Recalculate drafts" variant="outline" style={styles.flexButton} loading={busy === 'drafts'} onPress={() => void runAction('drafts', () => api.post('/finance/invoices/generate-drafts', { service_month: month, branch_id: null }), 'Draft invoices recalculated from current locked source data.')} />
           <Button testID={FINANCE.finalizeMonth} title="Finalize month" style={styles.flexButton} loading={busy === 'finalize'} onPress={finalizeSelectedMonth} />
         </View>
-      </View>
-    </>
-  );
+        </View>
+      </>
+    );
+  };
 
   const renderReceivables = () => (
     <>
@@ -2150,15 +2187,15 @@ export default function FinanceScreen() {
       </View>
       {width >= LAYOUT.desktopBreakpoint ? (
         <View style={[styles.tabScroll, styles.tabs, styles.tabsWrapped]}>
-          {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
+          {visibleTabs.map((tab) => <MotionTouchableOpacity pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
         </View>
       ) : (
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabs}>
-          {visibleTabs.map((tab) => <TouchableOpacity testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></TouchableOpacity>)}
+          {visibleTabs.map((tab) => <MotionTouchableOpacity pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
         </ScrollView>
       )}
       <ScrollView style={styles.content} contentContainerStyle={styles.contentInset} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
-        <Animated.View style={{ opacity: tabProgress, transform: [{ translateY: tabProgress.interpolate({ inputRange: [0, 1], outputRange: [7, 0] }) }] }}>
+        <Animated.View style={{ opacity: tabProgress, transform: [{ translateX: tabShift }] }}>
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'receivables' && renderReceivables()}
           {activeTab === 'online' && renderOnlinePayments()}
@@ -2181,11 +2218,11 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 function WorkQueueItem({ icon, label, value, tone, onPress }: { icon: string; label: string; value: number; tone?: 'warning'; onPress: () => void }) {
   const color = value > 0 ? (tone === 'warning' ? COLORS.warning : COLORS.gold) : COLORS.textTertiary;
   return (
-    <TouchableOpacity accessibilityRole="button" style={styles.workQueueItem} onPress={onPress}>
+    <MotionTouchableOpacity accessibilityRole="button" style={styles.workQueueItem} onPress={onPress}>
       <Ionicons name={icon as any} size={21} color={color} />
       <View style={styles.flex}><Text style={styles.workQueueLabel}>{label}</Text><Text style={styles.workQueueHint}>{value > 0 ? 'Open queue' : 'Nothing waiting'}</Text></View>
       <Text style={[styles.workQueueValue, { color }]}>{value}</Text>
-    </TouchableOpacity>
+    </MotionTouchableOpacity>
   );
 }
 
@@ -2257,34 +2294,37 @@ function FinanceActionModal({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  const { reduceMotion, ready } = useMotionPreference();
   return (
-    <Modal transparent visible animationType="fade" presentationStyle="overFullScreen" onRequestClose={onClose}>
+    <Modal transparent visible animationType="none" presentationStyle="overFullScreen" onRequestClose={onClose}>
       <View style={styles.modalOverlay}>
-        <View testID={FINANCE.actionModal} accessibilityViewIsModal style={styles.modalCard}>
-          <View style={styles.modalHeader}>
-            <View style={styles.flex}>
-              <Text style={styles.modalTitle}>{title}</Text>
-              {subtitle && <Text style={styles.modalSubtitle}>{subtitle}</Text>}
+        <MotionReveal duration={!ready || reduceMotion ? 0 : MOTION.overlay} direction="none" scaleFrom={0.972} style={styles.modalMotion}>
+          <View testID={FINANCE.actionModal} accessibilityViewIsModal style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.flex}>
+                <Text style={styles.modalTitle}>{title}</Text>
+                {subtitle && <Text style={styles.modalSubtitle}>{subtitle}</Text>}
+              </View>
+              <MotionTouchableOpacity
+                testID={FINANCE.actionModalClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close finance action"
+                style={styles.modalClose}
+                onPress={onClose}
+              >
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </MotionTouchableOpacity>
             </View>
-            <TouchableOpacity
-              testID={FINANCE.actionModalClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close finance action"
-              style={styles.modalClose}
-              onPress={onClose}
+            <ScrollView
+              style={styles.modalScroll}
+              contentContainerStyle={styles.modalBody}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
             >
-              <Ionicons name="close" size={24} color={COLORS.textPrimary} />
-            </TouchableOpacity>
+              {children}
+            </ScrollView>
           </View>
-          <ScrollView
-            style={styles.modalScroll}
-            contentContainerStyle={styles.modalBody}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-          >
-            {children}
-          </ScrollView>
-        </View>
+        </MotionReveal>
       </View>
     </Modal>
   );
@@ -2338,6 +2378,9 @@ const styles = StyleSheet.create({
   modeTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   modeText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
   financeHeroGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md, marginBottom: SIZES.lg },
+  overviewOpeningGrid: { flexDirection: 'row', alignItems: 'stretch', gap: SIZES.md },
+  overviewPosition: { flex: 1.45, minWidth: 0 },
+  overviewAttention: { flex: 0.85, minWidth: 300 },
   workQueueGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
   workQueueItem: { flexGrow: 1, flexBasis: 220, minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.border },
   workQueueLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
@@ -2430,6 +2473,7 @@ const styles = StyleSheet.create({
   receiptNoticeWarning: { backgroundColor: COLORS.warning + '15', borderColor: COLORS.warning + '77' },
   receiptNoticeText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontXs, lineHeight: 18 },
   modalOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: SIZES.md, backgroundColor: '#000000B8' },
+  modalMotion: { width: '100%', maxWidth: 540, maxHeight: '90%' },
   modalCard: { width: '100%', maxWidth: 540, maxHeight: '90%', backgroundColor: COLORS.backgroundElevated, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden', ...SHADOWS.large },
   modalHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.marbleGray },
   modalTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },

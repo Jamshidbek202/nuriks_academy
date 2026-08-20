@@ -6,10 +6,12 @@ import { NotificationProvider } from '../src/contexts/NotificationContext';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { LanguageProvider, useLanguage } from '../src/contexts/LanguageContext';
+import { MotionProvider, MOTION, useMotionPreference } from '../src/contexts/MotionContext';
 import { COLORS } from '../src/constants/theme';
 
 function RootNavigator() {
   const { language } = useLanguage();
+  const { reduceMotion, ready } = useMotionPreference();
   return (
     <NotificationProvider>
       <StatusBar style="light" />
@@ -18,8 +20,8 @@ function RootNavigator() {
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: COLORS.backgroundSolid },
-          animation: Platform.OS === 'web' ? 'fade' : 'fade_from_bottom',
-          animationDuration: 220,
+          animation: !ready || reduceMotion ? 'none' : Platform.OS === 'web' ? 'fade' : 'fade_from_bottom',
+          animationDuration: !ready || reduceMotion ? 0 : MOTION.navigation,
         }}
       >
         <Stack.Screen name="index" />
@@ -36,9 +38,11 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <LanguageProvider>
-        <AuthProvider>
-          <RootNavigator />
-        </AuthProvider>
+        <MotionProvider>
+          <AuthProvider>
+            <RootNavigator />
+          </AuthProvider>
+        </MotionProvider>
       </LanguageProvider>
     </SafeAreaProvider>
   );

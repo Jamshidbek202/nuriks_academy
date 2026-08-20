@@ -22,6 +22,7 @@ import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
+import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 interface StudentProfile {
   id: string;
@@ -333,7 +334,7 @@ export default function StudentHomeScreen() {
             <Text style={styles.studentId}>{profile.student_id}</Text>
           )}
         </View>
-        <TouchableOpacity
+        <MotionTouchableOpacity
           style={styles.notificationButton}
           onPress={() => router.push('/(dashboard)/notifications')}
         >
@@ -343,18 +344,19 @@ export default function StudentHomeScreen() {
               <Text style={styles.badgeText}>{unreadCount}</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </MotionTouchableOpacity>
       </View>
 
       <ScrollView
         style={styles.content}
+        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStudentData(); }} tintColor={COLORS.gold} />
         }
       >
         {/* Profile Card */}
         {profile && (
-          <View style={styles.profileCard}>
+          <MotionReveal style={styles.profileCard} duration={280} distance={10}>
             <View style={styles.profileIdentity}>
               <View style={styles.profileAvatar}>
                 <Text style={styles.avatarText}>
@@ -374,52 +376,58 @@ export default function StudentHomeScreen() {
             <View style={styles.profileArtwork}>
               <AcademyIllustration variant="student" compact />
             </View>
-          </View>
+          </MotionReveal>
         )}
 
         {/* Quick Stats */}
-        <View style={styles.statsRow}>
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
+        <MotionReveal style={styles.statsRow} delay={55}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="calendar" size={24} color={COLORS.info} />
             <Text style={[styles.statValue, { color: attendanceStats?.rate && attendanceStats.rate >= 80 ? COLORS.success : COLORS.warning }]}>
               {attendanceStats?.rate || 0}%
             </Text>
             <Text style={styles.statLabel}>Attendance</Text>
-          </TouchableOpacity>
+          </MotionTouchableOpacity>
           
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/homework')}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/homework')}>
             <Ionicons name="book" size={24} color={COLORS.gold} />
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Homework</Text>
-          </TouchableOpacity>
+          </MotionTouchableOpacity>
           
-          <TouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/tests')}>
+          <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/tests')}>
             <Ionicons name="clipboard" size={24} color={COLORS.success} />
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Tests</Text>
-          </TouchableOpacity>
-        </View>
+          </MotionTouchableOpacity>
+        </MotionReveal>
 
         {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/progress')}>
+        <MotionReveal delay={95}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.actionsGrid}>
+          <MotionTouchableOpacity style={styles.actionCardFeatured} onPress={() => setBookingModalVisible(true)}>
+            <View style={styles.actionFeaturedIcon}><Ionicons name="headset" size={25} color={COLORS.gold} /></View>
+            <View style={styles.actionFeaturedCopy}>
+              <Text style={styles.actionFeaturedTitle}>Book Support</Text>
+              <Text style={styles.actionFeaturedHint}>Choose a support teacher and available time</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={20} color={COLORS.gold} />
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/progress')}>
             <Ionicons name="analytics" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Progress</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/certificates')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/certificates')}>
             <Ionicons name="ribbon" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Certificates</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="checkbox" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Attendance</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => setBookingModalVisible(true)}>
-            <Ionicons name="headset" size={28} color={COLORS.gold} />
-            <Text style={styles.actionText}>Book Support</Text>
-          </TouchableOpacity>
-        </View>
+          </MotionTouchableOpacity>
+          </View>
+        </MotionReveal>
 
         {/* My Groups */}
         {groups.length > 0 && (
@@ -652,7 +660,8 @@ const styles = StyleSheet.create({
   notificationButton: { position: 'relative', padding: SIZES.sm },
   badge: { position: 'absolute', top: 0, right: 0, backgroundColor: COLORS.error, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   badgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
-  content: { flex: 1, padding: SIZES.md },
+  content: { flex: 1 },
+  contentContainer: { width: '100%', maxWidth: 1080, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
   
   profileCard: { minHeight: 164, justifyContent: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg, paddingRight: 148, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.goldHairline, overflow: 'hidden', ...SHADOWS.small },
   profileIdentity: { flexDirection: 'row', alignItems: 'center', zIndex: 1 },
@@ -673,8 +682,13 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
   
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionCard: { flex: 1, minWidth: 100, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
+  actionCardFeatured: { width: '100%', minHeight: 88, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.backgroundElevated, ...SHADOWS.small },
+  actionFeaturedIcon: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
+  actionFeaturedCopy: { flex: 1 },
+  actionFeaturedTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800' },
+  actionFeaturedHint: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 3 },
   
   groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.glassHighlight, ...SHADOWS.small },
   groupIcon: { width: 48, height: 48, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.goldGlass, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
