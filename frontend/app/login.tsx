@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   Animated,
@@ -15,7 +14,7 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import { Image as ExpoImage } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../src/components/LocalizedText';
@@ -24,6 +23,7 @@ import { useLanguage } from '../src/contexts/LanguageContext';
 import { COLORS, LAYOUT, SHADOWS, SIZES } from '../src/constants/theme';
 import { formatUzbekPhoneInput, isCompleteUzbekPhone, normalizeUzbekPhone } from '../src/utils/phone';
 import { LOGIN } from '../constants/testIds';
+import { MOTION, useMotionPreference } from '../src/contexts/MotionContext';
 
 const AMBIENT_SPECKS = [
   { left: '7%', top: '14%', size: 2, opacity: 0.28 },
@@ -63,18 +63,10 @@ function BrandAtmosphere() {
         style={StyleSheet.absoluteFill}
       />
       <LinearGradient
-        colors={['rgba(217,184,74,0.24)', 'rgba(217,184,74,0.04)', 'rgba(217,184,74,0)']}
-        locations={[0, 0.48, 1]}
-        start={{ x: 0.1, y: 0.1 }}
-        end={{ x: 0.9, y: 0.9 }}
-        style={[styles.ambientPool, styles.ambientPoolGold]}
-      />
-      <LinearGradient
-        colors={['rgba(73,99,126,0.16)', 'rgba(73,99,126,0.03)', 'rgba(73,99,126,0)']}
-        locations={[0, 0.52, 1]}
-        start={{ x: 0.1, y: 0.15 }}
-        end={{ x: 0.9, y: 0.85 }}
-        style={[styles.ambientPool, styles.ambientPoolCool]}
+        colors={['rgba(217,184,74,0)', 'rgba(217,184,74,0.055)']}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={styles.ambientGoldWash}
       />
       {AMBIENT_SPECKS.map((speck, index) => (
         <View
@@ -105,66 +97,43 @@ export default function LoginScreen() {
   const { login: authLogin, sessionNotice, clearSessionNotice } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
+  const { reduceMotion, ready: motionReady } = useMotionPreference();
   const { width } = useWindowDimensions();
   const isWide = width >= 900;
-  const brandEntrance = useRef(new Animated.Value(0)).current;
-  const formEntrance = useRef(new Animated.Value(0)).current;
-  const illustrationFloat = useRef(new Animated.Value(0)).current;
+  const brandEntrance = useRef(new Animated.Value(1)).current;
+  const formEntrance = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    let floatAnimation: Animated.CompositeAnimation | undefined;
-    let cancelled = false;
+    brandEntrance.stopAnimation();
+    formEntrance.stopAnimation();
+    if (!motionReady || reduceMotion) {
+      brandEntrance.setValue(1);
+      formEntrance.setValue(1);
+      return;
+    }
 
-    void AccessibilityInfo.isReduceMotionEnabled().then((reduceMotion) => {
-      if (cancelled) return;
-      if (reduceMotion) {
-        brandEntrance.setValue(1);
-        formEntrance.setValue(1);
-        return;
-      }
-
-      Animated.stagger(90, [
-        Animated.timing(brandEntrance, {
-          toValue: 1,
-          duration: 560,
-          easing: Easing.out(Easing.exp),
-          useNativeDriver: true,
-        }),
-        Animated.timing(formEntrance, {
-          toValue: 1,
-          duration: 460,
-          easing: Easing.out(Easing.exp),
-          useNativeDriver: true,
-        }),
-      ]).start();
-
-      floatAnimation = Animated.loop(
-        Animated.sequence([
-          Animated.timing(illustrationFloat, {
-            toValue: 1,
-            duration: 2600,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-          Animated.timing(illustrationFloat, {
-            toValue: 0,
-            duration: 2600,
-            easing: Easing.inOut(Easing.quad),
-            useNativeDriver: true,
-          }),
-        ]),
-      );
-      floatAnimation.start();
-    });
+    brandEntrance.setValue(0.78);
+    formEntrance.setValue(0.78);
+    Animated.stagger(70, [
+      Animated.timing(brandEntrance, {
+        toValue: 1,
+        duration: MOTION.hero,
+        easing: Easing.out(Easing.exp),
+        useNativeDriver: true,
+      }),
+      Animated.timing(formEntrance, {
+        toValue: 1,
+        duration: MOTION.overlay,
+        easing: Easing.out(Easing.exp),
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     return () => {
-      cancelled = true;
-      floatAnimation?.stop();
       brandEntrance.stopAnimation();
       formEntrance.stopAnimation();
-      illustrationFloat.stopAnimation();
     };
-  }, [brandEntrance, formEntrance, illustrationFloat]);
+  }, [brandEntrance, formEntrance, motionReady, reduceMotion]);
 
   const handleLogin = async () => {
     const normalizedPhone = normalizeUzbekPhone(phone);
@@ -202,78 +171,63 @@ export default function LoginScreen() {
           <View style={[styles.shell, isWide && styles.shellWide]}>
             <Animated.View
               style={[
-                styles.brand,
-                isWide && styles.brandWide,
+                styles.brandPanel,
+                isWide && styles.brandPanelWide,
                 {
                   opacity: brandEntrance,
                   transform: [
-                    { translateY: brandEntrance.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) },
+                    { translateY: brandEntrance.interpolate({ inputRange: [0.78, 1], outputRange: [10, 0] }) },
                   ],
                 },
               ]}
             >
-              <Image
-                source={require('../assets/images/logo.png')}
-                style={styles.logo}
-                resizeMode="contain"
-                accessibilityLabel="Nurik's Academy logo"
-              />
-              <Text style={styles.academyName}>Nurik&apos;s Academy</Text>
-              <Text style={styles.systemName}>{t('Academy management system')}</Text>
-              <Animated.View
-                style={[
-                  styles.brandIllustration,
-                  {
-                    transform: [
-                      { translateY: illustrationFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -7] }) },
-                    ],
-                  },
-                ]}
-              >
-                <View
-                  pointerEvents="none"
-                  style={[styles.illustrationStage, !isWide && styles.illustrationStageCompact]}
-                >
-                  <Image
-                    source={require('../assets/illustrations/reader.png')}
-                    style={styles.readerIllustration}
-                    resizeMode="contain"
-                    accessibilityLabel={t('Student reading a book')}
-                  />
+              <View style={styles.brandRow}>
+                <Image
+                  source={require('../assets/images/logo.png')}
+                  style={styles.logo}
+                  resizeMode="contain"
+                  accessibilityLabel="Nurik's Academy logo"
+                />
+                <View style={styles.brandIdentity}>
+                  <Text style={styles.academyName}>Nurik&apos;s Academy</Text>
+                  <Text style={styles.systemName}>{t('Academy management system')}</Text>
                 </View>
-              </Animated.View>
+              </View>
+
+              <View style={[styles.illustrationStage, !isWide && styles.illustrationStageCompact]}>
+                <ExpoImage
+                  source={require('../assets/illustrations/academy-operations.png')}
+                  style={styles.studyIllustration}
+                  contentFit="contain"
+                  accessibilityLabel={t('Books, learning plans, and academy operations')}
+                />
+              </View>
+
               {isWide && (
-                <View style={styles.brandNote}>
-                  <Text style={styles.brandNoteLabel}>{t('ONE ACADEMY · ONE SYSTEM')}</Text>
-                  <Text style={styles.brandNoteText}>{t('Classes, progress, communication, and finance in one secure workspace.')}</Text>
+                <View style={styles.brandCopy}>
+                  <Text style={styles.brandTitle}>{t('One place to run the academy.')}</Text>
+                  <Text style={styles.brandDescription}>
+                    {t('Daily work, learning progress, and payments — clear and secure.')}
+                  </Text>
                 </View>
               )}
             </Animated.View>
 
             <Animated.View
               style={[
-                styles.formColumn,
+                styles.formPanel,
+                isWide && styles.formPanelWide,
                 {
                   opacity: formEntrance,
                   transform: [
-                    { translateY: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [18, 0] }) },
-                    { scale: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) },
+                    { translateY: formEntrance.interpolate({ inputRange: [0.78, 1], outputRange: [10, 0] }) },
                   ],
                 },
               ]}
             >
-              <View style={styles.formPanel}>
-              <BlurView pointerEvents="none" tint="dark" intensity={38} style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                pointerEvents="none"
-                colors={['rgba(255,255,255,0.075)', 'rgba(217,184,74,0.025)', 'rgba(255,255,255,0.008)']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={StyleSheet.absoluteFill}
-              />
               <View style={styles.formHeading}>
-                <Text style={styles.title}>{t('Sign In')}</Text>
-                <Text style={styles.subtitle}>{t('Use your approved academy account')}</Text>
+                <Text style={styles.title}>{t('Welcome Back')}</Text>
+                <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
               </View>
 
               {!!errorMessage && (
@@ -380,7 +334,6 @@ export default function LoginScreen() {
                   <Text style={styles.primaryLink}>{t('I have an invitation code')}</Text>
                 </TouchableOpacity>
               </View>
-              </View>
 
               <View style={styles.accessNote}>
                 <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.textTertiary} />
@@ -398,36 +351,71 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, backgroundColor: COLORS.background },
   atmosphere: { ...StyleSheet.absoluteFillObject, overflow: 'hidden' },
-  ambientPool: { position: 'absolute', borderRadius: 999 },
-  ambientPoolGold: { width: '88%', aspectRatio: 1.12, top: '-28%', right: '-28%', transform: [{ rotate: '-14deg' }] },
-  ambientPoolCool: { width: '74%', aspectRatio: 1.06, bottom: '-32%', left: '-30%', transform: [{ rotate: '16deg' }] },
+  ambientGoldWash: { position: 'absolute', top: 0, right: 0, bottom: 0, width: '48%' },
   ambientSpeck: { position: 'absolute', backgroundColor: '#D4AF37' },
-  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: SIZES.lg, position: 'relative' },
-  shell: { width: '100%', maxWidth: LAYOUT.formMaxWidth, alignSelf: 'center' },
-  shellWide: { maxWidth: 1040, flexDirection: 'row', alignItems: 'center', gap: 72 },
-  brand: { alignItems: 'center', marginBottom: SIZES.xl },
-  brandWide: { flex: 1, alignItems: 'flex-start', marginBottom: 0 },
-  logo: { width: 76, height: 76, marginBottom: SIZES.md },
-  academyName: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 31, fontWeight: '800', letterSpacing: -0.4 },
-  systemName: { color: COLORS.gold, fontSize: SIZES.fontXs, marginTop: SIZES.xs, letterSpacing: 0.45 },
-  brandIllustration: { width: '100%', marginTop: SIZES.md, alignItems: 'center' },
-  illustrationStage: {
-    width: 300,
-    height: 248,
-    maxWidth: '100%',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
+  scrollContent: { flexGrow: 1, justifyContent: 'center', padding: SIZES.md, position: 'relative' },
+  shell: { width: '100%', maxWidth: LAYOUT.formMaxWidth, alignSelf: 'center', ...SHADOWS.medium },
+  shellWide: { maxWidth: 1060, flexDirection: 'row', alignItems: 'stretch' },
+  brandPanel: {
+    padding: SIZES.lg,
+    backgroundColor: '#0B0E0A',
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: SIZES.radiusXl,
+    borderTopRightRadius: SIZES.radiusXl,
+    overflow: 'hidden',
   },
-  illustrationStageCompact: { width: 138, height: 122 },
-  readerIllustration: { width: '100%', height: '100%' },
-  brandNote: { maxWidth: 360, marginTop: SIZES.lg, paddingTop: SIZES.md, borderTopWidth: 1, borderTopColor: COLORS.goldHairline },
-  brandNoteLabel: { color: COLORS.goldLight, fontSize: 10, lineHeight: 15, fontWeight: '800', letterSpacing: 1.25 },
-  brandNoteText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginTop: SIZES.sm },
-  formColumn: { width: '100%', maxWidth: LAYOUT.formMaxWidth },
-  formPanel: { backgroundColor: 'rgba(17,20,18,0.60)', borderWidth: 1, borderColor: COLORS.glassHighlight, borderRadius: SIZES.radiusLg, padding: SIZES.lg, overflow: 'hidden', ...SHADOWS.medium },
-  formHeading: { marginBottom: SIZES.lg, paddingBottom: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
-  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, lineHeight: 31, fontWeight: '800', letterSpacing: -0.3 },
-  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs },
+  brandPanelWide: {
+    flex: 1.04,
+    minHeight: 590,
+    padding: SIZES.xl,
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderRightWidth: 0,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: SIZES.radiusXl,
+  },
+  brandRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+  brandIdentity: { flex: 1 },
+  logo: { width: 54, height: 54, flexShrink: 0 },
+  academyName: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, lineHeight: 24, fontWeight: '800', letterSpacing: -0.3 },
+  systemName: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 2 },
+  illustrationStage: {
+    width: '84%',
+    maxWidth: 400,
+    aspectRatio: 1100 / 733,
+    alignSelf: 'center',
+    marginVertical: SIZES.lg,
+  },
+  illustrationStageCompact: { width: '66%', marginTop: SIZES.md, marginBottom: 0 },
+  studyIllustration: { width: '100%', height: '100%' },
+  brandCopy: { maxWidth: 410 },
+  brandTitle: { color: COLORS.textPrimary, fontSize: 34, lineHeight: 39, fontWeight: '800', letterSpacing: -0.8 },
+  brandDescription: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginTop: SIZES.sm, maxWidth: 360 },
+  formPanel: {
+    width: '100%',
+    maxWidth: LAYOUT.formMaxWidth,
+    alignSelf: 'center',
+    backgroundColor: COLORS.backgroundCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderBottomLeftRadius: SIZES.radiusXl,
+    borderBottomRightRadius: SIZES.radiusXl,
+    padding: SIZES.lg,
+  },
+  formPanelWide: {
+    flex: 0.96,
+    minHeight: 590,
+    maxWidth: 510,
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+    borderTopRightRadius: SIZES.radiusXl,
+    borderBottomLeftRadius: 0,
+  },
+  formHeading: { marginBottom: SIZES.xl },
+  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, lineHeight: 41, fontWeight: '800', letterSpacing: -0.7 },
+  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20, marginTop: SIZES.xs },
   messageBox: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderRadius: SIZES.radiusSm, padding: SIZES.md, marginBottom: SIZES.md },
   errorMessageBox: { borderColor: COLORS.error + '70', backgroundColor: COLORS.error + '0A' },
   noticeMessageBox: { borderColor: COLORS.warning + '70', backgroundColor: COLORS.warning + '0A' },

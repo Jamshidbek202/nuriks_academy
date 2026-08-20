@@ -20,8 +20,9 @@ import { COLORS, SHADOWS, SIZES, TYPOGRAPHY } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { useLanguage } from '../../src/contexts/LanguageContext';
-import { MotionTouchableOpacity } from '../../src/components/Motion';
+import { MotionLine, MotionPulse, MotionTouchableOpacity } from '../../src/components/Motion';
 import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
+import { BrandFrame } from '../../src/components/BrandFrame';
 
 import ParentHomeScreen from './parent-home';
 import TeacherHomeScreen from './teacher-home';
@@ -181,7 +182,7 @@ export default function DashboardHome() {
         }
       >
         <Animated.View style={{ opacity: heroProgress, transform: [{ translateY: heroProgress.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] }}>
-          <View style={styles.todayHero}>
+          <BrandFrame style={[styles.todayHero, isCompact && styles.todayHeroCompact]} accent={COLORS.gold}>
             <LinearGradient
               pointerEvents="none"
               colors={['#1B1E16', '#15180F', '#26200F']}
@@ -190,9 +191,9 @@ export default function DashboardHome() {
               end={{ x: 1, y: 1 }}
               style={StyleSheet.absoluteFill}
             />
-            <View style={styles.heroTopRow}>
+            <View style={[styles.heroTopRow, isCompact && styles.heroTopRowCompact]}>
               <View style={styles.headerIdentity}>
-                <Image source={require('../../assets/images/logo.png')} style={styles.logo} resizeMode="contain" accessibilityLabel="Nurik's Academy logo" />
+                <Image source={require('../../assets/images/logo.png')} style={[styles.logo, isCompact && styles.logoCompact]} resizeMode="contain" accessibilityLabel="Nurik's Academy logo" />
                 <View style={styles.headerCopy}>
                   <Text style={styles.welcome}>{t('Today at Nurik\'s')}</Text>
                   <Text numberOfLines={1} style={styles.title}>{user.full_name}</Text>
@@ -204,51 +205,83 @@ export default function DashboardHome() {
                 {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
               </MotionTouchableOpacity>
             </View>
-            <View style={[styles.heroMetrics, isCompact && styles.heroMetricsCompact]}>
-              <View style={styles.todayLead}>
-                <MaterialCommunityIcons name="calendar-month-outline" size={24} color={COLORS.goldLight} />
-                <Text style={styles.todayLeadLabel}>{t('Lessons Today')}</Text>
-                <Text style={styles.todayLeadValue}>{stats?.today?.lessons || 0}</Text>
-                <Text style={styles.todayLeadHint}>{t('Scheduled academy sessions')}</Text>
-              </View>
-              <View style={styles.todayRegister}>
-                <Text style={styles.todayRegisterTitle}>{t('At a glance')}</Text>
-                <TodayRow icon="clock-outline" label={t('Support Bookings')} value={stats?.today?.support_bookings || 0} tone={COLORS.info} />
-                <TodayRow icon="account-multiple-outline" label={t('Current Students')} value={stats?.students?.total || 0} tone={COLORS.goldLight} />
-                <TodayRow icon="check-decagram-outline" label={t('Active Students')} value={stats?.students?.active || 0} tone={COLORS.success} last />
-              </View>
+            <View pointerEvents="none" style={[styles.heroTrack, isCompact && styles.heroTrackCompact]}>
+              <MotionLine color={COLORS.goldHairline} style={styles.heroTrackLine} delay={120} />
+              <View style={[styles.heroTrackNode, styles.heroTrackNodeStart]} />
+              <View style={[styles.heroTrackNode, styles.heroTrackNodeMiddle]} />
+              <View style={[styles.heroTrackNode, styles.heroTrackNodeEnd]} />
+              <Text style={styles.heroTrackLabel}>{t('Live operational view')}</Text>
             </View>
-          </View>
+            <View style={[styles.heroMetrics, isCompact && styles.heroMetricsCompact]}>
+              <View style={[styles.todayLead, isCompact && styles.todayLeadCompact]}>
+                <View pointerEvents="none" style={[styles.lessonOrbit, isCompact && styles.lessonOrbitCompact]}>
+                  <View style={[styles.lessonOrbitOuter, isCompact && styles.lessonOrbitOuterCompact]} />
+                  <View style={[styles.lessonOrbitInner, isCompact && styles.lessonOrbitInnerCompact]} />
+                  <View style={[styles.lessonOrbitDot, isCompact && styles.lessonOrbitDotCompact]} />
+                  <MaterialCommunityIcons name="calendar-month-outline" size={isCompact ? 22 : 28} color={COLORS.goldLight} />
+                </View>
+                <View style={styles.todayLeadCopy}>
+                  <Text style={styles.todayLeadLabel}>{t('Lessons Today')}</Text>
+                  <Text style={[styles.todayLeadValue, isCompact && styles.todayLeadValueCompact]}>{stats?.today?.lessons || 0}</Text>
+                  {!isCompact && <Text style={styles.todayLeadHint}>{t('Scheduled academy sessions')}</Text>}
+                </View>
+              </View>
+              {isCompact ? (
+                <View style={styles.mobileGlanceGrid}>
+                  <MobileHeroStat icon="clock-outline" label={t('Bookings')} value={stats?.today?.support_bookings || 0} tone={COLORS.info} />
+                  <MobileHeroStat icon="account-multiple-outline" label={t('Students')} value={stats?.students?.total || 0} tone={COLORS.goldLight} />
+                  <MobileHeroStat icon="check-decagram-outline" label={t('Active')} value={stats?.students?.active || 0} tone={COLORS.success} />
+                </View>
+              ) : (
+                <View style={styles.todayRegister}>
+                  <Text style={styles.todayRegisterTitle}>{t('At a glance')}</Text>
+                  <TodayRow icon="clock-outline" label={t('Support Bookings')} value={stats?.today?.support_bookings || 0} tone={COLORS.info} />
+                  <TodayRow icon="account-multiple-outline" label={t('Current Students')} value={stats?.students?.total || 0} tone={COLORS.goldLight} />
+                  <TodayRow icon="check-decagram-outline" label={t('Active Students')} value={stats?.students?.active || 0} tone={COLORS.success} last />
+                </View>
+              )}
+            </View>
+          </BrandFrame>
         </Animated.View>
 
         <Animated.View style={{ opacity: statusProgress, transform: [{ translateY: statusProgress.interpolate({ inputRange: [0, 1], outputRange: [9, 0] }) }] }}>
           <SectionHeader title={t('Academy status')} />
-          <View style={[styles.academyPulse, isCompact && styles.academyPulseCompact]}>
+          <BrandFrame quiet style={[styles.academyPulse, isCompact && styles.academyPulseCompact]} accent={COLORS.success}>
             <View style={styles.academyStatusLine}>
               <View style={styles.statusIdentity}>
-                <View style={styles.liveDot} />
+                <MotionPulse color={COLORS.success} size={7} />
                 <Text style={styles.academyStatusTitle}>{t('Live academy snapshot')}</Text>
               </View>
               <Text style={styles.academyStatusMeta}>{t('The operational view refreshes automatically.')}</Text>
             </View>
-            <View style={[styles.summaryGrid, isCompact && styles.summaryGridCompact]}>
-              <View style={styles.summarySection}>
-                <View style={styles.panelHeader}><Text style={styles.panelTitle}>{t('Team')}</Text><MaterialCommunityIcons name="account-group-outline" size={20} color={COLORS.gold} /></View>
-                <View style={styles.summaryPanel}>
-                  <SummaryRow icon="account-school-outline" label={t('Teachers')} value={stats?.teachers || 0} />
-                  <SummaryRow icon="headset" label={t('Support Staff')} value={stats?.support_staff || 0} tone={COLORS.info} last />
+            {isCompact ? (
+              <View style={styles.mobileSnapshotGrid}>
+                <MobileSnapshot label={t('Teachers')} value={stats?.teachers || 0} tone={COLORS.gold} />
+                <MobileSnapshot label={t('Support')} value={stats?.support_staff || 0} tone={COLORS.info} />
+                <MobileSnapshot label={t('Frozen')} value={stats?.students?.frozen || 0} tone={COLORS.warning} />
+                <MobileSnapshot label={t('Graduated')} value={stats?.students?.graduated || 0} tone={COLORS.success} />
+                <MobileSnapshot label={t('Archived')} value={stats?.students?.archived || 0} tone={COLORS.textSecondary} wide />
+              </View>
+            ) : (
+              <View style={styles.summaryGrid}>
+                <View style={styles.summarySection}>
+                  <View style={styles.panelHeader}><Text style={styles.panelTitle}>{t('Team')}</Text><MaterialCommunityIcons name="account-group-outline" size={20} color={COLORS.gold} /></View>
+                  <View style={styles.summaryPanel}>
+                    <SummaryRow icon="account-school-outline" label={t('Teachers')} value={stats?.teachers || 0} />
+                    <SummaryRow icon="headset" label={t('Support Staff')} value={stats?.support_staff || 0} tone={COLORS.info} last />
+                  </View>
+                </View>
+                <View style={styles.summarySection}>
+                  <View style={styles.panelHeader}><Text style={styles.panelTitle}>{t('Student journey')}</Text><MaterialCommunityIcons name="chart-timeline-variant" size={20} color={COLORS.gold} /></View>
+                  <View style={styles.summaryPanel}>
+                    <SummaryRow icon="pause-circle-outline" label={t('Frozen')} value={stats?.students?.frozen || 0} tone={COLORS.warning} />
+                    <SummaryRow icon="certificate-outline" label={t('Graduated')} value={stats?.students?.graduated || 0} tone={COLORS.success} />
+                    <SummaryRow icon="archive-outline" label={t('Archived')} value={stats?.students?.archived || 0} last />
+                  </View>
                 </View>
               </View>
-              <View style={styles.summarySection}>
-                <View style={styles.panelHeader}><Text style={styles.panelTitle}>{t('Student journey')}</Text><MaterialCommunityIcons name="chart-timeline-variant" size={20} color={COLORS.gold} /></View>
-                <View style={styles.summaryPanel}>
-                  <SummaryRow icon="pause-circle-outline" label={t('Frozen')} value={stats?.students?.frozen || 0} tone={COLORS.warning} />
-                  <SummaryRow icon="certificate-outline" label={t('Graduated')} value={stats?.students?.graduated || 0} tone={COLORS.success} />
-                  <SummaryRow icon="archive-outline" label={t('Archived')} value={stats?.students?.archived || 0} last />
-                </View>
-              </View>
-            </View>
-          </View>
+            )}
+          </BrandFrame>
         </Animated.View>
 
         <Animated.View style={{ opacity: toolsProgress, transform: [{ translateY: toolsProgress.interpolate({ inputRange: [0, 1], outputRange: [8, 0] }) }] }}>
@@ -281,6 +314,26 @@ function TodayRow({ icon, label, value, tone, last = false }: { icon: IconName; 
   );
 }
 
+function MobileHeroStat({ icon, label, value, tone }: { icon: IconName; label: string; value: number; tone: string }) {
+  return (
+    <View style={styles.mobileHeroStat}>
+      <MaterialCommunityIcons name={icon} size={18} color={tone} />
+      <Text style={styles.mobileHeroStatLabel}>{label}</Text>
+      <Text style={[styles.mobileHeroStatValue, { color: tone }]}>{value}</Text>
+    </View>
+  );
+}
+
+function MobileSnapshot({ label, value, tone, wide = false }: { label: string; value: number; tone: string; wide?: boolean }) {
+  return (
+    <View style={[styles.mobileSnapshot, wide && styles.mobileSnapshotWide]}>
+      <View style={[styles.mobileSnapshotDot, { backgroundColor: tone }]} />
+      <Text style={styles.mobileSnapshotLabel}>{label}</Text>
+      <Text style={[styles.mobileSnapshotValue, { color: tone }]}>{value}</Text>
+    </View>
+  );
+}
+
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionTitle}>{title}</Text>;
 }
@@ -305,6 +358,7 @@ function ActionTile({ item, onPress, compact, translate }: { item: ActionItem; o
       onPress={onPress}
       activeOpacity={0.72}
     >
+      <View pointerEvents="none" style={[styles.actionAccentLine, { backgroundColor: item.accent }]} />
       <View style={styles.actionIcon}>
         <MaterialCommunityIcons name={item.icon} size={22} color={item.accent} />
       </View>
@@ -324,6 +378,7 @@ const styles = StyleSheet.create({
   headerCompact: { paddingHorizontal: SIZES.md },
   headerIdentity: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
   logo: { width: 46, height: 46, flexShrink: 0 },
+  logoCompact: { width: 38, height: 38 },
   headerCopy: { flex: 1, minWidth: 0 },
   welcome: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginBottom: 2 },
   title: { ...TYPOGRAPHY.title, color: COLORS.textPrimary },
@@ -345,13 +400,34 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   contentContainer: { width: '100%', maxWidth: 1160, alignSelf: 'center', padding: SIZES.lg, paddingTop: SIZES.headerTop, paddingBottom: SIZES.xxxl },
   contentContainerCompact: { padding: SIZES.md, paddingTop: SIZES.headerTop, paddingBottom: SIZES.xxl },
-  todayHero: { minHeight: 334, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: COLORS.goldHairline, padding: SIZES.lg, overflow: 'hidden', ...SHADOWS.medium },
+  todayHero: { minHeight: 360, borderRadius: SIZES.radiusXl, borderColor: COLORS.goldHairline, padding: SIZES.lg, ...SHADOWS.medium },
+  todayHeroCompact: { minHeight: 0, borderRadius: SIZES.radiusLg, padding: SIZES.md },
   heroTopRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md, paddingBottom: SIZES.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.glassHighlight },
-  heroMetrics: { flexDirection: 'row', alignItems: 'stretch', gap: SIZES.md, marginTop: SIZES.lg },
-  heroMetricsCompact: { flexDirection: 'column' },
-  todayLead: { position: 'relative', flex: 0.9, minWidth: 260, minHeight: 176, justifyContent: 'flex-end', padding: SIZES.lg, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusLg, overflow: 'hidden' },
-  todayLeadLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700', marginTop: SIZES.md },
+  heroTopRowCompact: { paddingBottom: SIZES.md },
+  heroTrack: { position: 'relative', height: 30, marginTop: SIZES.sm, justifyContent: 'center' },
+  heroTrackCompact: { height: 20, marginTop: SIZES.xs },
+  heroTrackLine: { position: 'absolute', left: 5, right: 5, top: 14 },
+  heroTrackNode: { position: 'absolute', top: 10, width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.backgroundCard, borderWidth: 2, borderColor: COLORS.gold },
+  heroTrackNodeStart: { left: 0 },
+  heroTrackNodeMiddle: { left: '52%' },
+  heroTrackNodeEnd: { right: 0, backgroundColor: COLORS.gold },
+  heroTrackLabel: { alignSelf: 'center', color: COLORS.textTertiary, backgroundColor: '#171810', paddingHorizontal: SIZES.sm, fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
+  heroMetrics: { flexDirection: 'row', alignItems: 'stretch', gap: SIZES.md, marginTop: SIZES.sm },
+  heroMetricsCompact: { flexDirection: 'column', gap: 10, marginTop: SIZES.xs },
+  todayLead: { position: 'relative', flex: 0.9, minWidth: 260, minHeight: 184, flexDirection: 'row', alignItems: 'center', gap: SIZES.lg, padding: SIZES.lg, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusLg, overflow: 'hidden' },
+  todayLeadCompact: { minWidth: 0, minHeight: 94, flex: 0, gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd },
+  lessonOrbit: { width: 94, height: 94, flexShrink: 0, alignItems: 'center', justifyContent: 'center' },
+  lessonOrbitCompact: { width: 62, height: 62 },
+  lessonOrbitOuter: { position: 'absolute', width: 94, height: 94, borderRadius: 47, borderWidth: 1, borderColor: COLORS.goldHairline },
+  lessonOrbitOuterCompact: { width: 62, height: 62, borderRadius: 31 },
+  lessonOrbitInner: { position: 'absolute', width: 64, height: 64, borderRadius: 32, borderWidth: 1, borderColor: COLORS.borderStrong, backgroundColor: 'rgba(7,8,6,0.46)' },
+  lessonOrbitInnerCompact: { width: 42, height: 42, borderRadius: 21 },
+  lessonOrbitDot: { position: 'absolute', top: 8, right: 13, width: 9, height: 9, borderRadius: 5, backgroundColor: COLORS.goldLight, borderWidth: 2, borderColor: '#1B1B12' },
+  lessonOrbitDotCompact: { top: 4, right: 7, width: 8, height: 8 },
+  todayLeadCopy: { flex: 1, minWidth: 0 },
+  todayLeadLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   todayLeadValue: { color: COLORS.goldLight, fontSize: 48, lineHeight: 52, fontWeight: '850' as any, fontVariant: ['tabular-nums'] },
+  todayLeadValueCompact: { fontSize: 34, lineHeight: 38 },
   todayLeadHint: { color: COLORS.textTertiary, fontSize: 11, lineHeight: 16, marginTop: SIZES.xs },
   todayRegister: { flex: 1.3, minWidth: 280, minHeight: 176, backgroundColor: 'rgba(7,8,6,0.64)', borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, overflow: 'hidden' },
   todayRegisterTitle: { minHeight: 44, paddingHorizontal: SIZES.md, textAlignVertical: 'center', color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '750' as any, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
@@ -359,16 +435,25 @@ const styles = StyleSheet.create({
   todayRowLast: { borderBottomWidth: 0 },
   todayRowLabel: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
   todayRowValue: { minWidth: 34, textAlign: 'right', fontSize: SIZES.fontLg, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  mobileGlanceGrid: { flexDirection: 'row', gap: SIZES.sm },
+  mobileHeroStat: { flex: 1, minWidth: 0, minHeight: 72, justifyContent: 'space-between', padding: SIZES.sm, borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.border, backgroundColor: 'rgba(7,8,6,0.60)' },
+  mobileHeroStatLabel: { color: COLORS.textTertiary, fontSize: 10, lineHeight: 13, fontWeight: '700' },
+  mobileHeroStatValue: { fontSize: 18, lineHeight: 22, fontWeight: '850' as any, fontVariant: ['tabular-nums'] },
   sectionTitle: { ...TYPOGRAPHY.section, color: COLORS.textPrimary, marginTop: SIZES.xl, marginBottom: SIZES.md },
   academyPulse: { gap: SIZES.md, padding: SIZES.lg, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusXl, overflow: 'hidden', ...SHADOWS.small },
   academyPulseCompact: { padding: SIZES.md },
   academyStatusLine: { minHeight: 40, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.sm, paddingBottom: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
   statusIdentity: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
-  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.success },
   academyStatusTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   academyStatusMeta: { color: COLORS.textTertiary, fontSize: 11, lineHeight: 16 },
   summaryGrid: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.md },
   summaryGridCompact: { flexDirection: 'column', gap: SIZES.md },
+  mobileSnapshotGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
+  mobileSnapshot: { width: '48%', flexGrow: 1, minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight },
+  mobileSnapshotWide: { width: '100%' },
+  mobileSnapshotDot: { width: 6, height: 6, borderRadius: 3 },
+  mobileSnapshotLabel: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontXs },
+  mobileSnapshotValue: { minWidth: 20, textAlign: 'right', fontSize: SIZES.fontMd, fontWeight: '800', fontVariant: ['tabular-nums'] },
   summarySection: { flex: 1, width: '100%', minWidth: 0 },
   panelHeader: { minHeight: 46, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: SIZES.md, backgroundColor: COLORS.backgroundElevated, borderTopLeftRadius: SIZES.radiusLg, borderTopRightRadius: SIZES.radiusLg, borderWidth: 1, borderBottomWidth: 0, borderColor: COLORS.border },
   panelTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '750' as any },
@@ -379,9 +464,10 @@ const styles = StyleSheet.create({
   summaryValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontLg, fontWeight: '800', fontVariant: ['tabular-nums'] },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md },
   adminActionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
-  actionTile: { flexGrow: 1, flexBasis: '47%', minWidth: 280, minHeight: 102, paddingHorizontal: SIZES.lg, paddingVertical: SIZES.md, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, overflow: 'hidden', ...SHADOWS.small },
-  actionTileCompact: { flexBasis: '100%', minWidth: 0 },
-  actionIcon: { width: 30, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
+  actionTile: { position: 'relative', flexGrow: 1, flexBasis: '47%', minWidth: 280, minHeight: 110, paddingHorizontal: SIZES.lg, paddingVertical: SIZES.md, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, overflow: 'hidden', ...SHADOWS.small },
+  actionTileCompact: { flexBasis: '100%', minWidth: 0, minHeight: 86, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd },
+  actionAccentLine: { position: 'absolute', left: SIZES.lg, right: SIZES.lg, top: 0, height: 2, opacity: 0.72 },
+  actionIcon: { width: 42, height: 42, borderRadius: SIZES.radiusSm, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.backgroundElevated, borderWidth: 1, borderColor: COLORS.border },
   actionCopy: { flex: 1, minWidth: 0 },
   actionLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   actionDescription: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: 3 },

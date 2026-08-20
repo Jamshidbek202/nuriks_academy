@@ -130,3 +130,106 @@ export function MotionReveal({
     </Animated.View>
   );
 }
+
+export function MotionLine({
+  color,
+  style,
+  delay = 90,
+  duration = MOTION.hero,
+}: {
+  color: string;
+  style?: StyleProp<ViewStyle>;
+  delay?: number;
+  duration?: number;
+}) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const progress = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    progress.stopAnimation();
+    if (!ready || reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    progress.setValue(0.18);
+    Animated.timing(progress, {
+      toValue: 1,
+      delay,
+      duration,
+      easing: Easing.bezier(...MOTION.easing.enter),
+      useNativeDriver: true,
+    }).start();
+    return () => progress.stopAnimation();
+  }, [delay, duration, progress, ready, reduceMotion]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          height: StyleSheet.hairlineWidth,
+          backgroundColor: color,
+          opacity: progress,
+          transform: [{ scaleX: progress }],
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+export function MotionPulse({
+  color,
+  size = 8,
+  style,
+}: {
+  color: string;
+  size?: number;
+  style?: StyleProp<ViewStyle>;
+}) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    pulse.stopAnimation();
+    if (!ready || reduceMotion) {
+      pulse.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.in(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [pulse, ready, reduceMotion]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2,
+          backgroundColor: color,
+          opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }),
+          transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.34] }) }],
+        },
+        style,
+      ]}
+    />
+  );
+}
