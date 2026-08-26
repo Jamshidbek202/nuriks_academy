@@ -22,7 +22,15 @@ import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
-import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import {
+  AdaptiveColumns,
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  AdaptiveSectionHeading,
+  useAdaptiveLayout,
+} from '../../src/components/AdaptiveLayout';
 
 interface StudentProfile {
   id: string;
@@ -107,6 +115,7 @@ export default function StudentHomeScreen() {
   
   // Notification modal
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const { isCompact } = useAdaptiveLayout();
 
   const loadStudentData = useCallback(async () => {
     try {
@@ -325,16 +334,11 @@ export default function StudentHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome, Student</Text>
-          <Text style={styles.subtitle}>{profile?.first_name} {profile?.last_name}</Text>
-          {profile?.student_id && (
-            <Text style={styles.studentId}>{profile.student_id}</Text>
-          )}
-        </View>
-        <MotionTouchableOpacity
+      <AdaptivePageHeader
+        title="My learning"
+        description={`${profile?.first_name || 'Student'} ${profile?.last_name || ''}${profile?.student_id ? ` · ${profile.student_id}` : ''}`}
+        action={<MotionTouchableOpacity
+          accessibilityLabel="Open notifications"
           style={styles.notificationButton}
           onPress={() => router.push('/(dashboard)/notifications')}
         >
@@ -344,19 +348,18 @@ export default function StudentHomeScreen() {
               <Text style={styles.badgeText}>{unreadCount}</Text>
             </View>
           )}
-        </MotionTouchableOpacity>
-      </View>
+        </MotionTouchableOpacity>}
+      />
 
-      <ScrollView
+      <AdaptiveScrollView
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadStudentData(); }} tintColor={COLORS.gold} />
         }
       >
         {/* Profile Card */}
         {profile && (
-          <MotionReveal style={styles.profileCard} duration={280} distance={10}>
+          <MotionReveal style={[styles.profileCard, isCompact && styles.profileCardCompact]} duration={280} distance={10}>
             <View style={styles.profileIdentity}>
               <View style={styles.profileAvatar}>
                 <Text style={styles.avatarText}>
@@ -364,8 +367,8 @@ export default function StudentHomeScreen() {
                 </Text>
               </View>
               <View style={styles.profileInfo}>
-                <Text style={styles.profileEyebrow}>MY LEARNING SPACE</Text>
                 <Text style={styles.profileName}>{profile.first_name} {profile.last_name}</Text>
+                <Text style={styles.profileCourseCount}>{groups.length} active {groups.length === 1 ? 'group' : 'groups'}</Text>
                 <View style={[styles.statusBadge, { backgroundColor: getStatusColor(profile.status) + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(profile.status) }]}>
                     {profile.status}
@@ -373,14 +376,14 @@ export default function StudentHomeScreen() {
                 </View>
               </View>
             </View>
-            <View style={styles.profileArtwork}>
+            <View style={[styles.profileArtwork, isCompact && styles.profileArtworkCompact]}>
               <AcademyIllustration variant="student" compact />
             </View>
           </MotionReveal>
         )}
 
-        {/* Quick Stats */}
-        <MotionReveal style={styles.statsRow} delay={55}>
+        <MotionReveal delay={55}>
+        <AdaptiveGrid minItemWidth={125} maxColumns={3} style={styles.statsRow}>
           <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="calendar" size={24} color={COLORS.info} />
             <Text style={[styles.statValue, { color: attendanceStats?.rate && attendanceStats.rate >= 80 ? COLORS.success : COLORS.warning }]}>
@@ -400,11 +403,13 @@ export default function StudentHomeScreen() {
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Tests</Text>
           </MotionTouchableOpacity>
+        </AdaptiveGrid>
         </MotionReveal>
 
-        {/* Quick Actions */}
+        <AdaptiveColumns collapseAt="medium" gap={SIZES.lg}>
+          <View>
         <MotionReveal delay={95}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <AdaptiveSectionHeading title="Quick actions" description="Learning and support tools" />
           <View style={styles.actionsGrid}>
           <MotionTouchableOpacity style={styles.actionCardFeatured} onPress={() => setBookingModalVisible(true)}>
             <View style={styles.actionFeaturedIcon}><Ionicons name="headset" size={25} color={COLORS.gold} /></View>
@@ -432,9 +437,9 @@ export default function StudentHomeScreen() {
         {/* My Groups */}
         {groups.length > 0 && (
           <>
-            <Text style={styles.sectionTitle}>My Groups</Text>
-            {groups.map((group) => (
-              <View key={group.id} style={styles.groupCard}>
+            <AdaptiveSectionHeading title="My groups" description={`${groups.length} current`} />
+            {groups.map((group, index) => (
+              <MotionListItem key={group.id} index={index} style={styles.groupCard}>
                 <View style={styles.groupIcon}>
                   <Ionicons name="people-circle" size={32} color={COLORS.gold} />
                 </View>
@@ -446,17 +451,17 @@ export default function StudentHomeScreen() {
                     </Text>
                   )}
                 </View>
-              </View>
+              </MotionListItem>
             ))}
           </>
         )}
+          </View>
 
         {/* Upcoming Support Sessions */}
-        {upcomingBookings.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>Upcoming Support Sessions</Text>
-            {upcomingBookings.map((booking) => (
-              <View key={booking.id} testID={`student-booking-${booking.id}`} style={styles.bookingCard}>
+          <View>
+            <AdaptiveSectionHeading title="Upcoming Support Sessions" description="Bookings and changes" />
+        {upcomingBookings.length > 0 ? upcomingBookings.map((booking, index) => (
+              <MotionListItem key={booking.id} index={index} testID={`student-booking-${booking.id}`} style={styles.bookingCard}>
                 <View style={styles.bookingTime}>
                   <Ionicons name="time" size={18} color={COLORS.gold} />
                   <Text style={styles.bookingTimeText}>{booking.start_time} - {booking.end_time}</Text>
@@ -480,19 +485,22 @@ export default function StudentHomeScreen() {
                   {cancellingBookingId === booking.id
                     ? <ActivityIndicator size="small" color={COLORS.error} />
                     : <Text style={styles.bookingCancelText}>Cancel booking</Text>}
-                </TouchableOpacity>
+                  </TouchableOpacity>
+              </MotionListItem>
+            )) : (
+              <View style={styles.emptySupportCard}>
+                <Ionicons name="headset-outline" size={30} color={COLORS.textTertiary} />
+                <Text style={styles.emptyText}>No support sessions booked</Text>
               </View>
-            ))}
-          </>
-        )}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+            )}
+          </View>
+        </AdaptiveColumns>
+      </AdaptiveScrollView>
 
       {/* Book Support Modal */}
-      <Modal visible={bookingModalVisible} animationType="slide" transparent onRequestClose={() => setBookingModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={bookingModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent onRequestClose={() => setBookingModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Book Support Session</Text>
               <TouchableOpacity onPress={() => { setBookingModalVisible(false); resetBookingForm(); }}>
@@ -613,9 +621,9 @@ export default function StudentHomeScreen() {
       </Modal>
 
       {/* Notifications Modal */}
-      <Modal visible={notificationModalVisible} animationType="slide" transparent onRequestClose={() => setNotificationModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={notificationModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent onRequestClose={() => setNotificationModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Notifications</Text>
               <TouchableOpacity onPress={() => setNotificationModalVisible(false)}>
@@ -653,29 +661,26 @@ export default function StudentHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.glassHighlight },
-  greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
-  subtitle: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.xs },
-  studentId: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: 2, fontWeight: '600' },
   notificationButton: { position: 'relative', padding: SIZES.sm },
   badge: { position: 'absolute', top: 0, right: 0, backgroundColor: COLORS.error, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   badgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
   content: { flex: 1 },
-  contentContainer: { width: '100%', maxWidth: 1080, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
   
   profileCard: { minHeight: 164, justifyContent: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg, paddingRight: 148, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.goldHairline, overflow: 'hidden', ...SHADOWS.small },
+  profileCardCompact: { minHeight: 148, padding: SIZES.md, paddingRight: 98 },
   profileIdentity: { flexDirection: 'row', alignItems: 'center', zIndex: 1 },
   profileAvatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   avatarText: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.marbleDark },
   profileInfo: { flex: 1 },
-  profileEyebrow: { color: COLORS.info, fontSize: 10, fontWeight: '800', letterSpacing: 1.1, marginBottom: 4 },
   profileName: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary },
+  profileCourseCount: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 3 },
   profileArtwork: { position: 'absolute', right: -10, top: 24, opacity: 0.92 },
+  profileArtworkCompact: { right: -28, top: 22, transform: [{ scale: 0.82 }] },
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: SIZES.xs },
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   
-  statsRow: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statsRow: { marginBottom: SIZES.sm },
+  statCard: { minHeight: 108, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'center', ...SHADOWS.small },
   statValue: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   
@@ -705,10 +710,13 @@ const styles = StyleSheet.create({
   bookingStatusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   bookingCancelButton: { alignSelf: 'flex-start', minHeight: SIZES.touchTarget, marginTop: SIZES.sm, paddingHorizontal: SIZES.md, justifyContent: 'center', borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
   bookingCancelText: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '700' },
+  emptySupportCard: { minHeight: 150, alignItems: 'center', justifyContent: 'center', gap: SIZES.xs, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight },
   
   // Modal styles
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, maxHeight: '90%', paddingBottom: 40 },
+  modalOverlayWide: { justifyContent: 'center', padding: SIZES.lg },
+  modalContentWide: { width: '100%', maxWidth: 680, alignSelf: 'center', borderRadius: SIZES.radiusXl, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SIZES.lg, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   modalBody: { padding: SIZES.lg },

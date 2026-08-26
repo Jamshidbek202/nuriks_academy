@@ -2,7 +2,6 @@ import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  ScrollView,
   StyleSheet,
   TouchableOpacity,
   Alert,
@@ -20,6 +19,13 @@ import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import {
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  useAdaptiveLayout,
+} from '../../src/components/AdaptiveLayout';
+import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 interface Booking {
   id: string;
@@ -60,6 +66,7 @@ export default function SupportHomeScreen() {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sessionNotes, setSessionNotes] = useState('');
+  const { isCompact } = useAdaptiveLayout();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -202,20 +209,23 @@ export default function SupportHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome, Support</Text>
-          <Text style={styles.subtitle}>{user?.full_name || 'Support Portal'}</Text>
-        </View>
-        <TouchableOpacity style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
+      <AdaptivePageHeader
+        title="Support bookings"
+        description={`${user?.full_name || 'Support teacher'} · review requests, run today’s sessions, and record notes`}
+        action={<MotionTouchableOpacity accessibilityLabel="Open notifications" style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
           <Ionicons name="notifications" size={24} color={COLORS.gold} />
           {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
-        </TouchableOpacity>
-      </View>
+        </MotionTouchableOpacity>}
+      />
 
-      {/* Stats */}
-      <View style={styles.statsRow}>
+      <AdaptiveScrollView
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadSupportData(); }} tintColor={COLORS.gold} />
+        }
+      >
+      <MotionReveal>
+      <AdaptiveGrid minItemWidth={130} maxColumns={3} style={styles.statsRow}>
         <View style={styles.statCard}>
           <Ionicons name="time" size={24} color={COLORS.warning} />
           <Text style={styles.statValue}>{pendingCount}</Text>
@@ -231,7 +241,8 @@ export default function SupportHomeScreen() {
           <Text style={styles.statValue}>{bookings.length}</Text>
           <Text style={styles.statLabel}>Total</Text>
         </View>
-      </View>
+      </AdaptiveGrid>
+      </MotionReveal>
 
       {/* Tabs */}
       <View style={styles.tabContainer}>
@@ -256,15 +267,11 @@ export default function SupportHomeScreen() {
       </View>
 
       {/* Bookings List */}
-      <ScrollView
-        style={styles.content}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadSupportData(); }} tintColor={COLORS.gold} />
-        }
-      >
+      <MotionReveal key={activeTab} duration={220} distance={5}>
         {filteredBookings.length > 0 ? (
-          filteredBookings.map((booking) => (
-            <TouchableOpacity
+          filteredBookings.map((booking, index) => (
+            <MotionListItem key={booking.id} index={index}>
+            <MotionTouchableOpacity
               key={booking.id}
               style={styles.bookingCard}
               activeOpacity={0.8}
@@ -321,7 +328,8 @@ export default function SupportHomeScreen() {
                   <Text style={styles.notesButtonText}>Add Session Notes</Text>
                 </TouchableOpacity>
               )}
-            </TouchableOpacity>
+            </MotionTouchableOpacity>
+            </MotionListItem>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -334,14 +342,14 @@ export default function SupportHomeScreen() {
             <Text style={styles.emptySubtext}>Bookings will appear here when students request support sessions</Text>
           </View>
         )}
+      </MotionReveal>
 
-        <View style={{ height: 100 }} />
-      </ScrollView>
+      </AdaptiveScrollView>
 
       {/* Booking Detail Modal */}
-      <Modal visible={detailModalVisible} animationType="slide" transparent={true} onRequestClose={() => setDetailModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={detailModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent={true} onRequestClose={() => setDetailModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Support Session</Text>
               <TouchableOpacity onPress={() => setDetailModalVisible(false)}>
@@ -425,9 +433,9 @@ export default function SupportHomeScreen() {
       </Modal>
 
       {/* Notes Modal */}
-      <Modal visible={notesModalVisible} animationType="slide" transparent={true} onRequestClose={() => setNotesModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={notesModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent={true} onRequestClose={() => setNotesModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Session Notes</Text>
               <TouchableOpacity onPress={() => setNotesModalVisible(false)}>
@@ -461,22 +469,19 @@ export default function SupportHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.glassHighlight },
-  greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
-  subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   headerBadge: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
   unreadBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, alignItems: 'center', justifyContent: 'center' },
   unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-  statsRow: { flexDirection: 'row', padding: SIZES.md, gap: SIZES.sm },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statsRow: { marginBottom: SIZES.md },
+  statCard: { minHeight: 108, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'center', ...SHADOWS.small },
   statValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.xs },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
-  tabContainer: { flexDirection: 'row', paddingHorizontal: SIZES.md, gap: SIZES.sm, marginBottom: SIZES.sm },
+  tabContainer: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.md },
   tabButton: { flex: 1, minHeight: 44, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, alignItems: 'center', justifyContent: 'center' },
   tabButtonActive: { backgroundColor: COLORS.gold },
   tabText: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary },
   tabTextActive: { color: COLORS.marbleDark },
-  content: { flex: 1, paddingHorizontal: SIZES.md },
+  content: { flex: 1 },
   bookingCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, marginBottom: SIZES.sm, ...SHADOWS.small },
   bookingHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SIZES.sm },
   bookingTime: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs },
@@ -500,6 +505,8 @@ const styles = StyleSheet.create({
   emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs, textAlign: 'center', paddingHorizontal: SIZES.lg },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, paddingBottom: 40 },
+  modalOverlayWide: { justifyContent: 'center', padding: SIZES.lg },
+  modalContentWide: { width: '100%', maxWidth: 640, maxHeight: '88%', alignSelf: 'center', borderRadius: SIZES.radiusXl, overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SIZES.lg, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   modalForm: { padding: SIZES.lg },

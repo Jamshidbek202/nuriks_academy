@@ -1,7 +1,7 @@
 import React from 'react';
-import { Image, StyleSheet, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { COLORS } from '../constants/theme';
 
 type Variant = 'login' | 'student' | 'parent' | 'empty';
@@ -14,12 +14,25 @@ const illustrationConfig = {
 } as const;
 
 /**
- * A small brand-owned learning motif made from vector glyphs and simple lines.
- * It intentionally avoids stock characters and heavy SVG scenes so it stays
- * crisp, fast, and consistent on web, iOS, and Android.
+ * A compact rendering of the academy's own operations artwork. The full image
+ * stays visible at every size; the role badge supplies context without mixing
+ * unrelated stock-illustration styles. Expo Image keeps phone decoding cheap.
  */
 export function AcademyIllustration({ variant, compact = false }: { variant: Variant; compact?: boolean }) {
   const config = illustrationConfig[variant];
+
+  if (variant === 'empty') {
+    return (
+      <View
+        pointerEvents="none"
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+        style={[styles.emptyFrame, compact && styles.emptyFrameCompact]}
+      >
+        <MaterialCommunityIcons name={config.primary} size={compact ? 34 : 46} color={COLORS.goldLight} />
+      </View>
+    );
+  }
 
   return (
     <View
@@ -28,23 +41,15 @@ export function AcademyIllustration({ variant, compact = false }: { variant: Var
       importantForAccessibility="no-hide-descendants"
       style={[styles.frame, compact && styles.frameCompact]}
     >
-      <LinearGradient
-        colors={[COLORS.gold + '1F', COLORS.gold + '08', 'rgba(7,8,6,0.04)']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
+      <Image
+        source={require('../../assets/illustrations/academy-operations.png')}
+        style={[styles.artwork, compact && styles.artworkCompact]}
+        contentFit="contain"
+        transition={120}
       />
-      <View style={styles.accentBar} />
-      <View style={styles.primaryMark}>
-        {variant === 'login'
-          ? <Image source={require('../../assets/images/logo.png')} style={styles.logo} resizeMode="contain" />
-          : <MaterialCommunityIcons name={config.primary} size={compact ? 34 : 46} color={COLORS.goldLight} />}
+      <View style={[styles.roleMark, compact && styles.roleMarkCompact]}>
+        <MaterialCommunityIcons name={config.primary} size={compact ? 15 : 19} color={COLORS.goldLight} />
       </View>
-      <View style={styles.ruleGroup}>
-        <View style={styles.ruleStrong} />
-        <View style={styles.ruleSoft} />
-      </View>
-      <View style={styles.point} />
     </View>
   );
 }
@@ -52,19 +57,35 @@ export function AcademyIllustration({ variant, compact = false }: { variant: Var
 const styles = StyleSheet.create({
   frame: {
     width: 260,
-    height: 220,
-    borderRadius: 28,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.backgroundLight,
+    height: 166,
     overflow: 'hidden',
   },
-  frameCompact: { width: 122, height: 104, borderRadius: 20 },
-  accentBar: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 3, backgroundColor: COLORS.gold },
-  primaryMark: { position: 'absolute', left: '18%', top: '20%', width: '64%', height: '52%', alignItems: 'center', justifyContent: 'center' },
-  logo: { width: '72%', height: '72%' },
-  ruleGroup: { position: 'absolute', left: '22%', right: '18%', bottom: '18%', gap: 5 },
-  ruleStrong: { height: 2, width: '100%', borderRadius: 2, backgroundColor: COLORS.goldHairline },
-  ruleSoft: { height: 1, width: '64%', borderRadius: 2, backgroundColor: COLORS.borderStrong },
-  point: { position: 'absolute', width: 6, height: 6, borderRadius: 3, right: '14%', top: '15%', backgroundColor: COLORS.gold },
+  frameCompact: { width: 146, height: 96 },
+  artwork: { position: 'absolute', width: 260, height: 166, top: 0, left: 0 },
+  artworkCompact: { width: 146, height: 96 },
+  roleMark: {
+    position: 'absolute',
+    right: 8,
+    bottom: 8,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.backgroundElevated,
+    borderWidth: 1,
+    borderColor: COLORS.goldHairline,
+  },
+  roleMarkCompact: { width: 30, height: 30, borderRadius: 15, right: 4, bottom: 4 },
+  emptyFrame: {
+    width: 104,
+    height: 104,
+    borderRadius: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: COLORS.backgroundLight,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  emptyFrameCompact: { width: 76, height: 76, borderRadius: 38 },
 });

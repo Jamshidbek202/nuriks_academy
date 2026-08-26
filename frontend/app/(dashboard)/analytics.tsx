@@ -2,11 +2,9 @@ import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useState } from 'react';
 import {
   View,
-  ScrollView,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
-  Dimensions,
 } from 'react-native';
 import { Text } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,8 +12,14 @@ import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
-
-const { width } = Dimensions.get('window');
+import {
+  AdaptiveColumns,
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  AdaptiveSectionHeading,
+} from '../../src/components/AdaptiveLayout';
+import { MotionListItem, MotionReveal } from '../../src/components/Motion';
 
 interface Analytics {
   students: { total: number; active: number; graduated: number; frozen: number };
@@ -82,84 +86,71 @@ export default function AnalyticsScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Analytics Dashboard</Text>
-        <Text style={styles.subtitle}>Academy performance metrics</Text>
-      </View>
+      <AdaptivePageHeader
+        title="Analytics"
+        description="Academy performance, learning quality, and conversion in one current view."
+      />
 
-      <ScrollView
+      <AdaptiveScrollView
         style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadAnalytics(); }} tintColor={COLORS.gold} />
         }
       >
-        {/* Student Statistics */}
-        <Text style={styles.sectionTitle}>Student Statistics</Text>
-        <View style={styles.statsGrid}>
+        <AdaptiveSectionHeading title="Students" description="Current lifecycle totals" />
+        <AdaptiveGrid minItemWidth={180} maxColumns={4}>
           <StatCard icon="people" label="Current Students" value={analytics?.students.total || 0} color={COLORS.info} />
           <StatCard icon="checkmark-circle" label="Active" value={analytics?.students.active || 0} color={COLORS.success} />
           <StatCard icon="school" label="Graduated" value={analytics?.students.graduated || 0} color={COLORS.gold} />
           <StatCard icon="pause-circle" label="Frozen" value={analytics?.students.frozen || 0} color={COLORS.warning} />
-        </View>
+        </AdaptiveGrid>
 
-        {/* Revenue */}
-        <Text style={styles.sectionTitle}>Monthly Revenue</Text>
-        <View style={styles.revenueCard}>
-          <View style={styles.revenueMain}>
-            <Ionicons name="cash" size={32} color={COLORS.gold} />
-            <Text style={styles.revenueAmount}>{formatCurrency(analytics?.revenue.monthly || 0)}</Text>
-          </View>
-          <View style={styles.revenueCompare}>
-            <View style={[styles.changeBadge, { backgroundColor: (analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success + '20' : COLORS.error + '20' }]}>
-              <Ionicons name={(analytics?.revenue.change_percent || 0) >= 0 ? 'arrow-up' : 'arrow-down'} size={16} color={(analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success : COLORS.error} />
-              <Text style={[styles.changeText, { color: (analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success : COLORS.error }]}>
-                {Math.abs(analytics?.revenue.change_percent || 0)}%
-              </Text>
+        <AdaptiveSectionHeading title="Performance overview" description="Money and attendance stay visually separate" />
+        <AdaptiveColumns collapseAt="compact">
+          <MotionReveal style={styles.revenueCard} duration={260} distance={7}>
+            <Text style={styles.panelLabel}>Monthly revenue</Text>
+            <View style={styles.revenueMain}>
+              <Ionicons name="cash" size={30} color={COLORS.gold} />
+              <Text style={styles.revenueAmount}>{formatCurrency(analytics?.revenue.monthly || 0)}</Text>
             </View>
-            <Text style={styles.compareText}>vs previous month</Text>
-          </View>
-        </View>
+            <View style={styles.revenueCompare}>
+              <View style={[styles.changeBadge, { backgroundColor: (analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success + '20' : COLORS.error + '20' }]}>
+                <Ionicons name={(analytics?.revenue.change_percent || 0) >= 0 ? 'arrow-up' : 'arrow-down'} size={16} color={(analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success : COLORS.error} />
+                <Text style={[styles.changeText, { color: (analytics?.revenue.change_percent || 0) >= 0 ? COLORS.success : COLORS.error }]}>{Math.abs(analytics?.revenue.change_percent || 0)}%</Text>
+              </View>
+              <Text style={styles.compareText}>vs previous month</Text>
+            </View>
+          </MotionReveal>
+          <MotionReveal style={styles.attendanceCard} delay={45} duration={260} distance={7}>
+            <View style={styles.attendanceCircle}><Text style={styles.attendanceValue}>{analytics?.attendance.rate || 0}%</Text></View>
+            <View style={styles.attendanceDetails}>
+              <Text style={styles.panelLabel}>Attendance rate</Text>
+              <View style={styles.attendanceRow}><Text style={styles.attendanceLabel}>Total Records</Text><Text style={styles.attendanceNumber}>{analytics?.attendance.total_records || 0}</Text></View>
+              <View style={styles.attendanceRow}><Text style={styles.attendanceLabel}>Present</Text><Text style={styles.attendanceNumber}>{analytics?.attendance.present || 0}</Text></View>
+            </View>
+          </MotionReveal>
+        </AdaptiveColumns>
 
-        {/* Attendance Rate */}
-        <Text style={styles.sectionTitle}>Attendance Rate</Text>
-        <View style={styles.attendanceCard}>
-          <View style={styles.attendanceCircle}>
-            <Text style={styles.attendanceValue}>{analytics?.attendance.rate || 0}%</Text>
+        <AdaptiveSectionHeading title="Learning and support" description="Outcome metrics rather than decorative charts" />
+        <AdaptiveColumns collapseAt="compact">
+          <View style={styles.testsGrid}>
+            <View style={styles.testCard}><Text style={styles.testType}>Mid Tests</Text><Text style={styles.testAvg}>{analytics?.tests.mid_test_average || 0}%</Text><Text style={styles.testCount}>{analytics?.tests.total_mid_tests || 0} tests</Text></View>
+            <View style={styles.testCard}><Text style={styles.testType}>End Tests</Text><Text style={styles.testAvg}>{analytics?.tests.end_test_average || 0}%</Text><Text style={styles.testCount}>{analytics?.tests.total_end_tests || 0} tests</Text></View>
           </View>
-          <View style={styles.attendanceDetails}>
-            <View style={styles.attendanceRow}>
-              <Text style={styles.attendanceLabel}>Total Records</Text>
-              <Text style={styles.attendanceNumber}>{analytics?.attendance.total_records || 0}</Text>
-            </View>
-            <View style={styles.attendanceRow}>
-              <Text style={styles.attendanceLabel}>Present</Text>
-              <Text style={styles.attendanceNumber}>{analytics?.attendance.present || 0}</Text>
-            </View>
+          <View style={styles.supportCard}>
+            <View style={styles.supportStat}><Ionicons name="calendar" size={24} color={COLORS.info} /><Text style={styles.supportValue}>{analytics?.support.total_bookings || 0}</Text><Text style={styles.supportLabel}>Total</Text></View>
+            <View style={styles.supportStat}><Ionicons name="checkmark-circle" size={24} color={COLORS.success} /><Text style={styles.supportValue}>{analytics?.support.completed || 0}</Text><Text style={styles.supportLabel}>Completed</Text></View>
+            <View style={styles.supportStat}><Ionicons name="time" size={24} color={COLORS.warning} /><Text style={styles.supportValue}>{analytics?.support.pending || 0}</Text><Text style={styles.supportLabel}>Pending</Text></View>
           </View>
-        </View>
-
-        {/* Test Statistics */}
-        <Text style={styles.sectionTitle}>Test Statistics</Text>
-        <View style={styles.testsGrid}>
-          <View style={styles.testCard}>
-            <Text style={styles.testType}>Mid Tests</Text>
-            <Text style={styles.testAvg}>{analytics?.tests.mid_test_average || 0}%</Text>
-            <Text style={styles.testCount}>{analytics?.tests.total_mid_tests || 0} tests</Text>
-          </View>
-          <View style={styles.testCard}>
-            <Text style={styles.testType}>End Tests</Text>
-            <Text style={styles.testAvg}>{analytics?.tests.end_test_average || 0}%</Text>
-            <Text style={styles.testCount}>{analytics?.tests.total_end_tests || 0} tests</Text>
-          </View>
-        </View>
+        </AdaptiveColumns>
 
         {user?.role === 'super_admin' && (
           <>
-            <Text style={styles.sectionTitle}>Teacher Progress</Text>
+            <AdaptiveSectionHeading title="Teacher progress" description="Feedback and lesson activity" />
             <View style={styles.teacherPerformanceCard}>
               {(analytics?.teachers.performance || []).length > 0 ? (
-                analytics?.teachers.performance?.map((teacher) => (
-                  <View key={teacher.teacher_id} style={styles.teacherPerformanceRow}>
+                analytics?.teachers.performance?.map((teacher, index) => (
+                  <MotionListItem key={teacher.teacher_id} index={index} style={styles.teacherPerformanceRow}>
                     <View style={styles.teacherPerformanceInfo}>
                       <Text style={styles.teacherPerformanceName}>{teacher.teacher_name || 'Teacher'}</Text>
                       <Text style={styles.teacherPerformanceMeta}>
@@ -170,7 +161,7 @@ export default function AnalyticsScreen() {
                       </View>
                     </View>
                     <Text style={styles.teacherPerformancePercent}>{teacher.progress_percent}%</Text>
-                  </View>
+                  </MotionListItem>
                 ))
               ) : (
                 <Text style={styles.emptyMetricText}>No lesson feedback yet</Text>
@@ -179,29 +170,9 @@ export default function AnalyticsScreen() {
           </>
         )}
 
-        {/* Support Sessions */}
-        <Text style={styles.sectionTitle}>Support Session Statistics</Text>
-        <View style={styles.supportCard}>
-          <View style={styles.supportStat}>
-            <Ionicons name="calendar" size={24} color={COLORS.info} />
-            <Text style={styles.supportValue}>{analytics?.support.total_bookings || 0}</Text>
-            <Text style={styles.supportLabel}>Total</Text>
-          </View>
-          <View style={styles.supportStat}>
-            <Ionicons name="checkmark-circle" size={24} color={COLORS.success} />
-            <Text style={styles.supportValue}>{analytics?.support.completed || 0}</Text>
-            <Text style={styles.supportLabel}>Completed</Text>
-          </View>
-          <View style={styles.supportStat}>
-            <Ionicons name="time" size={24} color={COLORS.warning} />
-            <Text style={styles.supportValue}>{analytics?.support.pending || 0}</Text>
-            <Text style={styles.supportLabel}>Pending</Text>
-          </View>
-        </View>
-
-        {/* Lead Conversion */}
-        <Text style={styles.sectionTitle}>Lead Conversion Rate</Text>
-        <View style={styles.leadsCard}>
+        <AdaptiveSectionHeading title="Growth" description="Lead conversion and monthly movement" />
+        <AdaptiveColumns collapseAt="medium">
+          <View style={styles.leadsCard}>
           <View style={styles.leadsMain}>
             <Text style={styles.leadsRate}>{analytics?.leads.conversion_rate || 0}%</Text>
             <Text style={styles.leadsLabel}>Conversion Rate</Text>
@@ -217,11 +188,9 @@ export default function AnalyticsScreen() {
               <Text style={styles.leadsStatLabel}>Converted</Text>
             </View>
           </View>
-        </View>
-
-        {/* Monthly Trends */}
-        <Text style={styles.sectionTitle}>Monthly Trends</Text>
-        <View style={styles.trendsCard}>
+          </View>
+          <View style={styles.trendsCard}>
+          <Text style={styles.panelLabel}>Monthly trends</Text>
           {analytics?.monthly_trends.map((trend, index) => (
             <View key={index} style={styles.trendRow}>
               <Text style={styles.trendMonth}>{trend.month}</Text>
@@ -231,10 +200,9 @@ export default function AnalyticsScreen() {
               <Text style={styles.trendValue}>{formatCurrency(trend.revenue)}</Text>
             </View>
           ))}
-        </View>
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          </View>
+        </AdaptiveColumns>
+      </AdaptiveScrollView>
     </View>
   );
 }
@@ -255,31 +223,27 @@ const styles = StyleSheet.create({
   accessDenied: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
   accessDeniedText: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.md },
   accessDeniedSub: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.sm },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
-  title: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
-  subtitle: { fontSize: SIZES.fontMd, color: COLORS.textSecondary, marginTop: SIZES.xs },
-  content: { flex: 1, padding: SIZES.md },
-  sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.gold, marginTop: SIZES.md, marginBottom: SIZES.sm },
-  statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
-  statCard: { width: (width - SIZES.md * 3) / 2, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  content: { flex: 1 },
+  statCard: { width: '100%', minHeight: 128, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'flex-end', borderWidth: 1, borderColor: COLORS.border, ...SHADOWS.small },
   statIcon: { width: 48, height: 48, borderRadius: 24, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.sm },
   statValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 4 },
-  revenueCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, ...SHADOWS.small },
+  panelLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '700', marginBottom: SIZES.md },
+  revenueCard: { minHeight: 184, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, justifyContent: 'center', ...SHADOWS.small },
   revenueMain: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
   revenueAmount: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.gold },
   revenueCompare: { flexDirection: 'row', alignItems: 'center', marginTop: SIZES.md, gap: SIZES.sm },
   changeBadge: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.sm, paddingVertical: 4, borderRadius: SIZES.radiusSm, gap: 4 },
   changeText: { fontSize: SIZES.fontSm, fontWeight: '600' },
   compareText: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
-  attendanceCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, flexDirection: 'row', alignItems: 'center', ...SHADOWS.small },
+  attendanceCard: { minHeight: 184, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, flexDirection: 'row', alignItems: 'center', ...SHADOWS.small },
   attendanceCircle: { width: 80, height: 80, borderRadius: 40, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: COLORS.gold },
   attendanceValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.gold },
   attendanceDetails: { flex: 1, marginLeft: SIZES.lg },
   attendanceRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SIZES.sm },
   attendanceLabel: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   attendanceNumber: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textPrimary },
-  testsGrid: { flexDirection: 'row', gap: SIZES.sm },
+  testsGrid: { flex: 1, flexDirection: 'row', gap: SIZES.sm },
   testCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, alignItems: 'center', ...SHADOWS.small },
   testType: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
   testAvg: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.gold, marginVertical: SIZES.sm },
@@ -293,11 +257,11 @@ const styles = StyleSheet.create({
   teacherProgressFill: { height: '100%', backgroundColor: COLORS.gold, borderRadius: 3 },
   teacherPerformancePercent: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.gold },
   emptyMetricText: { color: COLORS.textTertiary, textAlign: 'center', paddingVertical: SIZES.lg },
-  supportCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, flexDirection: 'row', justifyContent: 'space-around', ...SHADOWS.small },
+  supportCard: { flex: 1, minHeight: 144, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, flexDirection: 'row', justifyContent: 'space-around', ...SHADOWS.small },
   supportStat: { alignItems: 'center' },
   supportValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginVertical: SIZES.xs },
   supportLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary },
-  leadsCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.lg, flexDirection: 'row', alignItems: 'center', ...SHADOWS.small },
+  leadsCard: { flex: 1, minHeight: 170, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, flexDirection: 'row', alignItems: 'center', ...SHADOWS.small },
   leadsMain: { alignItems: 'center' },
   leadsRate: { fontSize: 36, fontWeight: 'bold', color: COLORS.gold },
   leadsLabel: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
@@ -306,7 +270,7 @@ const styles = StyleSheet.create({
   leadsStat: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: SIZES.sm },
   leadsStatValue: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
   leadsStatLabel: { fontSize: SIZES.fontSm, color: COLORS.textSecondary },
-  trendsCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, ...SHADOWS.small },
+  trendsCard: { flex: 1.4, minHeight: 170, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.md, ...SHADOWS.small },
   trendRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SIZES.sm },
   trendMonth: { width: 60, fontSize: SIZES.fontXs, color: COLORS.textSecondary },
   trendBars: { flex: 1, height: 8, backgroundColor: COLORS.marbleGray, borderRadius: 4, marginHorizontal: SIZES.sm, overflow: 'hidden' },

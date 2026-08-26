@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Linking,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -15,7 +14,15 @@ import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { api } from '../../src/services/api';
-import { COLORS, LAYOUT, SHADOWS, SIZES } from '../../src/constants/theme';
+import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import {
+  AdaptiveColumns,
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  AdaptiveSectionHeading,
+} from '../../src/components/AdaptiveLayout';
+import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 type Dashboard = {
   students?: { total?: number; active?: number; frozen?: number };
@@ -93,77 +100,84 @@ export default function ReceptionHomeScreen() {
 
   return (
     <View testID="reception-home" style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Good day, {user?.full_name?.split(' ')[0] || 'Reception'}</Text>
-        <Text style={styles.subtitle}>Students, calls, payments, and today’s support bookings—without revenue or profit details.</Text>
-      </View>
-      <ScrollView
+      <AdaptivePageHeader
+        title={`Good day, ${user?.full_name?.split(' ')[0] || 'Reception'}`}
+        description="Students, calls, payments, and today’s support bookings—without centre revenue or profit details."
+      />
+      <AdaptiveScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
         refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void load(); }} />}
       >
-        <View style={styles.actionGrid}>
+        <MotionReveal>
+        <AdaptiveSectionHeading title="Front desk" description="Start with the task in front of you" />
+        <AdaptiveGrid minItemWidth={190} maxColumns={4} style={styles.actionGrid}>
           <QuickAction testID="reception-new-lead" icon="person-add" label="New lead" onPress={() => router.push('/(dashboard)/leads')} />
           <QuickAction testID="reception-students" icon="people" label="Students" onPress={() => router.push('/(dashboard)/students')} />
           <QuickAction testID="reception-groups" icon="people-circle" label="Groups" onPress={() => router.push('/(dashboard)/groups')} />
           <QuickAction testID="reception-record-payment" icon="cash" label="Record payment" onPress={() => router.push('/(dashboard)/finance')} />
-        </View>
+        </AdaptiveGrid>
+        </MotionReveal>
 
-        <Text style={styles.sectionTitle}>Today at a glance</Text>
-        <View style={styles.metrics}>
+        <AdaptiveColumns collapseAt="compact" gap={SIZES.lg}>
+          <View>
+        <AdaptiveSectionHeading title="Today at a glance" description="Operational counts only" />
+        <AdaptiveGrid minItemWidth={132} maxColumns={2} style={styles.metrics}>
           <Metric icon="people" label="Students" value={dashboard?.students?.total || 0} />
           <Metric icon="people-circle" label="Groups" value={dashboard?.groups || 0} />
           <Metric icon="checkmark-circle" label="Paid today" value={dashboard?.payments?.paid_today_students || 0} good />
           <Metric icon="alert-circle" label="Need payment call" value={dashboard?.payments?.overdue_students || 0} warning />
-        </View>
+        </AdaptiveGrid>
 
-        <TouchableOpacity testID="reception-cash-day" style={styles.cashCard} onPress={() => router.push('/(dashboard)/finance')}>
+        <MotionTouchableOpacity testID="reception-cash-day" style={styles.cashCard} onPress={() => router.push('/(dashboard)/finance')}>
           <View style={styles.cardIcon}><Ionicons name="wallet" size={22} color={COLORS.gold} /></View>
           <View style={styles.flex}>
             <Text style={styles.cardTitle}>Cashbox · {dashboard?.cash_day?.business_date || 'today'}</Text>
             <Text style={styles.meta}>Available automatically for recording student cash payments. Centre cash totals are restricted.</Text>
           </View>
           <Ionicons name="chevron-forward" size={22} color={COLORS.textTertiary} />
-        </TouchableOpacity>
+        </MotionTouchableOpacity>
 
-        <View style={styles.sectionHeader}>
-          <View style={styles.flex}><Text style={styles.sectionTitle}>Payment calls</Text><Text style={styles.sectionHint}>Oldest and most urgent first</Text></View>
-          <TouchableOpacity onPress={() => router.push('/(dashboard)/finance')}><Text style={styles.link}>See all</Text></TouchableOpacity>
-        </View>
+        <AdaptiveSectionHeading
+          title="Payment calls"
+          description="Oldest and most urgent first"
+          action={<TouchableOpacity onPress={() => router.push('/(dashboard)/finance')}><Text style={styles.link}>See all</Text></TouchableOpacity>}
+        />
         {callList.length === 0 ? (
           <Empty text="No students need a payment call." />
-        ) : callList.slice(0, 6).map((item) => (
-          <View key={item.student_id} testID={`reception-call-${item.student_id}`} style={styles.rowCard}>
+        ) : callList.slice(0, 6).map((item, index) => (
+          <MotionListItem key={item.student_id} index={index} testID={`reception-call-${item.student_id}`} style={styles.rowCard}>
             <View style={styles.flex}>
               <Text style={styles.cardTitle}>{item.student_name}</Text>
               <Text style={styles.debt}>{uzs(item.balance_uzs)} outstanding</Text>
             </View>
             {!!item.student_phone && <CallButton label="Student" phone={item.student_phone} />}
             {!!item.parent_phone && <CallButton label="Parent" phone={item.parent_phone} />}
-          </View>
+          </MotionListItem>
         ))}
+          </View>
 
-        <View style={styles.sectionHeader}>
-          <View style={styles.flex}><Text style={styles.sectionTitle}>Support bookings</Text><Text style={styles.sectionHint}>{dashboard?.today?.support_bookings || 0} scheduled today</Text></View>
-        </View>
+          <View>
+        <AdaptiveSectionHeading title="Support bookings" description={`${dashboard?.today?.support_bookings || 0} scheduled today`} />
         {upcomingBookings.length === 0 ? (
           <Empty text="No upcoming support bookings." />
-        ) : upcomingBookings.map((booking) => (
-          <View key={booking.id} testID={`reception-booking-${booking.id}`} style={styles.rowCard}>
+        ) : upcomingBookings.map((booking, index) => (
+          <MotionListItem key={booking.id} index={index} testID={`reception-booking-${booking.id}`} style={styles.rowCard}>
             <View style={styles.dateBox}><Text style={styles.dateText}>{booking.booking_date.slice(5)}</Text><Text style={styles.timeText}>{booking.start_time}</Text></View>
             <View style={styles.flex}>
               <Text style={styles.cardTitle}>{booking.student_name || booking.booking_id}</Text>
               <Text style={styles.meta}>{booking.support_name || 'Support teacher'} · {booking.status}</Text>
             </View>
-          </View>
+          </MotionListItem>
         ))}
-      </ScrollView>
+          </View>
+        </AdaptiveColumns>
+      </AdaptiveScrollView>
     </View>
   );
 }
 
 function QuickAction({ testID, icon, label, onPress }: { testID: string; icon: string; label: string; onPress: () => void }) {
-  return <TouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}><View style={styles.quickIcon}><Ionicons name={icon as any} size={23} color={COLORS.gold} /></View><Text style={styles.quickLabel}>{label}</Text><Ionicons name="arrow-forward" size={17} color={COLORS.textTertiary} /></TouchableOpacity>;
+  return <MotionTouchableOpacity testID={testID} style={styles.quickAction} onPress={onPress}><View style={styles.quickIcon}><Ionicons name={icon as any} size={23} color={COLORS.gold} /></View><Text style={styles.quickLabel}>{label}</Text><Ionicons name="arrow-forward" size={17} color={COLORS.textTertiary} /></MotionTouchableOpacity>;
 }
 
 function Metric({ icon, label, value, good, warning }: { icon: string; label: string; value: number; good?: boolean; warning?: boolean }) {
@@ -182,24 +196,17 @@ function Empty({ text }: { text: string }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.glassHighlight },
-  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800', marginTop: SIZES.xs },
-  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20, marginTop: SIZES.xs, maxWidth: 720 },
   scroll: { flex: 1 },
-  content: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.md, paddingBottom: 90 },
-  actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  quickAction: { flexGrow: 1, flexBasis: 210, minHeight: 72, padding: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, ...SHADOWS.small },
+  actionGrid: { marginBottom: SIZES.sm },
+  quickAction: { minHeight: 72, padding: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, ...SHADOWS.small },
   quickIcon: { width: 42, height: 42, borderRadius: SIZES.radiusSm, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass },
   quickLabel: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
-  sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
-  sectionHint: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: 2 },
-  metrics: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.sm, marginBottom: SIZES.md },
-  metric: { flexGrow: 1, flexBasis: 130, minHeight: 105, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
+  metrics: { marginBottom: SIZES.md },
+  metric: { minHeight: 105, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
   metricValue: { color: COLORS.textPrimary, fontSize: 27, fontWeight: '800', marginTop: SIZES.xs },
   metricLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: 2 },
   cashCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass, marginBottom: SIZES.lg, ...SHADOWS.small },
   cardIcon: { width: 44, height: 44, borderRadius: SIZES.radiusSm, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass },
-  sectionHeader: { flexDirection: 'row', alignItems: 'flex-end', marginTop: SIZES.sm, marginBottom: SIZES.sm },
   link: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
   rowCard: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, marginBottom: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
   flex: { flex: 1 },

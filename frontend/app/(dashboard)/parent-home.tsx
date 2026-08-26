@@ -18,7 +18,15 @@ import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
-import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import {
+  AdaptiveColumns,
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  AdaptiveSectionHeading,
+  useAdaptiveLayout,
+} from '../../src/components/AdaptiveLayout';
 
 interface Child {
   id: string;
@@ -63,6 +71,7 @@ export default function ParentHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
+  const { isCompact } = useAdaptiveLayout();
 
   const loadParentData = async () => {
     try {
@@ -141,13 +150,11 @@ export default function ParentHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome, Parent</Text>
-          <Text style={styles.subtitle}>{user?.full_name || 'Parent Portal'}</Text>
-        </View>
-        <MotionTouchableOpacity
+      <AdaptivePageHeader
+        title="Family overview"
+        description={`${user?.full_name || 'Parent'} · attendance, class work, and payments in one place`}
+        action={<MotionTouchableOpacity
+          accessibilityLabel="Open notifications"
           style={styles.notificationButton}
           onPress={() => router.push('/(dashboard)/notifications')}
         >
@@ -157,19 +164,19 @@ export default function ParentHomeScreen() {
               <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
             </View>
           )}
-        </MotionTouchableOpacity>
-      </View>
+        </MotionTouchableOpacity>}
+      />
 
-      <ScrollView
+      <AdaptiveScrollView
         style={styles.content}
-        contentContainerStyle={styles.contentContainer}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadParentData(); }} tintColor={COLORS.gold} />
         }
       >
-        {/* Child Profile Card */}
+        <AdaptiveColumns collapseAt="medium" gap={SIZES.lg}>
+          <View>
         {child && (
-          <MotionReveal style={styles.childCard} duration={280} distance={10}>
+          <MotionReveal style={[styles.childCard, isCompact && styles.childCardCompact]} duration={280} distance={10}>
             <View style={styles.childHeader}>
               <View style={styles.childAvatar}>
                 <Text style={styles.avatarText}>
@@ -186,14 +193,14 @@ export default function ParentHomeScreen() {
                 </View>
               </View>
             </View>
-            <View style={styles.childArtwork}>
+            <View style={[styles.childArtwork, isCompact && styles.childArtworkCompact]}>
               <AcademyIllustration variant="parent" compact />
             </View>
           </MotionReveal>
         )}
 
-        {/* Quick Stats */}
-        <MotionReveal style={styles.statsGrid} delay={55}>
+        <MotionReveal delay={55}>
+        <AdaptiveGrid minItemWidth={125} maxColumns={3} style={styles.statsGrid}>
           <MotionTouchableOpacity style={styles.statCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="calendar" size={24} color={COLORS.info} />
             <Text style={[styles.statValue, { color: attendanceStats?.rate && attendanceStats.rate >= 80 ? COLORS.success : COLORS.warning }]}>
@@ -213,11 +220,12 @@ export default function ParentHomeScreen() {
             <Text style={styles.statValue}>View</Text>
             <Text style={styles.statLabel}>Tests</Text>
           </MotionTouchableOpacity>
+        </AdaptiveGrid>
         </MotionReveal>
 
         {/* Quick Actions */}
         <MotionReveal delay={95}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <AdaptiveSectionHeading title="Quick actions" description="Open your child’s most-used records" />
           <View style={styles.actionsGrid}>
           <MotionTouchableOpacity style={styles.actionCardFeatured} onPress={() => router.push('/(dashboard)/payments')}>
             <View style={styles.actionFeaturedIcon}><Ionicons name="card" size={25} color={COLORS.gold} /></View>
@@ -241,12 +249,13 @@ export default function ParentHomeScreen() {
           </MotionTouchableOpacity>
           </View>
         </MotionReveal>
+          </View>
 
-        {/* Recent Payments */}
-        <Text style={styles.sectionTitle}>Recent Payments</Text>
+          <View>
+        <AdaptiveSectionHeading title="Recent payments" description="Latest recorded payments and their status" />
         {recentPayments.length > 0 ? (
-          recentPayments.map((payment) => (
-            <View key={payment.id} style={styles.paymentItem}>
+          recentPayments.map((payment, index) => (
+            <MotionListItem key={payment.id} index={index} style={styles.paymentItem}>
               <View style={styles.paymentInfo}>
                 <Text style={styles.paymentMonth}>Month: {payment.month}</Text>
                 <Text style={styles.paymentDate}>{formatDate(payment.created_at)}</Text>
@@ -259,21 +268,21 @@ export default function ParentHomeScreen() {
                   </Text>
                 </View>
               </View>
-            </View>
+            </MotionListItem>
           ))
         ) : (
           <View style={styles.emptyItem}>
             <Text style={styles.emptyText}>No recent payments</Text>
           </View>
         )}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          </View>
+        </AdaptiveColumns>
+      </AdaptiveScrollView>
 
       {/* Notifications Modal */}
-      <Modal visible={notificationModalVisible} animationType="slide" transparent={true} onRequestClose={() => setNotificationModalVisible(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
+      <Modal visible={notificationModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent={true} onRequestClose={() => setNotificationModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Notifications</Text>
               <TouchableOpacity onPress={() => setNotificationModalVisible(false)}>
@@ -313,17 +322,15 @@ export default function ParentHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.glassHighlight },
-  greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
-  subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   notificationButton: { position: 'relative', padding: SIZES.sm },
   notificationBadge: { position: 'absolute', top: 0, right: 0, backgroundColor: COLORS.error, width: 18, height: 18, borderRadius: 9, justifyContent: 'center', alignItems: 'center' },
   notificationBadgeText: { fontSize: 10, fontWeight: 'bold', color: '#fff' },
   content: { flex: 1 },
-  contentContainer: { width: '100%', maxWidth: 1080, alignSelf: 'center', padding: SIZES.md, paddingBottom: SIZES.xxl },
   childCard: { minHeight: 164, justifyContent: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, padding: SIZES.lg, paddingRight: 130, marginBottom: SIZES.md, borderWidth: 1, borderColor: COLORS.goldHairline, overflow: 'hidden', ...SHADOWS.small },
+  childCardCompact: { minHeight: 148, padding: SIZES.md, paddingRight: 98 },
   childHeader: { flexDirection: 'row', alignItems: 'center' },
   childArtwork: { position: 'absolute', right: -10, top: 24, opacity: 0.92 },
+  childArtworkCompact: { right: -28, top: 22, transform: [{ scale: 0.82 }] },
   childAvatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   avatarText: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.marbleDark },
   childInfo: { flex: 1 },
@@ -331,8 +338,8 @@ const styles = StyleSheet.create({
   childId: { fontSize: SIZES.fontSm, color: COLORS.gold, marginTop: 2 },
   statusBadge: { alignSelf: 'flex-start', paddingHorizontal: SIZES.sm, paddingVertical: 2, borderRadius: SIZES.radiusSm, marginTop: SIZES.xs },
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
-  statsGrid: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  statsGrid: { marginBottom: SIZES.sm },
+  statCard: { minHeight: 108, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'center', ...SHADOWS.small },
   statValue: { fontSize: SIZES.fontLg, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
   sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
@@ -356,6 +363,8 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: SIZES.fontSm, color: COLORS.textTertiary },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modalContent: { backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, maxHeight: '80%', paddingBottom: 40 },
+  modalOverlayWide: { justifyContent: 'center', padding: SIZES.lg },
+  modalContentWide: { width: '100%', maxWidth: 640, borderRadius: SIZES.radiusXl, alignSelf: 'center', overflow: 'hidden' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SIZES.lg, borderBottomWidth: 1, borderBottomColor: COLORS.marbleGray },
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   notificationList: { padding: SIZES.md },

@@ -131,6 +131,77 @@ export function MotionReveal({
   );
 }
 
+/**
+ * A bounded list entrance. Only the first few visible records are staggered;
+ * long finance, student, and notification lists never queue hundreds of
+ * animations or keep low-end Android devices busy.
+ */
+export function MotionListItem({
+  children,
+  index,
+  style,
+  testID,
+}: {
+  children: React.ReactNode;
+  index: number;
+  style?: StyleProp<ViewStyle>;
+  testID?: string;
+}) {
+  return (
+    <MotionReveal
+      testID={testID}
+      style={style}
+      delay={Math.min(index, 4) * 34}
+      duration={MOTION.navigation}
+      distance={6}
+      scaleFrom={0.998}
+    >
+      {children}
+    </MotionReveal>
+  );
+}
+
+export function MotionRotate({
+  children,
+  active,
+  style,
+  degrees = 180,
+}: {
+  children: React.ReactNode;
+  active: boolean;
+  style?: StyleProp<ViewStyle>;
+  degrees?: number;
+}) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
+
+  useEffect(() => {
+    progress.stopAnimation();
+    if (!ready || reduceMotion) {
+      progress.setValue(active ? 1 : 0);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: active ? 1 : 0,
+      duration: MOTION.state,
+      easing: Easing.bezier(...MOTION.easing.standard),
+      useNativeDriver: true,
+    }).start();
+    return () => progress.stopAnimation();
+  }, [active, progress, ready, reduceMotion]);
+
+  return (
+    <Animated.View
+      style={[
+        style,
+        { transform: [{ rotate: progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', `${degrees}deg`] }) }] },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
 export function MotionLine({
   color,
   style,

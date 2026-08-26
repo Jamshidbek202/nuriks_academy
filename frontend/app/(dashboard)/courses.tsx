@@ -18,6 +18,13 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { api, apiErrorMessage } from '../../src/services/api';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { COLORS, SIZES } from '../../src/constants/theme';
+import {
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  useAdaptiveLayout,
+} from '../../src/components/AdaptiveLayout';
+import { MotionListItem, MotionTouchableOpacity } from '../../src/components/Motion';
 
 type ProgramCode = 'general' | 'pre_ielts' | 'ielts';
 
@@ -68,6 +75,7 @@ export default function CoursesScreen() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Course | null>(null);
   const [form, setForm] = useState(emptyForm());
+  const { isCompact } = useAdaptiveLayout();
 
   const loadCourses = useCallback(async () => {
     if (user?.role !== 'super_admin') return;
@@ -182,16 +190,19 @@ export default function CoursesScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerCopy}>
-          <Text style={styles.title}>Courses</Text>
-          <Text style={styles.subtitle}>Manage the academic catalog used by leads, students, and groups</Text>
-        </View>
-        <TouchableOpacity testID="courses-add-button" style={styles.addButton} onPress={openCreate}>
+      <AdaptivePageHeader
+        title="Courses"
+        description="Manage the academic catalog used by leads, students, teachers, and groups"
+        action={<MotionTouchableOpacity accessibilityLabel="Create course" testID="courses-add-button" style={styles.addButton} onPress={openCreate}>
           <Ionicons name="add" size={25} color={COLORS.marbleDark} />
-        </TouchableOpacity>
-      </View>
+        </MotionTouchableOpacity>}
+      />
 
+      <AdaptiveScrollView
+        style={styles.list}
+        contentContainerStyle={filtered.length === 0 ? styles.emptyList : undefined}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadCourses(); }} tintColor={COLORS.gold} />}
+      >
       <View style={styles.financeNote}>
         <Ionicons name="shield-checkmark" size={20} color={COLORS.gold} />
         <Text style={styles.financeNoteText}>Course names do not set tuition. Normal, Mini, and Individual prices remain in Finance settings.</Text>
@@ -208,19 +219,15 @@ export default function CoursesScreen() {
         />
       </View>
 
-      <ScrollView
-        style={styles.list}
-        contentContainerStyle={filtered.length === 0 ? styles.emptyList : undefined}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadCourses(); }} tintColor={COLORS.gold} />}
-      >
         {filtered.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons name="library-outline" size={56} color={COLORS.textTertiary} />
             <Text style={styles.emptyTitle}>No courses yet</Text>
             <Text style={styles.emptyText}>Create General English, Pre-IELTS, or IELTS to populate course selectors.</Text>
           </View>
-        ) : filtered.map((course) => (
-          <View key={course.id} testID={`course-card-${course.id}`} style={styles.card}>
+        ) : <AdaptiveGrid minItemWidth={340} maxColumns={2} style={styles.courseGrid}>
+          {filtered.map((course, index) => (
+          <MotionListItem key={course.id} index={index} testID={`course-card-${course.id}`} style={styles.card}>
             <View style={styles.cardIcon}>
               <Ionicons name="book" size={23} color={COLORS.gold} />
             </View>
@@ -255,13 +262,14 @@ export default function CoursesScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-          </View>
-        ))}
-      </ScrollView>
+          </MotionListItem>
+          ))}
+        </AdaptiveGrid>}
+      </AdaptiveScrollView>
 
-      <Modal visible={modalOpen} transparent animationType="slide" onRequestClose={() => setModalOpen(false)}>
-        <View style={styles.overlay}>
-          <View style={styles.modal}>
+      <Modal visible={modalOpen} transparent animationType={isCompact ? 'slide' : 'fade'} onRequestClose={() => setModalOpen(false)}>
+        <View style={[styles.overlay, !isCompact && styles.overlayWide]}>
+          <View style={[styles.modal, !isCompact && styles.modalWide]}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>{editing ? 'Edit course' : 'Create course'}</Text>
               <TouchableOpacity accessibilityLabel="Close course editor" onPress={() => setModalOpen(false)}>
@@ -332,21 +340,18 @@ export default function CoursesScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.border, flexDirection: 'row', alignItems: 'center' },
-  headerCopy: { flex: 1, paddingRight: SIZES.md },
-  title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: 'bold' },
-  subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 4 },
   addButton: { width: 46, height: 46, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.gold, alignItems: 'center', justifyContent: 'center' },
-  financeNote: { margin: SIZES.md, marginBottom: SIZES.sm, padding: SIZES.md, borderRadius: 0, backgroundColor: COLORS.gold + '13', borderTopWidth: 1, borderBottomWidth: 1, borderColor: COLORS.gold + '55', flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
+  financeNote: { marginBottom: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.gold + '13', borderWidth: 1, borderColor: COLORS.gold + '44', flexDirection: 'row', alignItems: 'center', gap: SIZES.sm },
   financeNoteText: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm },
-  searchBox: { marginHorizontal: SIZES.md, marginBottom: SIZES.sm, backgroundColor: COLORS.backgroundCard, borderColor: COLORS.marbleGray, borderWidth: 1, borderRadius: SIZES.radiusMd, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.md },
+  searchBox: { marginBottom: SIZES.md, backgroundColor: COLORS.backgroundCard, borderColor: COLORS.marbleGray, borderWidth: 1, borderRadius: SIZES.radiusMd, flexDirection: 'row', alignItems: 'center', paddingHorizontal: SIZES.md },
   searchInput: { flex: 1, minHeight: 46, padding: SIZES.sm, color: COLORS.textPrimary },
-  list: { flex: 1, paddingHorizontal: SIZES.md },
+  list: { flex: 1 },
   emptyList: { flexGrow: 1, justifyContent: 'center' },
   emptyState: { alignItems: 'center', padding: SIZES.xl },
   emptyTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '700', marginTop: SIZES.sm, textAlign: 'center' },
   emptyText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, textAlign: 'center' },
-  card: { backgroundColor: COLORS.backgroundCard, borderRadius: 0, padding: SIZES.md, flexDirection: 'row', alignItems: 'flex-start', borderBottomWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
+  courseGrid: { alignItems: 'stretch' },
+  card: { minHeight: 148, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, flexDirection: 'row', alignItems: 'flex-start', borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.border },
   cardIcon: { width: 46, height: 46, borderRadius: 0, backgroundColor: 'transparent', alignItems: 'flex-start', justifyContent: 'center', marginRight: SIZES.md },
   cardBody: { flex: 1 },
   courseName: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
@@ -362,6 +367,8 @@ const styles = StyleSheet.create({
   iconButton: { width: SIZES.touchTarget, height: SIZES.touchTarget, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, alignItems: 'center', justifyContent: 'center' },
   overlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
   modal: { maxHeight: '90%', backgroundColor: COLORS.backgroundCard, borderTopLeftRadius: SIZES.radiusXl, borderTopRightRadius: SIZES.radiusXl, padding: SIZES.lg, paddingBottom: 38 },
+  overlayWide: { justifyContent: 'center', padding: SIZES.lg },
+  modalWide: { width: '100%', maxWidth: 640, alignSelf: 'center', borderRadius: SIZES.radiusXl },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: SIZES.lg },
   modalTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontXl, fontWeight: '700' },
   label: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600', marginBottom: SIZES.xs, marginTop: SIZES.sm },

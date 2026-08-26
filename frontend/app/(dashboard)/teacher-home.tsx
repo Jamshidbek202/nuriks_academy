@@ -1,9 +1,7 @@
 import React, { useState } from 'react';
 import {
   View,
-  ScrollView,
   StyleSheet,
-  TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -15,6 +13,14 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import {
+  AdaptiveColumns,
+  AdaptiveGrid,
+  AdaptivePageHeader,
+  AdaptiveScrollView,
+  AdaptiveSectionHeading,
+} from '../../src/components/AdaptiveLayout';
+import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 interface Group {
   id: string;
@@ -129,26 +135,23 @@ export default function TeacherHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Welcome, Teacher</Text>
-          <Text style={styles.subtitle}>{user?.full_name || 'Teacher Portal'}</Text>
-        </View>
-        <TouchableOpacity style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
+      <AdaptivePageHeader
+        title="Teaching workspace"
+        description={`${user?.full_name || 'Teacher'} · ${today}'s schedule, attendance, and class work`}
+        action={<MotionTouchableOpacity accessibilityLabel="Open notifications" style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
           <Ionicons name="notifications" size={24} color={COLORS.gold} />
           {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
-        </TouchableOpacity>
-      </View>
+        </MotionTouchableOpacity>}
+      />
 
-      <ScrollView
+      <AdaptiveScrollView
         style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadTeacherData(); }} tintColor={COLORS.gold} />
         }
       >
-        {/* Stats */}
-        <View style={styles.statsRow}>
+        <MotionReveal>
+        <AdaptiveGrid minItemWidth={170} maxColumns={3} style={styles.statsRow}>
           <View style={styles.statCard}>
             <Ionicons name="people-circle" size={28} color={COLORS.gold} />
             <Text style={styles.statValue}>{groups.length}</Text>
@@ -164,13 +167,17 @@ export default function TeacherHomeScreen() {
             <Text style={styles.statValue}>{todayClasses.length}</Text>
             <Text style={styles.statLabel}>Today</Text>
           </View>
-        </View>
+        </AdaptiveGrid>
+        </MotionReveal>
 
-        {/* Today's Schedule */}
-        <Text style={styles.sectionTitle}>Today&apos;s Schedule ({today})</Text>
-        {todayClasses.length > 0 ? (
-          todayClasses.map((item, idx) => (
-            <View key={idx} style={styles.scheduleCard}>
+        <AdaptiveColumns collapseAt="compact" gap={SIZES.lg}>
+          <View>
+            <AdaptiveSectionHeading
+              title={`Today · ${today}`}
+              description={todayClasses.length ? `${todayClasses.length} scheduled ${todayClasses.length === 1 ? 'class' : 'classes'}` : 'No classes scheduled'}
+            />
+            {todayClasses.length > 0 ? todayClasses.map((item, idx) => (
+            <MotionListItem key={`${item.group.id}-${item.schedule.start_time}`} index={idx} style={styles.scheduleCard}>
               <View style={styles.scheduleTime}>
                 <Text style={styles.timeText}>{item.schedule.start_time}</Text>
                 <Text style={styles.timeDivider}>-</Text>
@@ -186,46 +193,45 @@ export default function TeacherHomeScreen() {
                   </View>
                 )}
               </View>
-              <TouchableOpacity
+              <MotionTouchableOpacity
+                accessibilityLabel={`Open attendance for ${item.group.name}`}
                 style={styles.attendanceButton}
                 onPress={() => router.push('/(dashboard)/attendance')}
               >
                 <Ionicons name="checkbox" size={20} color={COLORS.gold} />
-              </TouchableOpacity>
-            </View>
-          ))
-        ) : (
-          <View style={styles.emptySchedule}>
+              </MotionTouchableOpacity>
+            </MotionListItem>
+            )) : <View style={styles.emptySchedule}>
             <Ionicons name="calendar-outline" size={48} color={COLORS.textTertiary} />
             <Text style={styles.emptyText}>No classes scheduled for today</Text>
+          </View>}
           </View>
-        )}
 
-        {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
+          <View>
+        <AdaptiveSectionHeading title="Class tools" description="The actions used during and after a lesson" />
+        <AdaptiveGrid minItemWidth={132} maxColumns={2} style={styles.actionsGrid}>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/attendance')}>
             <Ionicons name="checkbox" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Mark Attendance</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/journal')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/journal')}>
             <Ionicons name="journal" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Journal</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/homework')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/homework')}>
             <Ionicons name="book" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Homework</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/tests')}>
+          </MotionTouchableOpacity>
+          <MotionTouchableOpacity style={styles.actionCard} onPress={() => router.push('/(dashboard)/tests')}>
             <Ionicons name="clipboard" size={28} color={COLORS.gold} />
             <Text style={styles.actionText}>Tests</Text>
-          </TouchableOpacity>
-        </View>
+          </MotionTouchableOpacity>
+        </AdaptiveGrid>
 
-        {/* My Groups */}
-        <Text style={styles.sectionTitle}>My Groups</Text>
-        {groups.map((group) => (
-          <TouchableOpacity
+        <AdaptiveSectionHeading title="My groups" description={`${groups.length} assigned`} />
+        {groups.map((group, index) => (
+          <MotionListItem key={group.id} index={index}>
+          <MotionTouchableOpacity
             key={group.id}
             style={styles.groupCard}
             onPress={() => router.push('/(dashboard)/groups')}
@@ -248,11 +254,12 @@ export default function TeacherHomeScreen() {
               </View>
             </View>
             <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-          </TouchableOpacity>
+          </MotionTouchableOpacity>
+          </MotionListItem>
         ))}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+          </View>
+        </AdaptiveColumns>
+      </AdaptiveScrollView>
     </View>
   );
 }
@@ -260,18 +267,14 @@ export default function TeacherHomeScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.backgroundSubtle, borderBottomWidth: 1, borderBottomColor: COLORS.glassHighlight },
-  greeting: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
-  subtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   headerBadge: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
   unreadBadge: { position: 'absolute', top: -2, right: -2, minWidth: 18, height: 18, paddingHorizontal: 4, borderRadius: 9, backgroundColor: COLORS.error, alignItems: 'center', justifyContent: 'center' },
   unreadBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
-  content: { flex: 1, padding: SIZES.md },
-  statsRow: { flexDirection: 'row', gap: SIZES.sm, marginBottom: SIZES.lg },
-  statCard: { flex: 1, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  content: { flex: 1 },
+  statsRow: { marginBottom: SIZES.sm },
+  statCard: { minHeight: 112, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'center', ...SHADOWS.small },
   statValue: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary, marginTop: SIZES.sm },
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textSecondary, marginTop: 2 },
-  sectionTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.md, marginTop: SIZES.sm },
   scheduleCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.goldHairline, ...SHADOWS.small },
   scheduleTime: { alignItems: 'center', marginRight: SIZES.md, minWidth: 60 },
   timeText: { fontSize: SIZES.fontMd, fontWeight: 'bold', color: COLORS.gold },
@@ -284,8 +287,8 @@ const styles = StyleSheet.create({
   attendanceButton: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.gold + '20', justifyContent: 'center', alignItems: 'center' },
   emptySchedule: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.xl, alignItems: 'center', marginBottom: SIZES.md, ...SHADOWS.small },
   emptyText: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.md },
-  actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginBottom: SIZES.lg },
-  actionCard: { width: '48%', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'center', ...SHADOWS.small },
+  actionsGrid: { marginBottom: SIZES.sm },
+  actionCard: { minHeight: 108, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight, padding: SIZES.md, alignItems: 'flex-start', justifyContent: 'space-between', ...SHADOWS.small },
   actionText: { fontSize: SIZES.fontSm, color: COLORS.textPrimary, marginTop: SIZES.sm },
   groupCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.glassHighlight, ...SHADOWS.small },
   groupIcon: { width: 48, height: 48, borderRadius: SIZES.radiusSm, backgroundColor: COLORS.goldGlass, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
