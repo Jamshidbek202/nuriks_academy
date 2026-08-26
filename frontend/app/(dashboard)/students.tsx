@@ -14,13 +14,14 @@ import {
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
+import { MotionListItem, MotionTouchableOpacity } from '../../src/components/Motion';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
@@ -262,14 +263,7 @@ export default function StudentsScreen() {
 
   return (
     <View testID="students-screen" style={styles.container}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={['rgba(217,184,74,0.115)', 'rgba(217,184,74,0.025)', 'rgba(7,8,6,0)']}
-        locations={[0, 0.48, 1]}
-        start={{ x: 0.92, y: 0 }}
-        end={{ x: 0.1, y: 1 }}
-        style={styles.pageAtmosphere}
-      />
+      <ConcourseAtmosphere />
       <View style={[styles.pageShell, compact && styles.pageShellCompact]}>
         <View style={[styles.header, compact && styles.headerCompact]}>
           <View style={styles.headerIdentity}>
@@ -286,6 +280,7 @@ export default function StudentsScreen() {
         </View>
 
         <View style={[styles.toolbar, compact && styles.toolbarCompact]}>
+          <ConcourseGlassLayer intensity={30} />
           <View style={styles.searchContainer}>
             <Ionicons name="search" size={20} color={COLORS.textTertiary} style={styles.searchIcon} />
             <TextInput
@@ -316,15 +311,16 @@ export default function StudentsScreen() {
             {filterOptions.map(([value, label]) => {
               const active = statusFilter === value;
               return (
-                <TouchableOpacity
+                <MotionTouchableOpacity
                   key={value}
                   accessibilityRole="button"
                   accessibilityState={{ selected: active }}
                   style={[styles.filterOption, active && styles.filterOptionActive]}
                   onPress={() => setStatusFilter(value)}
+                  pressScale={0.97}
                 >
                   <Text style={[styles.filterOptionText, active && styles.filterOptionTextActive]}>{label}</Text>
-                </TouchableOpacity>
+                </MotionTouchableOpacity>
               );
             })}
           </ScrollView>
@@ -348,25 +344,24 @@ export default function StudentsScreen() {
                 {students.length === 0 ? 'Students will appear here after they are created or converted from leads.' : 'Try another name, phone number, ID, or status.'}
               </Text>
               {students.length > 0 && (
-                <TouchableOpacity style={styles.emptyAction} onPress={() => { setSearchQuery(''); setStatusFilter('current'); }}>
+                <MotionTouchableOpacity style={styles.emptyAction} onPress={() => { setSearchQuery(''); setStatusFilter('current'); }}>
                   <Text style={styles.emptyActionText}>Clear filters</Text>
-                </TouchableOpacity>
+                </MotionTouchableOpacity>
               )}
             </View>
           )}
-          renderItem={({ item: student }: { item: any }) => (
-            <View
-              testID={`student-card-${student.id}`}
-              style={styles.studentCard}
-            >
+          renderItem={({ item: student, index }: { item: any; index: number }) => (
+            <MotionListItem index={index} testID={`student-card-${student.id}`}>
+            <View style={styles.studentCard}>
               <View style={styles.studentHeader}>
-                <TouchableOpacity
+                <MotionTouchableOpacity
                   accessibilityRole={isReception ? undefined : 'button'}
                   accessibilityLabel={isReception ? undefined : `Open ${student.first_name} ${student.last_name}`}
                   style={styles.studentOpenButton}
                   disabled={isReception}
                   activeOpacity={isReception ? 1 : 0.76}
                   onPress={() => !isReception && openEditModal(student)}
+                  pressScale={0.988}
                 >
                   <View style={styles.studentAvatar}>
                     <Text style={styles.studentAvatarText}>
@@ -394,7 +389,7 @@ export default function StudentsScreen() {
                       )}
                     </View>
                   </View>
-                </TouchableOpacity>
+                </MotionTouchableOpacity>
                 {!isReception && student.status !== 'archived' && (
                   <TouchableOpacity
                     accessibilityRole="button"
@@ -438,6 +433,7 @@ export default function StudentsScreen() {
                 )}
               </View>
             </View>
+            </MotionListItem>
           )}
         />
       </View>
@@ -514,13 +510,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  pageAtmosphere: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 300,
-  },
   pageShell: {
     flex: 1,
     width: '100%',
@@ -576,6 +565,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toolbar: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     gap: SIZES.sm,
@@ -585,6 +575,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.backgroundCard,
+    overflow: 'hidden',
     ...SHADOWS.small,
   },
   toolbarCompact: { flexDirection: 'column', alignItems: 'stretch' },

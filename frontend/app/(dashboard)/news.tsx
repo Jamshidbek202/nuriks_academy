@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
@@ -171,6 +172,7 @@ export default function NewsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>{canManageNews ? 'News Management' : 'Academy News'}</Text>

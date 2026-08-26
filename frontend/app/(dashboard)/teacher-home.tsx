@@ -11,6 +11,7 @@ import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import {
@@ -135,6 +136,7 @@ export default function TeacherHomeScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title="Teaching workspace"
         description={`${user?.full_name || 'Teacher'} · ${today}'s schedule, attendance, and class work`}

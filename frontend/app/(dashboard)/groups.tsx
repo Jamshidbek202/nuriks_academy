@@ -18,6 +18,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
@@ -605,6 +606,7 @@ export default function GroupsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <View>

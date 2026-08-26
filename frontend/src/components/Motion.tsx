@@ -2,6 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import {
   Animated,
   Easing,
+  Pressable,
+  PressableProps,
   StyleProp,
   StyleSheet,
   TouchableOpacity,
@@ -11,6 +13,7 @@ import {
 import { MOTION, useMotionPreference } from '../contexts/MotionContext';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 export function MotionTouchableOpacity({
   style,
@@ -59,6 +62,86 @@ export function MotionTouchableOpacity({
     >
       {children}
     </AnimatedTouchableOpacity>
+  );
+}
+
+export function MotionPressableCard({
+  style,
+  disabled,
+  onPressIn,
+  onPressOut,
+  onHoverIn,
+  onHoverOut,
+  pressScale = 0.982,
+  hoverLift = 2,
+  hoverOverlayColor = 'rgba(241,217,139,0.035)',
+  children,
+  ...props
+}: Omit<PressableProps, 'style' | 'children'> & {
+  children: React.ReactNode;
+  style?: StyleProp<ViewStyle>;
+  pressScale?: number;
+  hoverLift?: number;
+  hoverOverlayColor?: string;
+}) {
+  const { reduceMotion, ready } = useMotionPreference();
+  const press = useRef(new Animated.Value(1)).current;
+  const hover = useRef(new Animated.Value(0)).current;
+  const flattenedStyle = StyleSheet.flatten(style as StyleProp<ViewStyle>) || {};
+  const inheritedTransform = flattenedStyle.transform || [];
+  const baseStyle = { ...flattenedStyle };
+  delete baseStyle.transform;
+
+  const movePressTo = (value: number, duration: number) => {
+    press.stopAnimation();
+    Animated.timing(press, {
+      toValue: !ready || reduceMotion || disabled ? 1 : value,
+      duration,
+      easing: value < 1 ? Easing.out(Easing.quad) : Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const moveHoverTo = (value: number) => {
+    hover.stopAnimation();
+    Animated.timing(hover, {
+      toValue: value,
+      duration: value > 0 ? MOTION.state : MOTION.feedback,
+      easing: Easing.bezier(...MOTION.easing.standard),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const hoverTranslate = hover.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, ready && !reduceMotion ? -hoverLift : 0],
+  });
+
+  return (
+    <AnimatedPressable
+      {...props}
+      disabled={disabled}
+      onPressIn={(event) => {
+        movePressTo(pressScale, MOTION.instant);
+        onPressIn?.(event);
+      }}
+      onPressOut={(event) => {
+        movePressTo(1, MOTION.feedback);
+        onPressOut?.(event);
+      }}
+      onHoverIn={(event) => {
+        moveHoverTo(1);
+        onHoverIn?.(event);
+      }}
+      onHoverOut={(event) => {
+        moveHoverTo(0);
+        onHoverOut?.(event);
+      }}
+      style={[baseStyle, { transform: [...(inheritedTransform as any[]), { translateY: hoverTranslate }, { scale: press }] } as any]}
+    >
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: hoverOverlayColor, opacity: hover }]} />
+      {children}
+    </AnimatedPressable>
   );
 }
 

@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface FeatureFlags {
@@ -92,6 +93,7 @@ export default function FeatureFlagsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <Text style={styles.title}>Feature Flags</Text>
         <Text style={styles.subtitle}>Toggle features ON/OFF</Text>

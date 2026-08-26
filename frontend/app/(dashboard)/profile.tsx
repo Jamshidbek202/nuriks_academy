@@ -31,6 +31,8 @@ import TelegramInviteModal, {
   TelegramInviteItem,
   telegramInviteFromResponse,
 } from '../../src/components/TelegramInviteModal';
+import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
+import { MotionPressableCard, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 type PreferenceKey = keyof NotificationPrefsType;
 
@@ -298,11 +300,13 @@ export default function ProfileScreen() {
 
   return (
     <View testID="profile-screen" style={styles.container}>
+      <ConcourseAtmosphere />
       <LinearGradient
-        colors={[COLORS.marbleDark, COLORS.background]}
+        colors={['rgba(213,182,98,0.16)', 'rgba(9,10,7,0.02)']}
         style={styles.header}
       >
-        <View style={styles.profileHeader}>
+        <MotionReveal style={styles.profileHeader} distance={7} duration={360}>
+          <ConcourseGlassLayer tone="gold" intensity={36} />
           <View style={styles.avatar}>
             <Text style={styles.avatarText}>
               {user?.full_name?.split(' ').map((n: string) => n[0]).join('') || '?'}
@@ -314,26 +318,26 @@ export default function ProfileScreen() {
               {t(user?.role?.replace('_', ' ') || 'Guest').toUpperCase()}
             </Text>
           </View>
-        </View>
+        </MotionReveal>
       </LinearGradient>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.contentContainer}>
         {/* Account Info */}
-        <View style={styles.section}>
+        <MotionReveal style={styles.section} delay={45} distance={6}>
           <Text style={styles.sectionTitle}>Account Information</Text>
           <View style={styles.infoCard}>
             <InfoRow icon="person" label="Login" value={user?.login || ''} />
             <InfoRow icon="mail" label="Email" value={user?.email || 'Not set'} />
             <InfoRow icon="call" label="Phone" value={user?.phone || 'Not set'} />
           </View>
-        </View>
+        </MotionReveal>
 
         {/* Settings */}
-        <View style={styles.section}>
+        <MotionReveal style={styles.section} delay={85} distance={6}>
           <Text style={styles.sectionTitle}>Settings</Text>
           <View style={styles.menuCard}>
             {user?.role === 'super_admin' && (
-              <TouchableOpacity
+              <MotionPressableCard
                 testID="profile-system-settings-button"
                 accessibilityRole="button"
                 accessibilityLabel="System Settings"
@@ -343,9 +347,9 @@ export default function ProfileScreen() {
                 <Ionicons name="settings" size={24} color={COLORS.gold} />
                 <Text style={styles.menuText}>System Settings</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-              </TouchableOpacity>
+              </MotionPressableCard>
             )}
-            <TouchableOpacity
+            <MotionPressableCard
               testID="profile-language-button"
               accessibilityRole="button"
               accessibilityLabel="App language"
@@ -358,8 +362,8 @@ export default function ProfileScreen() {
                 <Text style={styles.menuSubtitle}>{LANGUAGE_LABELS[language]}</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-            </TouchableOpacity>
-            <TouchableOpacity
+            </MotionPressableCard>
+            <MotionPressableCard
               testID="profile-telegram-button"
               accessibilityRole="button"
               accessibilityLabel="Telegram security codes"
@@ -381,9 +385,9 @@ export default function ProfileScreen() {
               {telegramLoading
                 ? <ActivityIndicator color={COLORS.gold} />
                 : <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />}
-            </TouchableOpacity>
+            </MotionPressableCard>
             {telegramStatus.connected && (
-              <TouchableOpacity
+              <MotionPressableCard
                 testID="profile-telegram-disconnect"
                 accessibilityRole="button"
                 accessibilityLabel="Disconnect Telegram"
@@ -393,9 +397,9 @@ export default function ProfileScreen() {
               >
                 <Ionicons name="unlink-outline" size={24} color={COLORS.error} />
                 <Text style={[styles.menuText, { color: COLORS.error }]}>Disconnect Telegram</Text>
-              </TouchableOpacity>
+              </MotionPressableCard>
             )}
-            <TouchableOpacity
+            <MotionPressableCard
               testID="profile-notifications-button"
               accessibilityRole="button"
               accessibilityLabel="Notifications"
@@ -405,9 +409,9 @@ export default function ProfileScreen() {
               <Ionicons name="notifications" size={24} color={COLORS.info} />
               <Text style={styles.menuText}>Notifications</Text>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-            </TouchableOpacity>
+            </MotionPressableCard>
             {user?.role !== 'super_admin' && (
-              <TouchableOpacity
+              <MotionPressableCard
                 testID="profile-help-button"
                 accessibilityRole="button"
                 accessibilityLabel="Help and Support"
@@ -417,13 +421,13 @@ export default function ProfileScreen() {
                 <Ionicons name="help-circle" size={24} color={COLORS.success} />
                 <Text style={styles.menuText}>Help & Support</Text>
                 <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
-              </TouchableOpacity>
+              </MotionPressableCard>
             )}
           </View>
-        </View>
+        </MotionReveal>
 
         {/* Logout Button */}
-        <TouchableOpacity
+        <MotionTouchableOpacity
           testID="profile-logout-button"
           accessibilityRole="button"
           accessibilityLabel="Logout"
@@ -433,7 +437,7 @@ export default function ProfileScreen() {
         >
           <Ionicons name="log-out" size={24} color={COLORS.error} />
           <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
+        </MotionTouchableOpacity>
 
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -744,6 +748,7 @@ const styles = StyleSheet.create({
     paddingBottom: SIZES.lg,
   },
   profileHeader: {
+    position: 'relative',
     alignItems: 'center',
     alignSelf: 'center',
     width: '100%',
@@ -752,6 +757,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     borderRadius: SIZES.radiusLg,
+    overflow: 'hidden',
     paddingVertical: SIZES.lg,
     paddingHorizontal: SIZES.md,
   },

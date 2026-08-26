@@ -16,6 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface Student {
@@ -202,6 +203,7 @@ export default function ProgressScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Student Progress</Text>

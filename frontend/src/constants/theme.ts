@@ -5,48 +5,48 @@ import { Platform } from 'react-native';
 // restrained material system that stays light enough for daily use
 // on older phones as well as the web dashboard.
 export const COLORS = {
-  gold: '#D9B84A',
-  goldLight: '#F0D67B',
-  goldDark: '#A9882D',
-  goldMuted: '#716128',
-  goldGlass: 'rgba(217, 184, 74, 0.14)',
-  goldHairline: 'rgba(240, 214, 123, 0.34)',
-  coolGlass: 'rgba(94, 126, 160, 0.12)',
+  gold: '#D5B662',
+  goldLight: '#F1D98B',
+  goldDark: '#9A7D34',
+  goldMuted: '#6E5C2F',
+  goldGlass: 'rgba(213, 182, 98, 0.14)',
+  goldHairline: 'rgba(241, 217, 139, 0.30)',
+  coolGlass: 'rgba(78, 142, 255, 0.14)',
 
   // Legacy marble names remain as compatibility aliases used by existing
   // screens. Their values now map to the new neutral surface hierarchy.
-  marbleDark: '#0A0C0D',
-  marbleGray: '#32352F',
-  marbleMedium: '#5C5E56',
-  marbleLight: '#95968F',
-  marbleVeryLight: '#D2D0C7',
+  marbleDark: '#090C0F',
+  marbleGray: '#303740',
+  marbleMedium: '#66707A',
+  marbleLight: '#9CA5AD',
+  marbleVeryLight: '#D8D7D1',
 
   // Route foundations are intentionally opaque. React Navigation keeps tab
   // scenes mounted, so transparency here would expose the previous route.
-  background: '#070806',
+  background: '#090A07',
   backgroundSolid: '#050604',
-  backgroundLight: '#0D100D',
-  backgroundCard: '#121510',
-  backgroundElevated: '#191D16',
-  backgroundSubtle: '#0A0C09',
+  backgroundLight: 'rgba(18, 19, 15, 0.86)',
+  backgroundCard: 'rgba(21, 22, 17, 0.82)',
+  backgroundElevated: '#1B1C17',
+  backgroundSubtle: 'rgba(12, 13, 10, 0.84)',
 
   // Glass is opt-in and only belongs on bounded foreground surfaces.
-  glass: 'rgba(20, 24, 19, 0.88)',
-  glassStrong: 'rgba(25, 29, 23, 0.94)',
+  glass: 'rgba(20, 21, 17, 0.72)',
+  glassStrong: 'rgba(20, 21, 17, 0.88)',
 
-  textPrimary: '#F3F0E7',
-  textSecondary: '#B6B3AA',
-  textTertiary: '#87877F',
-  textOnGold: '#11110D',
+  textPrimary: '#F5F0E6',
+  textSecondary: '#BCC2C6',
+  textTertiary: '#8C969F',
+  textOnGold: '#101317',
 
-  border: 'rgba(255, 255, 255, 0.085)',
-  borderStrong: 'rgba(240, 214, 123, 0.25)',
-  glassHighlight: 'rgba(255, 255, 255, 0.13)',
+  border: 'rgba(245, 238, 216, 0.10)',
+  borderStrong: 'rgba(213, 182, 98, 0.24)',
+  glassHighlight: 'rgba(255, 255, 255, 0.15)',
 
-  success: '#67A873',
-  warning: '#D7A13F',
-  error: '#D86B57',
-  info: '#7B9FBE',
+  success: '#45C49D',
+  warning: '#E3A73F',
+  error: '#E4705C',
+  info: '#4E8EFF',
 
   overlay: 'rgba(0, 0, 0, 0.72)',
   overlayLight: 'rgba(0, 0, 0, 0.42)',

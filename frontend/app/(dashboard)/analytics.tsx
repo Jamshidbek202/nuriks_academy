@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import {
   AdaptiveColumns,
@@ -86,6 +87,7 @@ export default function AnalyticsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title="Analytics"
         description="Academy performance, learning quality, and conversion in one current view."

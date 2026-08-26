@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 type Category = 'all' | 'chat' | 'academic' | 'payments' | 'news' | 'system';
@@ -116,6 +117,7 @@ export default function NotificationsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
           <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />

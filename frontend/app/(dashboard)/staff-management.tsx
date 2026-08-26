@@ -17,6 +17,7 @@ import { api, apiErrorMessage } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import TelegramInviteModal, {
   TelegramInviteItem,
   telegramInviteFromResponse,
@@ -313,6 +314,7 @@ export default function StaffManagementScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Staff Management</Text>

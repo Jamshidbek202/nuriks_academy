@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
@@ -209,6 +210,7 @@ export default function SupportHomeScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title="Support bookings"
         description={`${user?.full_name || 'Support teacher'} · review requests, run today’s sessions, and record notes`}

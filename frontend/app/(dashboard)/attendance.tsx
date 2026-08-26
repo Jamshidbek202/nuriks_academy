@@ -18,6 +18,7 @@ import { useFocusEffect } from 'expo-router';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { dateStringWithOffset, todayDateString, toLocalDateString } from '../../src/utils/dates';
@@ -518,6 +519,7 @@ export default function AttendanceScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={[styles.header, isPhoneLayout && styles.headerPhone]}>
         <View>

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { useAuth } from '../../src/contexts/AuthContext';
 import TelegramInviteModal, { TelegramInviteItem } from '../../src/components/TelegramInviteModal';
@@ -277,6 +278,7 @@ export default function LeadsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <View>

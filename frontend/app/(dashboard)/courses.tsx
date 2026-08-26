@@ -18,6 +18,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { api, apiErrorMessage } from '../../src/services/api';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { COLORS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import {
   AdaptiveGrid,
   AdaptivePageHeader,
@@ -190,9 +191,10 @@ export default function CoursesScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title="Courses"
-        description="Manage the academic catalog used by leads, students, teachers, and groups"
+        description="Manage the academic catalog used by leads, students, and groups"
         action={<MotionTouchableOpacity accessibilityLabel="Create course" testID="courses-add-button" style={styles.addButton} onPress={openCreate}>
           <Ionicons name="add" size={25} color={COLORS.marbleDark} />
         </MotionTouchableOpacity>}

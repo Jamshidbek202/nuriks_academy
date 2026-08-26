@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api, apiErrorMessage } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
@@ -332,6 +333,7 @@ export default function TeachersScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <View>

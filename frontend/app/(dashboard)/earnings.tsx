@@ -12,6 +12,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { useFinanceLiveRefresh } from '../../src/hooks/use-finance-live-refresh';
 import { api } from '../../src/services/api';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import {
   AdaptiveGrid,
   AdaptivePageHeader,
@@ -93,6 +94,7 @@ export default function TeacherEarningsScreen() {
 
   return (
     <View testID="teacher-earnings-page" style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title="Earnings"
         description="Salary accrues after each completed lesson. Student absence or non-payment does not reduce your earnings."

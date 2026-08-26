@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface AuditLog {
@@ -152,6 +153,7 @@ export default function AuditLogsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <Text style={styles.title}>Audit Logs</Text>
         <Text style={styles.subtitle}>Track all system activity</Text>

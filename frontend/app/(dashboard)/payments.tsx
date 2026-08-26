@@ -16,6 +16,7 @@ import * as Clipboard from 'expo-clipboard';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useFinanceLiveRefresh } from '../../src/hooks/use-finance-live-refresh';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
@@ -232,6 +233,7 @@ export default function PaymentsScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <Text style={styles.title}>Payments</Text>
         <Text style={styles.subtitle}>Live lesson charges, official invoices, payments, and receipts</Text>

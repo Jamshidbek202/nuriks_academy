@@ -6,6 +6,7 @@ import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { useLanguage } from '../../src/contexts/LanguageContext';
 import { COLORS, LAYOUT, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 
 type MoreItem = {
   label: string;
@@ -43,6 +44,7 @@ export default function MoreScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       <View style={styles.header}>
         <Text style={styles.eyebrow}>{t('Nurik\'s Academy')}</Text>
         <Text style={styles.title}>{t('More')}</Text>

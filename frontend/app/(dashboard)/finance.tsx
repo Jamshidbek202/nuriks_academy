@@ -27,8 +27,9 @@ import { FINANCE } from '../../constants/testIds';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
 import { DateTimePicker } from '../../src/components/DateTimePicker';
-import { MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { MotionPressableCard, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
+import { ConcourseAtmosphere, ConcourseGlassLayer, ConcourseTintLayer } from '../../src/components/ConcourseAtmosphere';
 
 const Alert = { alert: showAlert };
 
@@ -1404,19 +1405,24 @@ export default function FinanceScreen() {
 
     const attentionPanel = isPhone ? (
       <View style={styles.mobileAttentionPanel}>
+        <ConcourseGlassLayer intensity={26} />
         <Text style={styles.sectionTitle}>Needs attention</Text>
         <Text style={styles.sectionSubtitle}>Swipe through open finance work.</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mobileWorkQueue}>
           {queueItems.map((item) => <WorkQueueItem key={item.label} {...item} compact />)}
         </ScrollView>
-        <View pointerEvents="none" style={styles.mobileAttentionCue}><Ionicons name="chevron-forward" size={17} color={COLORS.goldLight} /></View>
       </View>
     ) : (
-      <Section title="Needs attention" subtitle="Open work is shown first so the daily finance routine starts with action, not reports.">
+      <View style={styles.attentionPanel}>
+        <ConcourseGlassLayer intensity={32} />
+        <View style={styles.attentionHeader}>
+          <View style={styles.flex}><Text style={styles.sectionTitle}>Needs attention</Text><Text style={styles.sectionSubtitle}>Open finance work, ordered for action.</Text></View>
+          <View style={styles.attentionCount}><Text style={styles.attentionCountText}>{queueItems.reduce((sum, item) => sum + item.value, 0)}</Text></View>
+        </View>
         <View style={styles.workQueueGrid}>
           {queueItems.map((item) => <WorkQueueItem key={item.label} {...item} />)}
         </View>
-      </Section>
+      </View>
     );
 
     const positionPanel = <FinancialPositionCard position={position} month={month} compact={isPhone} />;
@@ -1434,9 +1440,9 @@ export default function FinanceScreen() {
             {positionPanel}
           </>
         )}
-        <Section title="Cash and debt" subtitle="Collections and outstanding balances are kept separate from accrued revenue.">
+        <Section title="Cash and debt" subtitle="Collections and outstanding balances are kept separate from accrued revenue." tone="brand">
           <View style={styles.financeDetailGrid}>
-            <FinanceDetailMetric testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle-outline" color={COLORS.info} />
+            <FinanceDetailMetric testID={FINANCE.cashReceived} label="Cash received" value={position.cash_received_uzs} icon="arrow-down-circle-outline" color={COLORS.goldLight} />
             <FinanceDetailMetric testID={FINANCE.cardReceived} label="Verified card transfers" value={position.card_transfer_received_uzs} icon="card-outline" color={COLORS.success} />
             <FinanceDetailMetric testID={FINANCE.cashboxPosition} label="Cashbox position" value={position.cashbox_position_uzs} icon="cash-outline" color={COLORS.gold} />
             <FinanceDetailMetric testID={FINANCE.receivables} label="All receivables" value={position.receivables_uzs} icon="hourglass-outline" color={COLORS.warning} />
@@ -1444,13 +1450,13 @@ export default function FinanceScreen() {
           </View>
         </Section>
         <View style={styles.overviewColumns}>
-            <View style={styles.overviewColumn}><Section title="Revenue bridge" subtitle="Accrued, not simply cash collected">
+            <View style={styles.overviewColumn}><Section title="Revenue bridge" subtitle="Accrued, not simply cash collected" tone="gold">
               <MoneyRow testID={FINANCE.grossTuition} label="Gross lesson tuition" value={position.gross_tuition_uzs} />
               <MoneyRow label="Centre-funded discounts" value={-position.centre_funded_discounts_uzs} negative />
               <MoneyRow testID={FINANCE.netTuition} label="Net tuition" value={position.net_tuition_uzs} strong />
               <MoneyRow testID={FINANCE.otherIncomeTotal} label="Other income" value={position.other_income_uzs} />
             </Section></View>
-            <View style={styles.overviewColumn}><Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately">
+            <View style={styles.overviewColumn}><Section title="Spending and obligations" subtitle="Earned/accrued and paid are shown separately" tone="brand">
               <SpendingBar testID={FINANCE.salaryEarned} label="Teacher salaries earned" value={position.teacher_salary_earned_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.gold} />
               {(position.teacher_salary_projected_uzs || 0) > 0 && <MoneyRow label="Included projected salary from drafts" value={position.teacher_salary_projected_uzs || 0} />}
               <SpendingBar testID={FINANCE.expensesAccrued} label="Operating expenses accrued" value={position.expenses_accrued_uzs} total={position.teacher_salary_earned_uzs + position.expenses_accrued_uzs} color={COLORS.warning} />
@@ -1882,7 +1888,7 @@ export default function FinanceScreen() {
         {cashShift ? (
           <>
             <View style={styles.kpiGrid}>
-              <Kpi testID={FINANCE.cashOpeningKpi} label="Opening" value={cashShift.opening_balance_uzs} icon="lock-open" color={COLORS.info} />
+              <Kpi testID={FINANCE.cashOpeningKpi} label="Opening" value={cashShift.opening_balance_uzs} icon="lock-open" color={COLORS.goldLight} />
               <Kpi testID={FINANCE.cashReceivedKpi} label="Cash received" value={cashShift.receipt_total_uzs} icon="arrow-down" color={COLORS.success} />
               <Kpi testID={FINANCE.cashRemovedKpi} label="Cash removed" value={cashShift.removal_total_uzs} icon="arrow-up" color={COLORS.warning} />
               <Kpi testID={FINANCE.cashExpectedKpi} label="Expected now" value={expectedCash} icon="cash" color={COLORS.gold} />
@@ -2195,26 +2201,23 @@ export default function FinanceScreen() {
 
   return (
     <View testID={FINANCE.screen} style={styles.container}>
-      <View style={[styles.header, isPhone && styles.headerCompact]}>
-        <View style={styles.headerCopy}>
-          <View style={styles.headerTitleRow}>
-            <View style={[styles.headerMark, isPhone && styles.headerMarkCompact]}><Ionicons name={isReception ? 'receipt-outline' : 'wallet-outline'} size={isPhone ? 20 : 23} color={COLORS.goldLight} /></View>
-            <View style={styles.flex}><Text style={styles.title}>{isReception ? 'Student payments' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Find students, check paid/unpaid status, contact families, and record cash—without centre financial totals.' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
+      <ConcourseAtmosphere />
+      <ScrollView style={styles.content} contentContainerStyle={styles.pageContent} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
+        <View style={[styles.header, isPhone && styles.headerCompact]}>
+          <View style={styles.headerCopy}>
+            <View style={styles.headerTitleRow}>
+              <View style={styles.flex}><Text style={styles.title}>{isReception ? 'Student payments' : 'Finance'}</Text><Text style={styles.subtitle}>{isReception ? 'Find students, check paid/unpaid status, contact families, and record cash—without centre financial totals.' : 'Accruals, cash, debt, spending, payroll, and controls'}</Text></View>
+            </View>
           </View>
+          {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={[styles.monthInput, isPhone && styles.monthInputCompact]} />}
         </View>
-        {!isReception && <CalendarDatePicker testID={FINANCE.monthInput} value={month} onChange={changeMonth} placeholder="Select month" mode="month" style={[styles.monthInput, isPhone && styles.monthInputCompact]} />}
-      </View>
-      {width >= LAYOUT.desktopBreakpoint ? (
-        <View style={[styles.tabScroll, styles.tabs, styles.tabsWrapped]}>
-          {visibleTabs.map((tab) => <MotionTouchableOpacity pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
+        <View style={[styles.tabScroll, width < LAYOUT.desktopBreakpoint && styles.tabScrollCompact]}>
+          <ConcourseGlassLayer intensity={44} />
+          <ScrollView horizontal bounces={false} showsHorizontalScrollIndicator={false} style={styles.tabViewport} contentContainerStyle={styles.tabs}>
+            {visibleTabs.map((tab) => <MotionTouchableOpacity accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab.key }} pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.goldLight : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
+          </ScrollView>
         </View>
-      ) : (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.tabScroll, styles.tabScrollCompact]} contentContainerStyle={styles.tabs}>
-          {visibleTabs.map((tab) => <MotionTouchableOpacity pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.gold : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
-        </ScrollView>
-      )}
-      <ScrollView style={styles.content} contentContainerStyle={[styles.contentInset, isPhone && styles.contentInsetCompact]} refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}>
-        <Animated.View style={{ opacity: tabProgress, transform: [{ translateX: tabShift }] }}>
+        <Animated.View style={[styles.contentInset, isPhone && styles.contentInsetCompact, { opacity: tabProgress, transform: [{ translateX: tabShift }] }]}>
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'receivables' && renderReceivables()}
           {activeTab === 'online' && renderOnlinePayments()}
@@ -2230,18 +2233,18 @@ export default function FinanceScreen() {
   );
 }
 
-function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
-  return <View style={styles.section}><Text style={styles.sectionTitle}>{title}</Text>{subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}<View style={styles.sectionBody}>{children}</View></View>;
+function Section({ title, subtitle, children, tone }: { title: string; subtitle?: string; children: React.ReactNode; tone?: 'brand' | 'gold' }) {
+  return <View style={styles.section}>{tone && <ConcourseTintLayer tone={tone} />}<Text style={styles.sectionTitle}>{title}</Text>{subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}<View style={styles.sectionBody}>{children}</View></View>;
 }
 
 function WorkQueueItem({ icon, label, value, tone, onPress, compact = false }: { icon: string; label: string; value: number; tone?: 'warning'; onPress: () => void; compact?: boolean }) {
   const color = value > 0 ? (tone === 'warning' ? COLORS.warning : COLORS.gold) : COLORS.textTertiary;
   return (
-    <MotionTouchableOpacity accessibilityRole="button" style={[styles.workQueueItem, compact && styles.workQueueItemCompact]} onPress={onPress}>
+    <MotionPressableCard accessibilityRole="button" hoverLift={2} hoverOverlayColor="rgba(241,217,139,0.035)" style={[styles.workQueueItem, compact && styles.workQueueItemCompact]} onPress={onPress}>
       <View style={[styles.workQueueIcon, { backgroundColor: `${color}14`, borderColor: `${color}50` }]}><Ionicons name={icon as any} size={20} color={color} /></View>
       <View style={styles.flex}><Text style={styles.workQueueLabel}>{label}</Text><Text style={styles.workQueueHint}>{value > 0 ? 'Open queue' : 'Nothing waiting'}</Text></View>
       <Text style={[styles.workQueueValue, { color }]}>{value}</Text>
-    </MotionTouchableOpacity>
+    </MotionPressableCard>
   );
 }
 
@@ -2251,10 +2254,11 @@ function FinancialPositionCard({ position, month, compact = false }: { position:
   const obligations = position.teacher_salary_earned_uzs + position.expenses_accrued_uzs;
   return (
     <View style={[styles.financialPositionCard, compact && styles.financialPositionCardCompact]}>
+      <ConcourseGlassLayer tone="brand" intensity={36} />
       <LinearGradient
         pointerEvents="none"
-        colors={['rgba(217,184,74,0.16)', 'rgba(25,29,22,0.98)', 'rgba(10,12,9,0.98)']}
-        locations={[0, 0.48, 1]}
+        colors={['rgba(213,182,98,0.17)', 'rgba(25,23,18,0.42)', 'rgba(8,10,9,0.60)']}
+        locations={[0, 0.46, 1]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
@@ -2277,7 +2281,7 @@ function FinancialPositionCard({ position, month, compact = false }: { position:
         </View>
         <View style={[styles.positionLedger, compact && styles.positionLedgerCompact]}>
           <PositionLedgerRow testID={FINANCE.accruedRevenue} label="Accrued revenue" value={accruedRevenue} color={COLORS.success} compact={compact} />
-          <PositionLedgerRow testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} color={COLORS.info} last compact={compact} />
+          <PositionLedgerRow testID={FINANCE.totalCollections} label="Total collections" value={position.total_collections_uzs} color={COLORS.goldLight} last compact={compact} />
         </View>
       </View>
       <View style={[styles.financeBreakdown, compact && styles.financeBreakdownCompact]}>
@@ -2400,45 +2404,50 @@ function OutgoingPanel({ outgoing, amount, setAmount, busy, onPay, onCancel }: {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
-  header: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', justifyContent: 'space-between', gap: SIZES.md },
-  headerCompact: { paddingTop: SIZES.md, paddingHorizontal: SIZES.md, paddingBottom: SIZES.sm, gap: SIZES.sm, alignItems: 'stretch' },
+  header: { width: '100%', maxWidth: 1440, alignSelf: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md },
+  headerCompact: { paddingTop: Math.max(SIZES.headerTop, 28), paddingHorizontal: SIZES.md, paddingBottom: SIZES.sm, gap: SIZES.sm, alignItems: 'stretch' },
   headerCopy: { flex: 1, minWidth: 280, maxWidth: 720 },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
   headerMark: { width: 48, height: 48, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline },
   headerMarkCompact: { width: 42, height: 42, borderRadius: SIZES.radiusSm },
-  title: { color: COLORS.textPrimary, fontSize: 30, lineHeight: 36, fontWeight: '850' as any },
+  title: { color: COLORS.textPrimary, fontSize: 38, lineHeight: 44, fontWeight: '850' as any, letterSpacing: -1.15 },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs, maxWidth: 520, lineHeight: 20 },
   monthInput: { width: 180, marginBottom: 0 },
   monthInputCompact: { width: 164, alignSelf: 'flex-start' },
-  tabScroll: { flexGrow: 0, width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, overflow: 'hidden', ...SHADOWS.small },
-  tabScrollCompact: { width: 'auto', maxWidth: undefined, alignSelf: 'stretch', marginHorizontal: SIZES.md, borderRadius: SIZES.radiusMd },
-  tabs: { padding: 6, gap: 5, alignItems: 'center' },
-  tabsWrapped: { flexDirection: 'row', flexWrap: 'wrap' },
-  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, minHeight: 46, borderRadius: SIZES.radiusMd, backgroundColor: 'transparent', borderWidth: 1, borderColor: 'transparent' },
-  activeTab: { borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass, ...SHADOWS.small },
+  tabScroll: { flexGrow: 0, width: '100%', maxWidth: 1440, alignSelf: 'center', backgroundColor: 'rgba(13,19,26,0.42)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.13)', borderRadius: SIZES.radiusXl, overflow: 'hidden', ...SHADOWS.medium },
+  tabScrollCompact: { width: 'auto', maxWidth: undefined, alignSelf: 'stretch', marginHorizontal: SIZES.md, borderRadius: SIZES.radiusLg },
+  tabViewport: { flexGrow: 0 },
+  tabs: { flexDirection: 'row', padding: 7, gap: 5, alignItems: 'center' },
+  tab: { flexDirection: 'row', alignItems: 'center', gap: SIZES.xs, paddingHorizontal: SIZES.md, minHeight: 48, borderRadius: SIZES.radiusLg, backgroundColor: 'transparent', borderWidth: 1, borderColor: 'transparent' },
+  activeTab: { borderColor: COLORS.goldHairline, backgroundColor: 'rgba(213,182,98,0.15)', ...SHADOWS.small },
   tabText: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '600' },
-  activeTabText: { color: COLORS.gold },
+  activeTabText: { color: COLORS.textPrimary },
   content: { flex: 1 },
-  contentInset: { width: '100%', maxWidth: LAYOUT.contentMaxWidth, alignSelf: 'center', padding: SIZES.lg, paddingBottom: SIZES.xxl },
-  contentInsetCompact: { padding: SIZES.md, paddingBottom: SIZES.xxl },
+  pageContent: { paddingBottom: 0 },
+  contentInset: { width: '100%', maxWidth: 1440, alignSelf: 'center', padding: SIZES.lg, paddingBottom: 116 },
+  contentInsetCompact: { padding: SIZES.md, paddingBottom: 112 },
   modeBanner: { flexDirection: 'row', gap: SIZES.md, backgroundColor: COLORS.goldGlass, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusLg, padding: SIZES.md, marginBottom: SIZES.md },
   modeTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
   modeText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs, lineHeight: 17 },
   financeHeroGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.md, marginBottom: SIZES.lg },
-  overviewOpeningGrid: { flexDirection: 'row', alignItems: 'stretch', gap: SIZES.md },
-  overviewPosition: { flex: 1.45, minWidth: 0 },
-  overviewAttention: { flex: 0.85, minWidth: 300 },
-  workQueueGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
-  mobileAttentionPanel: { position: 'relative', marginBottom: SIZES.md, padding: SIZES.md, paddingRight: 0, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, overflow: 'hidden' },
+  overviewOpeningGrid: { flexDirection: 'row', alignItems: 'stretch', gap: SIZES.lg },
+  overviewPosition: { flex: 1.7, minWidth: 0 },
+  overviewAttention: { flex: 0.85, minWidth: 320 },
+  attentionPanel: { padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: 'rgba(255,255,255,0.13)', backgroundColor: 'rgba(13,19,25,0.42)', overflow: 'hidden', ...SHADOWS.medium },
+  attentionHeader: { minHeight: 56, flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.md, marginBottom: SIZES.md },
+  attentionCount: { minWidth: 38, height: 38, paddingHorizontal: 10, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: `${COLORS.warning}13`, borderWidth: 1, borderColor: `${COLORS.warning}36` },
+  attentionCountText: { color: COLORS.warning, fontSize: SIZES.fontSm, fontWeight: '850' as any, fontVariant: ['tabular-nums'] },
+  workQueueGrid: { overflow: 'hidden', borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border },
+  mobileAttentionPanel: { position: 'relative', marginBottom: SIZES.md, padding: SIZES.md, paddingRight: 0, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: 'rgba(255,255,255,0.13)', backgroundColor: 'rgba(13,19,25,0.44)', overflow: 'hidden' },
   mobileWorkQueue: { gap: SIZES.sm, paddingTop: SIZES.md, paddingRight: SIZES.xl },
   mobileAttentionCue: { position: 'absolute', right: 6, bottom: 35, width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.backgroundElevated, borderWidth: 1, borderColor: COLORS.goldHairline },
-  workQueueItem: { position: 'relative', flexGrow: 1, flexBasis: 220, minHeight: 78, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.border, overflow: 'hidden' },
-  workQueueItemCompact: { width: 188, flexGrow: 0, flexBasis: 188, minHeight: 72, gap: SIZES.sm, padding: SIZES.sm, borderRadius: SIZES.radiusSm },
+  workQueueItem: { position: 'relative', width: '100%', minHeight: 68, flexDirection: 'row', alignItems: 'center', gap: SIZES.md, padding: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border, backgroundColor: 'rgba(8,13,18,0.36)', overflow: 'hidden' },
+  workQueueItemCompact: { width: 224, flexGrow: 0, flexBasis: 224, minHeight: 74, gap: SIZES.sm, padding: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border },
   workQueueIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   workQueueLabel: { color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '700' },
   workQueueHint: { color: COLORS.textTertiary, fontSize: 11, marginTop: 2 },
   workQueueValue: { minWidth: 28, textAlign: 'right', fontSize: SIZES.fontXl, fontWeight: '800' },
-  financialPositionCard: { position: 'relative', padding: SIZES.lg, marginBottom: SIZES.lg, borderRadius: SIZES.radiusXl, borderWidth: 1, borderColor: COLORS.borderStrong, backgroundColor: COLORS.backgroundElevated, overflow: 'hidden', ...SHADOWS.medium },
+  financialPositionCard: { position: 'relative', minHeight: 422, padding: SIZES.xl, marginBottom: SIZES.lg, borderRadius: 30, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: 'rgba(24,22,16,0.42)', overflow: 'hidden', ...SHADOWS.large },
   financialPositionCardCompact: { padding: SIZES.md, marginBottom: SIZES.md, borderRadius: SIZES.radiusLg },
   positionHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.md, paddingBottom: SIZES.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.glassHighlight },
   positionHeaderCompact: { gap: SIZES.sm, paddingBottom: SIZES.md },
@@ -2452,10 +2461,10 @@ const styles = StyleSheet.create({
   positionLead: { flex: 1.2, minWidth: 260, justifyContent: 'center' },
   positionLeadCompact: { width: '100%', minWidth: '100%', flexGrow: 0, flexShrink: 0, flexBasis: 'auto' },
   positionLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, fontWeight: '700' },
-  positionLeadValue: { color: COLORS.goldLight, fontSize: 38, lineHeight: 45, fontWeight: '850' as any, letterSpacing: -0.8, marginTop: SIZES.sm, fontVariant: ['tabular-nums'] },
+  positionLeadValue: { color: COLORS.goldLight, fontSize: 38, lineHeight: 45, fontWeight: '850' as any, letterSpacing: -1, marginTop: SIZES.sm, fontVariant: ['tabular-nums'] },
   positionLeadValueCompact: { fontSize: 29, lineHeight: 34, marginTop: SIZES.xs },
   positionHint: { maxWidth: 420, color: COLORS.textTertiary, fontSize: 11, lineHeight: 17, marginTop: SIZES.sm },
-  positionLedger: { flex: 1, minWidth: 260, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: 'rgba(7,8,6,0.58)', overflow: 'hidden' },
+  positionLedger: { flex: 1, minWidth: 260, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.11)', backgroundColor: 'rgba(8,9,8,0.48)', overflow: 'hidden' },
   positionLedgerCompact: { width: '100%', minWidth: '100%', flexGrow: 0, flexShrink: 0, flexBasis: 'auto', borderRadius: SIZES.radiusMd },
   positionLedgerRow: { minHeight: 74, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.border },
   positionLedgerRowCompact: { minHeight: 56, paddingHorizontal: SIZES.sm },
@@ -2465,11 +2474,11 @@ const styles = StyleSheet.create({
   positionLedgerValue: { maxWidth: '52%', color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', textAlign: 'right', fontVariant: ['tabular-nums'] },
   financeBreakdown: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm, marginTop: SIZES.lg },
   financeBreakdownCompact: { flexDirection: 'column', marginTop: SIZES.md },
-  financeBreakdownItem: { flex: 1, minWidth: 170, minHeight: 64, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight },
+  financeBreakdownItem: { flex: 1, minWidth: 170, minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, paddingVertical: SIZES.sm, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.10)', backgroundColor: 'rgba(8,9,8,0.40)' },
   financeBreakdownLabel: { color: COLORS.textTertiary, fontSize: 11, fontWeight: '700' },
   financeBreakdownValue: { maxWidth: '100%', color: COLORS.textPrimary, fontSize: SIZES.fontSm, fontWeight: '800', marginTop: 2, fontVariant: ['tabular-nums'] },
   financeDetailGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SIZES.sm },
-  financeDetailMetric: { position: 'relative', flexGrow: 1, flexBasis: 280, minWidth: 240, minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundLight, overflow: 'hidden' },
+  financeDetailMetric: { position: 'relative', flexGrow: 1, flexBasis: 280, minWidth: 240, minHeight: 70, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.border, backgroundColor: 'rgba(8,13,18,0.42)', overflow: 'hidden' },
   financeDetailIcon: { width: 34, height: 34, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   financeDetailSignal: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 2, opacity: 0.55 },
   financeDetailLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontSm },
@@ -2484,7 +2493,7 @@ const styles = StyleSheet.create({
   kpiLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, marginTop: SIZES.xs },
   overviewColumns: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'stretch', gap: SIZES.md },
   overviewColumn: { flex: 1, minWidth: 300 },
-  section: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, marginBottom: SIZES.lg, ...SHADOWS.small },
+  section: { position: 'relative', backgroundColor: 'rgba(15,21,28,0.58)', borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, padding: SIZES.lg, marginBottom: SIZES.lg, overflow: 'hidden', ...SHADOWS.small },
   sectionTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
   sectionSubtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, lineHeight: 17, marginTop: SIZES.xs },
   sectionBody: { marginTop: SIZES.md },

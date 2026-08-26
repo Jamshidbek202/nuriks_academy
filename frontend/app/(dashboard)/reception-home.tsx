@@ -15,6 +15,7 @@ import { useAuth } from '../../src/contexts/AuthContext';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { api } from '../../src/services/api';
 import { COLORS, SHADOWS, SIZES } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import {
   AdaptiveColumns,
   AdaptiveGrid,
@@ -100,6 +101,7 @@ export default function ReceptionHomeScreen() {
 
   return (
     <View testID="reception-home" style={styles.container}>
+      <ConcourseAtmosphere />
       <AdaptivePageHeader
         title={`Good day, ${user?.full_name?.split(' ')[0] || 'Reception'}`}
         description="Students, calls, payments, and today’s support bookings—without centre revenue or profit details."

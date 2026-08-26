@@ -968,6 +968,18 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     );
     teacherEarning = earnings[0];
     expect(teacherEarning.earned_amount_uzs).toBeGreaterThan(0);
+    const finalizedOccurrences = await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/lesson-occurrences?group_id=${group.id}&month=${month}`,
+    );
+    lockedOccurrenceForClosure = finalizedOccurrences.find((row) => (
+      row.locked_at && row.lesson_status === 'held'
+    ));
+    expect(
+      lockedOccurrenceForClosure,
+      'finalization must expose the exact financially locked held lesson used by the closure safety check',
+    ).toBeTruthy();
     for (const page of [manager.page, superAdmin.page]) {
       await page.getByTestId(ids.payrollTab).click();
       await expect(page.getByTestId(`finance-payroll-row-${teacherEarning.id}`)).toContainText(
@@ -1278,7 +1290,14 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await reception.page.getByTestId(ids.studentSearch).fill(finalizedInvoice.invoice_number);
     await expect(reception.page.getByTestId(`finance-student-result-${student.id}`)).toBeVisible();
     await reception.page.getByTestId(`finance-student-result-${student.id}`).click();
-    await reception.page.getByTestId(ids.receiptAmount).fill('100000');
+    const invoiceBeforeCash = (await apiGet<any[]>(
+      request,
+      managerToken,
+      `/finance/invoices?service_month=${month}&limit=100`,
+    )).find((row) => row.id === finalizedInvoice.id);
+    expect(Number(invoiceBeforeCash?.balance_uzs)).toBeGreaterThan(1);
+    const partialCashAmount = Math.max(1, Math.floor(Number(invoiceBeforeCash.balance_uzs) / 2));
+    await reception.page.getByTestId(ids.receiptAmount).fill(String(partialCashAmount));
     await reception.page.getByTestId(ids.receiptNotes).fill('First live partial payment');
     let interruptedReceiptRequests = 0;
     await reception.page.route('**/api/finance/receipts/cash', async (route) => {
@@ -1604,7 +1623,18 @@ test('every finance-page domain synchronizes live across authorized sessions', a
 
     await manager.page.getByTestId(`finance-expense-row-${otherExpense.id}`).getByText('Pay from cashbox').click();
     await expectCompactActionModal(manager.page);
-    await manager.page.getByTestId(ids.outgoingAmount).fill('100000');
+    const positionBeforeExpensePayout = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    const expensePayoutAmount = Math.min(
+      100_000,
+      Number(otherExpense.outstanding_amount_uzs),
+      Number(positionBeforeExpensePayout.cashbox_position_uzs),
+    );
+    expect(expensePayoutAmount).toBeGreaterThan(0);
+    await manager.page.getByTestId(ids.outgoingAmount).fill(String(expensePayoutAmount));
     await manager.page.getByTestId(ids.outgoingSubmit).click();
     let outgoing = await waitForRows<any>(
       request,
@@ -1636,7 +1666,18 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await manager.page.getByTestId(ids.payrollTab).click();
     await manager.page.getByTestId(`finance-payroll-row-${teacherEarning.id}`).getByText('Pay from cashbox').click();
     await expectCompactActionModal(manager.page);
-    await manager.page.getByTestId(ids.outgoingAmount).fill('50000');
+    const positionBeforeTeacherPayout = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    const teacherPayoutAmount = Math.min(
+      50_000,
+      Number(teacherEarning.outstanding_amount_uzs),
+      Number(positionBeforeTeacherPayout.cashbox_position_uzs),
+    );
+    expect(teacherPayoutAmount).toBeGreaterThan(0);
+    await manager.page.getByTestId(ids.outgoingAmount).fill(String(teacherPayoutAmount));
     await manager.page.getByTestId(ids.outgoingSubmit).click();
     const outgoing = await waitForRows<any>(
       request,
@@ -1683,7 +1724,14 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     await expectPosition(manager.page, await apiGet<Position>(request, managerToken, `/finance/position?service_month=${month}`));
 
     await manager.page.getByTestId(ids.cashTab).click();
-    await manager.page.getByTestId(ids.cashRemovalAmount).fill('25000');
+    const positionBeforeRemoval = await apiGet<Position>(
+      request,
+      managerToken,
+      `/finance/position?service_month=${month}`,
+    );
+    const removalAmount = Math.min(25_000, Number(positionBeforeRemoval.cashbox_position_uzs));
+    expect(removalAmount).toBeGreaterThan(0);
+    await manager.page.getByTestId(ids.cashRemovalAmount).fill(String(removalAmount));
     await manager.page.getByTestId(ids.cashRemovalPurpose).fill('Live QA bank deposit');
     await manager.page.getByTestId(ids.cashRemovalSubmit).click();
     await expect.poll(async () => {
@@ -1700,6 +1748,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       + Number(closingShift.receipt_total_uzs || 0)
       + Number(closingShift.other_income_total_uzs || 0)
       - Number(closingShift.removal_total_uzs || 0);
+    const discrepancyDelta = expectedAtRollover >= 10_000 ? -10_000 : 10_000;
+    const actualClosingAmount = expectedAtRollover + discrepancyDelta;
     await qaDb.collection('cash_shifts').updateOne(
       { _id: new ObjectId(closingShift.id) },
       { $set: {
@@ -1721,7 +1771,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     const managerPendingRow = manager.page.getByTestId(`finance-cash-shift-row-${closingShift.id}`);
     await expect(managerPendingRow).toContainText('awaiting count', { timeout: LIVE_TIMEOUT_MS });
     await managerPendingRow.getByText('Confirm end-of-day count').click();
-    await manager.page.getByTestId(ids.cashClosingAmount).fill(String(expectedAtRollover - 10_000));
+    await manager.page.getByTestId(ids.cashClosingAmount).fill(String(actualClosingAmount));
     await manager.page.getByTestId(ids.cashClose).click();
     await expect.poll(async () => {
       const rows = await apiGet<any[]>(request, managerToken, '/finance/cash-shifts?limit=100');
@@ -1744,7 +1794,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     superAdmin.page.off('request', validationListener);
     expect(validationRequests).toBe(0);
 
-    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('Investigate the ten-thousand UZS physical cash shortage');
+    await superAdmin.page.getByTestId(ids.discrepancyReason).fill('Investigate the ten-thousand UZS physical cash difference');
     let investigateRequestCount = 0;
     let investigateRequestPayload: Record<string, unknown> | null = null;
     const investigateListener = (requestValue: any) => {
@@ -1774,12 +1824,12 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(replay.idempotent_replay).toBe(true);
     const storedShift = await qaDb.collection('cash_shifts').findOne({ _id: new ObjectId(closingShift.id) });
     expect(storedShift?.expected_closing_balance_uzs).toBe(expectedAtRollover);
-    expect(storedShift?.actual_closing_balance_uzs).toBe(expectedAtRollover - 10_000);
-    expect(storedShift?.discrepancy_uzs).toBe(-10_000);
+    expect(storedShift?.actual_closing_balance_uzs).toBe(actualClosingAmount);
+    expect(storedShift?.discrepancy_uzs).toBe(discrepancyDelta);
     expect(storedShift?.discrepancy_status).toBe('investigation_required');
     focusedEvidence.push({
       workflow: 'automatic_cash_day_and_discrepancy_investigate',
-      discrepancy_uzs: -10_000,
+      discrepancy_uzs: discrepancyDelta,
       reception_manual_controls: 0,
       rapid_click_request_count: investigateRequestCount,
       immutable_review_count_after_retry: 1,

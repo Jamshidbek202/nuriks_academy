@@ -13,13 +13,14 @@ import {
 } from 'react-native';
 import { Text, TextInput } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
+import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
+import { MotionListItem, MotionPressableCard, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 
 // Cross-platform alert
 const showAlert = (title: string, message: string) => {
@@ -181,14 +182,7 @@ export default function ChatsScreen() {
 
   return (
     <View testID="chats-screen" style={styles.container}>
-      <LinearGradient
-        pointerEvents="none"
-        colors={['rgba(217,184,74,0.105)', 'rgba(217,184,74,0.02)', 'rgba(7,8,6,0)']}
-        locations={[0, 0.48, 1]}
-        start={{ x: 0.92, y: 0 }}
-        end={{ x: 0.1, y: 1 }}
-        style={styles.pageAtmosphere}
-      />
+      <ConcourseAtmosphere />
       <View style={[styles.pageShell, compact && styles.pageShellCompact]}>
         <View style={[styles.header, compact && styles.headerCompact]}>
           <View style={styles.headerIdentity}>
@@ -207,17 +201,19 @@ export default function ChatsScreen() {
         </View>
 
         <View style={styles.controlPanel}>
+          <ConcourseGlassLayer intensity={30} />
           {user?.role === 'super_admin' && (
             <View style={styles.adminFilterShell}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.adminFilterContent}>
                 {adminRoleFilters.map((filter) => (
-                  <TouchableOpacity
+                  <MotionTouchableOpacity
                     key={filter.key}
                     style={[
                       styles.adminFilterButton,
                       adminRoleFilter === filter.key && styles.adminFilterButtonActive,
                     ]}
                     onPress={() => setAdminRoleFilter(filter.key)}
+                    pressScale={0.97}
                   >
                     <Text
                       style={[
@@ -227,7 +223,7 @@ export default function ChatsScreen() {
                     >
                       {filter.label}
                     </Text>
-                  </TouchableOpacity>
+                  </MotionTouchableOpacity>
                 ))}
               </ScrollView>
             </View>
@@ -250,17 +246,19 @@ export default function ChatsScreen() {
           </View>
 
           <View style={[styles.tabContainer, !compact && styles.tabContainerWide]}>
-            <TouchableOpacity
+            <MotionTouchableOpacity
               style={[styles.tab, activeTab === 'chats' && styles.activeTab]}
               onPress={() => setActiveTab('chats')}
+              pressScale={0.97}
             >
               <Text style={[styles.tabText, activeTab === 'chats' && styles.activeTabText]}>
                 Chats ({conversations.length})
               </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
+            </MotionTouchableOpacity>
+            <MotionTouchableOpacity
               style={[styles.tab, activeTab === 'contacts' && styles.activeTab]}
               onPress={() => setActiveTab('contacts')}
+              pressScale={0.97}
             >
               <Text
                   style={[
@@ -270,7 +268,7 @@ export default function ChatsScreen() {
               >
                 Contacts ({contacts.length})
               </Text>
-            </TouchableOpacity>
+            </MotionTouchableOpacity>
           </View>
         </View>
 
@@ -288,6 +286,7 @@ export default function ChatsScreen() {
             />
           }
         >
+        <MotionReveal key={activeTab} distance={5} duration={220}>
         {activeTab === 'chats' ? (
           // Conversations List
           filteredConversations.length === 0 ? (
@@ -299,19 +298,20 @@ export default function ChatsScreen() {
               <Text style={styles.emptyText}>
                 Start a conversation from the Contacts tab
               </Text>
-              <TouchableOpacity style={styles.emptyAction} onPress={() => setActiveTab('contacts')}>
+              <MotionTouchableOpacity style={styles.emptyAction} onPress={() => setActiveTab('contacts')}>
                 <Text style={styles.emptyActionText}>View contacts</Text>
-              </TouchableOpacity>
+              </MotionTouchableOpacity>
             </View>
           ) : (
-            filteredConversations.map((conv) => (
-              <TouchableOpacity
-                key={conv.id}
+            filteredConversations.map((conv, index) => (
+              <MotionListItem key={conv.id} index={index}>
+              <MotionPressableCard
                 testID={`chat-conversation-${conv.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`Open conversation with ${conv.other_participant?.name || 'user'}`}
                 style={styles.conversationCard}
                 onPress={() => handleOpenChat(conv.id)}
+                hoverLift={2}
               >
                 <View style={styles.avatarContainer}>
                   <View style={[styles.avatar, { backgroundColor: getRoleColor(conv.other_participant?.role) + '30' }]}>
@@ -353,7 +353,8 @@ export default function ChatsScreen() {
                     </Text>
                   </View>
                 </View>
-              </TouchableOpacity>
+              </MotionPressableCard>
+              </MotionListItem>
             ))
           )
         ) : (
@@ -373,14 +374,15 @@ export default function ChatsScreen() {
               </Text>
             </View>
           ) : (
-            filteredContacts.map((contact) => (
-              <TouchableOpacity
-                key={contact.id}
+            filteredContacts.map((contact, index) => (
+              <MotionListItem key={contact.id} index={index}>
+              <MotionPressableCard
                 testID={`chat-contact-${contact.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`Start conversation with ${contact.name}`}
                 style={styles.contactCard}
                 onPress={() => handleStartChat(contact)}
+                hoverLift={2}
               >
                 <View style={styles.avatarContainer}>
                   <View style={[styles.avatar, { backgroundColor: getRoleColor(contact.role) + '30' }]}>
@@ -413,10 +415,12 @@ export default function ChatsScreen() {
                 </View>
                 
                 <Ionicons name="chatbubble-outline" size={24} color={COLORS.gold} />
-              </TouchableOpacity>
+              </MotionPressableCard>
+              </MotionListItem>
             ))
           )
         )}
+        </MotionReveal>
         </ScrollView>
       </View>
     </View>
@@ -428,7 +432,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  pageAtmosphere: { position: 'absolute', top: 0, left: 0, right: 0, height: 300 },
   pageShell: { flex: 1, width: '100%', maxWidth: 1040, alignSelf: 'center', paddingHorizontal: SIZES.lg },
   pageShellCompact: { paddingHorizontal: SIZES.md },
   loadingContainer: {
@@ -489,7 +492,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   headerBadgeTextQuiet: { color: COLORS.textSecondary },
-  controlPanel: { padding: SIZES.sm, marginBottom: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, ...SHADOWS.small },
+  controlPanel: { position: 'relative', padding: SIZES.sm, marginBottom: SIZES.md, borderRadius: SIZES.radiusLg, borderWidth: 1, borderColor: COLORS.border, backgroundColor: COLORS.backgroundCard, overflow: 'hidden', ...SHADOWS.small },
   adminFilterShell: {
     backgroundColor: 'transparent',
     paddingBottom: SIZES.sm,

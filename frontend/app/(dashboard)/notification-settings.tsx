@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useAuth } from '../../src/contexts/AuthContext';
 import {
   getNotificationPreferences,
@@ -144,6 +145,7 @@ export default function NotificationPreferencesScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>

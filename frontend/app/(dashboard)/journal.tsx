@@ -16,6 +16,7 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
+import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
@@ -333,6 +334,7 @@ export default function JournalScreen() {
 
   return (
     <View style={styles.container}>
+      <ConcourseAtmosphere />
       {/* Header */}
       <View style={styles.header}>
         <View>
