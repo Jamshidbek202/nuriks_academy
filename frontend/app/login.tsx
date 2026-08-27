@@ -1,8 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Image,
   KeyboardAvoidingView,
   Platform,
@@ -12,6 +10,16 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from 'react-native-reanimated';
 import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { Image as ExpoImage } from 'expo-image';
@@ -28,6 +36,8 @@ import { MOTION, useMotionPreference } from '../src/contexts/MotionContext';
 import { formatUzbekPhoneInput, isCompleteUzbekPhone, normalizeUzbekPhone } from '../src/utils/phone';
 
 const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+const EASE_IN_OUT = Easing.bezier(0.77, 0, 0.175, 1);
 
 /**
  * Direction contract — Login / Operate
@@ -38,48 +48,69 @@ const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
  */
 function WorkspaceScene({ compact }: { compact: boolean }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const settle = useRef(new Animated.Value(1)).current;
+  const settle = useSharedValue(0);
 
   useEffect(() => {
-    settle.stopAnimation();
-    if (!ready || reduceMotion) {
-      settle.setValue(1);
+    cancelAnimation(settle);
+    if (!ready) return;
+    if (reduceMotion) {
+      settle.set(withTiming(1, { duration: 170, easing: EASE_OUT }));
       return;
     }
 
-    settle.setValue(0);
-    const animation = Animated.timing(settle, {
-      toValue: 1,
-      delay: 110,
-      duration: 880,
-      easing: Easing.bezier(...MOTION.easing.enter),
-      useNativeDriver: true,
-      isInteraction: false,
-    });
-    animation.start();
-    return () => animation.stop();
+    settle.set(0);
+    settle.set(withDelay(70, withTiming(1, { duration: 480, easing: EASE_OUT })));
+    return () => cancelAnimation(settle);
   }, [ready, reduceMotion, settle]);
 
-  const lift = settle.interpolate({ inputRange: [0, 1], outputRange: [10, 0] });
-  const tilt = settle.interpolate({ inputRange: [0, 1], outputRange: ['-1.1deg', '0deg'] });
-  const shadowScale = settle.interpolate({ inputRange: [0, 1], outputRange: [0.86, 1] });
-  const shadowOpacity = settle.interpolate({ inputRange: [0, 1], outputRange: [0.12, 0.28] });
+  const shadowMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(settle.get(), [0, 1], [0.12, 0.28]),
+    transform: [{ scaleX: interpolate(settle.get(), [0, 1], [0.86, 1]) }],
+  }));
+  const haloMotion = useAnimatedStyle(() => ({
+    opacity: reduceMotion
+      ? 0.1
+      : interpolate(settle.get(), [0, 0.58, 1], [0, 0.26, 0.1]),
+    transform: [{ scale: reduceMotion ? 1 : interpolate(settle.get(), [0, 0.58, 1], [0.72, 1.08, 1]) }],
+  }), [reduceMotion]);
+  const artworkMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(settle.get(), [0, 1], [0.72, 1]),
+    transform: [
+      { translateY: reduceMotion ? 0 : interpolate(settle.get(), [0, 1], [14, 0]) },
+      { scale: reduceMotion ? 1 : interpolate(settle.get(), [0, 1], [0.955, 1]) },
+      { rotate: `${reduceMotion ? 0 : interpolate(settle.get(), [0, 1], [-1.15, 0])}deg` },
+    ],
+  }), [reduceMotion]);
 
   return (
     <View style={[styles.workspaceScene, compact && styles.workspaceSceneCompact]}>
       <Animated.View
         pointerEvents="none"
         style={[
+          styles.workspaceHalo,
+          compact && styles.workspaceHaloCompact,
+          haloMotion,
+        ]}
+      >
+        <LinearGradient
+          colors={['rgba(245,219,127,0.48)', 'rgba(191,142,38,0.13)', 'rgba(191,142,38,0)']}
+          locations={[0, 0.5, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[
           styles.workspaceShadow,
           compact && styles.workspaceShadowCompact,
-          { opacity: shadowOpacity, transform: [{ scaleX: shadowScale }] },
+          shadowMotion,
         ]}
       />
       <Animated.View
         style={[
           styles.workspaceArtwork,
           compact && styles.workspaceArtworkCompact,
-          { transform: [{ translateY: lift }, { rotate: tilt }] },
+          artworkMotion,
         ]}
       >
         <ExpoImage
@@ -104,37 +135,28 @@ function FieldShell({
   children: React.ReactNode;
 }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const focus = useRef(new Animated.Value(active ? 1 : 0)).current;
+  const focus = useSharedValue(active ? 1 : 0);
 
   useEffect(() => {
-    focus.stopAnimation();
+    cancelAnimation(focus);
     if (!ready || reduceMotion) {
-      focus.setValue(active ? 1 : 0);
+      focus.set(active ? 1 : 0);
       return;
     }
-    Animated.timing(focus, {
-      toValue: active ? 1 : 0,
-      duration: MOTION.state,
-      easing: Easing.bezier(...MOTION.easing.standard),
-      useNativeDriver: false,
-    }).start();
-    return () => focus.stopAnimation();
+    focus.set(withTiming(active ? 1 : 0, { duration: MOTION.state, easing: EASE_IN_OUT }));
+    return () => cancelAnimation(focus);
   }, [active, focus, ready, reduceMotion]);
+
+  const focusMotion = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(focus.get(), [0, 1], [COLORS.borderStrong, COLORS.goldLight]),
+    backgroundColor: interpolateColor(focus.get(), [0, 1], ['rgba(8,10,8,0.72)', 'rgba(19,18,11,0.84)']),
+  }));
 
   return (
     <Animated.View
       style={[
         styles.inputWrapper,
-        {
-          borderColor: focus.interpolate({
-            inputRange: [0, 1],
-            outputRange: [COLORS.borderStrong, COLORS.goldLight],
-          }),
-          backgroundColor: focus.interpolate({
-            inputRange: [0, 1],
-            outputRange: ['rgba(8,10,8,0.72)', 'rgba(19,18,11,0.84)'],
-          }),
-        },
+        focusMotion,
       ]}
     >
       <Ionicons name={icon} size={19} color={active ? COLORS.goldLight : COLORS.textTertiary} />
@@ -159,53 +181,57 @@ export default function LoginScreen() {
   const isWide = width >= 920;
   const isCompact = width < 600;
   const shortViewport = height < 760;
-  const sceneEntrance = useRef(new Animated.Value(1)).current;
-  const formEntrance = useRef(new Animated.Value(1)).current;
-  const sheen = useRef(new Animated.Value(0)).current;
+  const sceneEntrance = useSharedValue(0);
+  const formEntrance = useSharedValue(0);
+  const formContentEntrance = useSharedValue(0);
+  const sheen = useSharedValue(0);
+  const logoSheen = useSharedValue(0);
+  const panelSheen = useSharedValue(0);
 
   useEffect(() => {
-    sceneEntrance.stopAnimation();
-    formEntrance.stopAnimation();
-    sheen.stopAnimation();
-    if (!motionReady || reduceMotion) {
-      sceneEntrance.setValue(1);
-      formEntrance.setValue(1);
-      sheen.setValue(1);
+    cancelAnimation(sceneEntrance);
+    cancelAnimation(formEntrance);
+    cancelAnimation(formContentEntrance);
+    cancelAnimation(sheen);
+    cancelAnimation(logoSheen);
+    cancelAnimation(panelSheen);
+    if (!motionReady) return;
+
+    if (reduceMotion) {
+      sceneEntrance.set(0.88);
+      formEntrance.set(0.9);
+      formContentEntrance.set(0.88);
+      sheen.set(1);
+      logoSheen.set(1);
+      panelSheen.set(1);
+      sceneEntrance.set(withTiming(1, { duration: 170, easing: EASE_OUT }));
+      formEntrance.set(withTiming(1, { duration: 170, easing: EASE_OUT }));
+      formContentEntrance.set(withTiming(1, { duration: 170, easing: EASE_OUT }));
       return;
     }
 
-    sceneEntrance.setValue(0);
-    formEntrance.setValue(0);
-    sheen.setValue(0);
-    Animated.parallel([
-      Animated.timing(sceneEntrance, {
-        toValue: 1,
-        duration: MOTION.hero,
-        easing: Easing.bezier(...MOTION.easing.enter),
-        useNativeDriver: true,
-      }),
-      Animated.timing(formEntrance, {
-        toValue: 1,
-        delay: 90,
-        duration: MOTION.overlay,
-        easing: Easing.bezier(...MOTION.easing.enter),
-        useNativeDriver: true,
-      }),
-      Animated.timing(sheen, {
-        toValue: 1,
-        delay: 420,
-        duration: 780,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-    ]).start();
+    sceneEntrance.set(0);
+    formEntrance.set(0);
+    formContentEntrance.set(0);
+    sheen.set(0);
+    logoSheen.set(0);
+    panelSheen.set(0);
+    sceneEntrance.set(withTiming(1, { duration: 440, easing: EASE_OUT }));
+    formEntrance.set(withDelay(120, withTiming(1, { duration: 420, easing: EASE_OUT })));
+    formContentEntrance.set(withDelay(230, withTiming(1, { duration: 300, easing: EASE_OUT })));
+    logoSheen.set(withDelay(170, withTiming(1, { duration: 520, easing: EASE_IN_OUT })));
+    panelSheen.set(withDelay(250, withTiming(1, { duration: 780, easing: EASE_IN_OUT })));
+    sheen.set(withDelay(470, withTiming(1, { duration: 640, easing: EASE_OUT })));
 
     return () => {
-      sceneEntrance.stopAnimation();
-      formEntrance.stopAnimation();
-      sheen.stopAnimation();
+      cancelAnimation(sceneEntrance);
+      cancelAnimation(formEntrance);
+      cancelAnimation(formContentEntrance);
+      cancelAnimation(sheen);
+      cancelAnimation(logoSheen);
+      cancelAnimation(panelSheen);
     };
-  }, [formEntrance, motionReady, reduceMotion, sceneEntrance, sheen]);
+  }, [formContentEntrance, formEntrance, logoSheen, motionReady, panelSheen, reduceMotion, sceneEntrance, sheen]);
 
   const handleLogin = async () => {
     const normalizedPhone = normalizeUzbekPhone(phone);
@@ -231,9 +257,64 @@ export default function LoginScreen() {
     }
   };
 
-  const sceneTranslate = sceneEntrance.interpolate({ inputRange: [0, 1], outputRange: [isWide ? -18 : -8, 0] });
-  const formTranslate = formEntrance.interpolate({ inputRange: [0, 1], outputRange: [isWide ? 22 : 14, 0] });
-  const sheenTranslate = sheen.interpolate({ inputRange: [0, 1], outputRange: [-260, 540] });
+  const sceneMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(sceneEntrance.get(), [0, 1], [0.7, 1]),
+    transform: isWide
+      ? [
+        { translateX: reduceMotion ? 0 : interpolate(sceneEntrance.get(), [0, 1], [-14, 0]) },
+        { scale: reduceMotion ? 1 : interpolate(sceneEntrance.get(), [0, 1], [0.985, 1]) },
+      ]
+      : [
+        { translateY: reduceMotion ? 0 : interpolate(sceneEntrance.get(), [0, 1], [9, 0]) },
+        { scale: reduceMotion ? 1 : interpolate(sceneEntrance.get(), [0, 1], [0.985, 1]) },
+      ],
+  }), [isWide, reduceMotion]);
+  const formMotion = useAnimatedStyle(() => {
+    const value = formEntrance.get();
+    return {
+      opacity: interpolate(value, [0, 1], [0.7, 1]),
+      transform: isWide
+        ? [
+          { translateX: reduceMotion ? 0 : interpolate(value, [0, 1], [18, 0]) },
+          { scale: reduceMotion ? 1 : interpolate(value, [0, 1], [0.985, 1]) },
+        ]
+        : [
+          { translateY: reduceMotion ? 0 : interpolate(value, [0, 1], [14, 0]) },
+          { scale: reduceMotion ? 1 : interpolate(value, [0, 1], [0.985, 1]) },
+        ],
+    };
+  }, [isWide, reduceMotion]);
+  const formContentMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(formContentEntrance.get(), [0, 1], [0.76, 1]),
+    transform: [{ translateY: reduceMotion ? 0 : interpolate(formContentEntrance.get(), [0, 1], [8, 0]) }],
+  }), [reduceMotion]);
+  const panelHighlightMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(formEntrance.get(), [0, 1], [0, 1]),
+    transform: [{ scaleX: interpolate(formEntrance.get(), [0, 1], [0.3, 1]) }],
+  }));
+  const sheenMotion = useAnimatedStyle(() => ({
+    transform: [
+      { translateX: interpolate(sheen.get(), [0, 1], [-260, 540]) },
+      { rotate: '-14deg' },
+    ],
+  }));
+  const logoSheenMotion = useAnimatedStyle(() => ({
+    opacity: reduceMotion ? 0 : interpolate(logoSheen.get(), [0, 0.16, 0.82, 1], [0, 0.75, 0.75, 0]),
+    transform: [
+      { translateX: interpolate(logoSheen.get(), [0, 1], [-58, 64]) },
+      { rotate: '-16deg' },
+    ],
+  }), [reduceMotion]);
+  const panelSheenMotion = useAnimatedStyle(() => ({
+    opacity: reduceMotion ? 0 : interpolate(panelSheen.get(), [0, 0.16, 0.84, 1], [0, 0.42, 0.42, 0]),
+    transform: [
+      { translateX: interpolate(panelSheen.get(), [0, 1], [-180, isWide ? 680 : 540]) },
+      { rotate: '-12deg' },
+    ],
+  }), [isWide, reduceMotion]);
+  const arrowMotion = useAnimatedStyle(() => ({
+    transform: [{ translateX: reduceMotion ? 0 : interpolate(sheen.get(), [0, 0.62, 1], [0, 4, 0]) }],
+  }), [reduceMotion]);
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -254,24 +335,28 @@ export default function LoginScreen() {
               style={[
                 styles.brandPanel,
                 isWide ? styles.brandPanelWide : styles.brandPanelCompact,
-                {
-                  opacity: sceneEntrance.interpolate({ inputRange: [0, 1], outputRange: [0.52, 1] }),
-                  transform: [{ translateX: sceneTranslate }],
-                },
+                sceneMotion,
               ]}
             >
-              <View style={styles.brandRow}>
-                <View style={styles.logoWell}>
+              <View style={[styles.brandRow, isCompact && styles.brandRowCompact]}>
+                <View style={[styles.logoWell, isCompact && styles.logoWellCompact]}>
                   <Image
                     source={require('../assets/images/logo.png')}
-                    style={styles.logo}
+                    style={[styles.logo, isCompact && styles.logoCompact]}
                     resizeMode="contain"
                     accessibilityLabel="Nurik's Academy logo"
                   />
+                  <AnimatedLinearGradient
+                    pointerEvents="none"
+                    colors={['rgba(255,255,255,0)', 'rgba(255,246,210,0.52)', 'rgba(255,255,255,0)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={[styles.logoSheen, logoSheenMotion]}
+                  />
                 </View>
                 <View style={styles.brandIdentity}>
-                  <Text style={styles.academyName}>Nurik&apos;s Academy</Text>
-                  <Text style={styles.systemName}>{t('Academy management system')}</Text>
+                  <Text style={[styles.academyName, isCompact && styles.academyNameCompact]}>Nurik&apos;s Academy</Text>
+                  <Text style={[styles.systemName, isCompact && styles.systemNameCompact]}>{t('Academy management system')}</Text>
                 </View>
               </View>
 
@@ -307,10 +392,8 @@ export default function LoginScreen() {
               style={[
                 styles.formPanel,
                 isWide && styles.formPanelWide,
-                {
-                  opacity: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [0.55, 1] }),
-                  transform: [{ translateX: formTranslate }, { scale: formEntrance.interpolate({ inputRange: [0, 1], outputRange: [0.985, 1] }) }],
-                },
+                isCompact && styles.formPanelCompact,
+                formMotion,
               ]}
             >
               <BlurView tint="dark" intensity={Platform.OS === 'android' ? 20 : 48} style={StyleSheet.absoluteFill} />
@@ -322,12 +405,27 @@ export default function LoginScreen() {
                 end={{ x: 1, y: 1 }}
                 style={StyleSheet.absoluteFill}
               />
-              <View pointerEvents="none" style={styles.formTopHighlight} />
+              <LinearGradient
+                pointerEvents="none"
+                colors={['rgba(247,218,119,0.13)', 'rgba(247,218,119,0.025)', 'rgba(247,218,119,0)']}
+                locations={[0, 0.48, 1]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0.78, y: 0.72 }}
+                style={styles.panelAmbientGlow}
+              />
+              <AnimatedLinearGradient
+                pointerEvents="none"
+                colors={['rgba(255,255,255,0)', 'rgba(255,248,219,0.12)', 'rgba(255,255,255,0)']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={[styles.panelSheen, panelSheenMotion]}
+              />
+              <Animated.View pointerEvents="none" style={[styles.formTopHighlight, panelHighlightMotion]} />
 
-              <View style={styles.formContent}>
-                <View style={styles.formHeading}>
-                  <Text style={styles.title}>{t('Welcome Back')}</Text>
-                  <Text style={styles.subtitle}>{t('Sign in to continue')}</Text>
+              <Animated.View style={[styles.formContent, isCompact && styles.formContentCompact, formContentMotion]}>
+                <View style={[styles.formHeading, isCompact && styles.formHeadingCompact]}>
+                  <Text style={[styles.title, isCompact && styles.titleCompact]}>{t('Welcome Back')}</Text>
+                  <Text style={[styles.subtitle, isCompact && styles.subtitleCompact]}>{t('Sign in to continue')}</Text>
                 </View>
 
                 {!!errorMessage && (
@@ -348,7 +446,7 @@ export default function LoginScreen() {
                   </View>
                 )}
 
-                <View style={styles.inputContainer}>
+                <View style={[styles.inputContainer, isCompact && styles.inputContainerCompact]}>
                   <Text style={[styles.label, phoneFocused && styles.labelActive]}>{t('Phone number')}</Text>
                   <FieldShell active={phoneFocused} icon="call-outline">
                     <TextInput
@@ -370,7 +468,7 @@ export default function LoginScreen() {
                   </FieldShell>
                 </View>
 
-                <View style={styles.inputContainer}>
+                <View style={[styles.inputContainer, isCompact && styles.inputContainerCompact]}>
                   <Text style={[styles.label, passwordFocused && styles.labelActive]}>{t('Password')}</Text>
                   <FieldShell active={passwordFocused} icon="lock-closed-outline">
                     <TextInput
@@ -427,14 +525,16 @@ export default function LoginScreen() {
                     colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.46)', 'rgba(255,255,255,0)']}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 0 }}
-                    style={[styles.buttonSheen, { transform: [{ translateX: sheenTranslate }, { rotate: '-14deg' }] }]}
+                    style={[styles.buttonSheen, sheenMotion]}
                   />
                   {loading
                     ? <ActivityIndicator color={COLORS.textOnGold} />
                     : (
                       <View style={styles.loginButtonContent}>
                         <Text style={styles.loginButtonText}>{t('Sign In')}</Text>
-                        <Ionicons name="arrow-forward" size={18} color={COLORS.textOnGold} />
+                        <Animated.View style={arrowMotion}>
+                          <Ionicons name="arrow-forward" size={18} color={COLORS.textOnGold} />
+                        </Animated.View>
                       </View>
                     )}
                 </MotionTouchableOpacity>
@@ -461,7 +561,7 @@ export default function LoginScreen() {
                   <Ionicons name="shield-checkmark-outline" size={17} color={COLORS.textTertiary} />
                   <Text style={styles.accessNoteText}>{t('Access is limited to approved Nurik’s Academy accounts')}</Text>
                 </View>
-              </View>
+              </Animated.View>
             </Animated.View>
           </View>
         </ScrollView>
@@ -485,14 +585,15 @@ const styles = StyleSheet.create({
     paddingVertical: 30,
     position: 'relative',
   },
-  scrollContentCompact: { justifyContent: 'flex-start', paddingHorizontal: SIZES.md, paddingVertical: 18 },
+  scrollContentCompact: { justifyContent: 'flex-start', paddingHorizontal: 14, paddingTop: 14, paddingBottom: 22 },
   scrollContentShort: { justifyContent: 'flex-start' },
   shell: { width: '100%', maxWidth: 540, alignSelf: 'center' },
   shellWide: { maxWidth: 1180, minHeight: 660, flexDirection: 'row', alignItems: 'center', gap: 64 },
   brandPanel: { position: 'relative' },
   brandPanelWide: { flex: 1.08, minWidth: 0, justifyContent: 'space-between', paddingVertical: 12 },
-  brandPanelCompact: { width: '100%', paddingHorizontal: 6, marginBottom: 12 },
+  brandPanelCompact: { width: '100%', paddingHorizontal: 4, marginBottom: 8 },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 13 },
+  brandRowCompact: { gap: 10 },
   logoWell: {
     width: 48,
     height: 48,
@@ -502,15 +603,30 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,248,220,0.07)',
     borderWidth: 1,
     borderColor: 'rgba(241,217,139,0.20)',
+    overflow: 'hidden',
   },
+  logoWellCompact: { width: 42, height: 42, borderRadius: 14 },
+  logoSheen: { position: 'absolute', top: -12, bottom: -12, width: 20 },
   brandIdentity: { flex: 1 },
   logo: { width: 39, height: 39, flexShrink: 0 },
+  logoCompact: { width: 34, height: 34 },
   academyName: { color: COLORS.textPrimary, fontSize: 21, lineHeight: 25, fontWeight: '800', letterSpacing: -0.45 },
+  academyNameCompact: { fontSize: 18, lineHeight: 22, letterSpacing: -0.32 },
   systemName: { color: COLORS.textSecondary, fontSize: 12, lineHeight: 17, marginTop: 1 },
+  systemNameCompact: { fontSize: 10.5, lineHeight: 14 },
   workspaceScene: { height: 338, width: '100%', justifyContent: 'center', alignItems: 'center', marginVertical: 20 },
-  workspaceSceneCompact: { height: 162, marginTop: 6, marginBottom: 0 },
+  workspaceSceneCompact: { height: 126, marginTop: 18, marginBottom: 18 },
+  workspaceHalo: {
+    position: 'absolute',
+    width: '68%',
+    height: '58%',
+    borderRadius: 999,
+    overflow: 'hidden',
+    ...Platform.select({ web: { filter: 'blur(24px)' } as any, default: {} }),
+  },
+  workspaceHaloCompact: { width: '50%', height: '58%' },
   workspaceArtwork: { width: '100%', height: '100%', maxWidth: 610 },
-  workspaceArtworkCompact: { maxWidth: 330 },
+  workspaceArtworkCompact: { maxWidth: 246 },
   studyIllustration: { width: '100%', height: '100%' },
   workspaceShadow: {
     position: 'absolute',
@@ -521,7 +637,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#000',
     ...Platform.select({ web: { filter: 'blur(18px)' } as any, default: {} }),
   },
-  workspaceShadowCompact: { width: '62%', height: 18, bottom: 5 },
+  workspaceShadowCompact: { width: '52%', height: 14, bottom: 3 },
   brandCopy: { maxWidth: 500 },
   brandTitle: { color: COLORS.textPrimary, fontSize: 38, lineHeight: 43, fontWeight: '850' as any, letterSpacing: -1.15 },
   brandDescription: { color: COLORS.textSecondary, fontSize: 15, lineHeight: 22, marginTop: 9, maxWidth: 430 },
@@ -551,6 +667,15 @@ const styles = StyleSheet.create({
     ...SHADOWS.large,
   },
   formPanelWide: { flex: 0.92, maxWidth: 500 },
+  formPanelCompact: { borderRadius: 24 },
+  panelAmbientGlow: {
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    width: '74%',
+    height: 190,
+  },
+  panelSheen: { position: 'absolute', top: -110, bottom: -110, width: 132 },
   formTopHighlight: {
     position: 'absolute',
     top: 0,
@@ -560,14 +685,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.26)',
   },
   formContent: { paddingHorizontal: 34, paddingTop: 36, paddingBottom: 24 },
+  formContentCompact: { paddingHorizontal: 24, paddingTop: 26, paddingBottom: 17 },
   formHeading: { marginBottom: 30 },
+  formHeadingCompact: { marginBottom: 22 },
   title: { color: COLORS.textPrimary, fontSize: 38, lineHeight: 44, fontWeight: '850' as any, letterSpacing: -1.0 },
+  titleCompact: { fontSize: 30, lineHeight: 35, letterSpacing: -0.7 },
   subtitle: { color: COLORS.textSecondary, fontSize: 15, lineHeight: 21, marginTop: 5 },
+  subtitleCompact: { fontSize: 14, lineHeight: 19, marginTop: 3 },
   messageBox: { flexDirection: 'row', alignItems: 'flex-start', gap: SIZES.sm, borderWidth: 1, borderRadius: SIZES.radiusSm, padding: 13, marginBottom: SIZES.md },
   errorMessageBox: { borderColor: COLORS.error + '70', backgroundColor: COLORS.error + '10' },
   noticeMessageBox: { borderColor: COLORS.warning + '70', backgroundColor: COLORS.warning + '10' },
   messageText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm, lineHeight: 20 },
   inputContainer: { marginBottom: 18 },
+  inputContainerCompact: { marginBottom: 15 },
   label: { fontSize: 13, color: COLORS.textSecondary, marginBottom: 8, fontWeight: '700' },
   labelActive: { color: COLORS.goldLight },
   inputWrapper: {

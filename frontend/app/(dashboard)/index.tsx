@@ -1,8 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -18,8 +16,7 @@ import { COLORS, SHADOWS, SIZES, TYPOGRAPHY } from '../../src/constants/theme';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { useLanguage } from '../../src/contexts/LanguageContext';
-import { MotionPressableCard, MotionTouchableOpacity } from '../../src/components/Motion';
-import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
+import { MotionPressableCard, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import { useAdaptiveLayout } from '../../src/components/AdaptiveLayout';
 import { ConcourseAtmosphere, ConcourseGlassLayer, ConcourseTintLayer } from '../../src/components/ConcourseAtmosphere';
 
@@ -71,14 +68,10 @@ export default function DashboardHome() {
   const router = useRouter();
   const unreadNotifications = useUnreadNotifications();
   const { isCompact, isExpanded, pagePadding } = useAdaptiveLayout(1440);
-  const { reduceMotion, ready: motionReady } = useMotionPreference();
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [dashboardError, setDashboardError] = useState(false);
-  const intro = useRef(new Animated.Value(motionReady && !reduceMotion ? 0.76 : 1)).current;
-  const stream = useRef(new Animated.Value(motionReady && !reduceMotion ? 0.76 : 1)).current;
-  const canAnimateFromMount = useRef(motionReady && !reduceMotion);
   const todayLabel = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
 
   const loadDashboardData = async () => {
@@ -98,25 +91,6 @@ export default function DashboardHome() {
     if (user?.role === 'super_admin' || user?.role === 'manager') void loadDashboardData();
     else setLoading(false);
   }, [user]);
-
-  useEffect(() => {
-    [intro, stream].forEach((progress) => progress.stopAnimation());
-    if (!motionReady || reduceMotion || !canAnimateFromMount.current) {
-      intro.setValue(1);
-      stream.setValue(1);
-      canAnimateFromMount.current = motionReady && !reduceMotion;
-      return;
-    }
-    intro.setValue(0.76);
-    stream.setValue(0.76);
-    Animated.stagger(70, [intro, stream].map((progress) => Animated.timing(progress, {
-      toValue: 1,
-      duration: MOTION.hero,
-      easing: Easing.bezier(...MOTION.easing.enter),
-      useNativeDriver: true,
-    }))).start();
-    return () => [intro, stream].forEach((progress) => progress.stopAnimation());
-  }, [intro, motionReady, reduceMotion, stream]);
 
   useLiveRefresh(
     loadDashboardData,
@@ -179,7 +153,7 @@ export default function DashboardHome() {
         contentContainerStyle={[styles.contentContainer, { paddingHorizontal: pagePadding }, isCompact && styles.contentContainerCompact]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); void loadDashboardData(); }} tintColor={COLORS.gold} />}
       >
-        <Animated.View style={{ opacity: intro, transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+        <MotionReveal direction="up" distance={7} duration={240}>
           <View style={[styles.pageHeader, isCompact && styles.pageHeaderCompact]}>
             <View style={styles.headerCopy}>
               <Text style={[styles.pageTitle, isCompact && styles.pageTitleCompact]}>{t('Today')}</Text>
@@ -200,9 +174,9 @@ export default function DashboardHome() {
             <RibbonMetric icon="people-outline" label={t('Active students')} value={stats?.students?.active || 0} color={COLORS.success} />
             <RibbonMetric icon="pause-circle-outline" label={t('Frozen')} value={stats?.students?.frozen || 0} color={COLORS.warning} />
           </ScrollView>
-        </Animated.View>
+        </MotionReveal>
 
-        <Animated.View style={{ opacity: stream, transform: [{ translateY: stream.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }}>
+        <MotionReveal direction="up" distance={9} delay={55} duration={280}>
           <View style={[styles.workspace, !isExpanded && styles.workspaceStacked]}>
             <View style={[styles.dayLane, !isExpanded && styles.workspaceSectionStacked]}>
               <View style={styles.sectionHeader}>
@@ -274,7 +248,7 @@ export default function DashboardHome() {
               </View>
             </View>
           )}
-        </Animated.View>
+        </MotionReveal>
       </ScrollView>
     </View>
   );

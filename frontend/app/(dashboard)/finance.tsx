@@ -2,8 +2,6 @@ import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Linking,
   Modal,
   RefreshControl,
@@ -329,14 +327,10 @@ export default function FinanceScreen() {
   const { width } = useWindowDimensions();
   const isPhone = width < LAYOUT.mobileBreakpoint;
   const { user, token } = useAuth();
-  const { reduceMotion, ready: motionReady } = useMotionPreference();
   const role = user?.role;
   const isReception = role === 'reception';
   const isSuperAdmin = role === 'super_admin';
   const [activeTab, setActiveTab] = useState<FinanceTab>(isReception ? 'receivables' : 'overview');
-  const tabProgress = useRef(new Animated.Value(1)).current;
-  const tabShift = useRef(new Animated.Value(0)).current;
-  const previousTabIndexRef = useRef(tabs.findIndex((tab) => tab.key === (isReception ? 'receivables' : 'overview')));
   const [month, setMonth] = useState(currentMonth());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -449,39 +443,6 @@ export default function FinanceScreen() {
   const [replacementForm, setReplacementForm] = useState({
     starts_at: `${tashkentDate()}T09:00`, ends_at: `${tashkentDate()}T10:30`, reason: '',
   });
-
-  useEffect(() => {
-    const nextIndex = tabs.findIndex((tab) => tab.key === activeTab);
-    const direction = nextIndex >= previousTabIndexRef.current ? 1 : -1;
-    previousTabIndexRef.current = nextIndex;
-    tabProgress.stopAnimation();
-    tabShift.stopAnimation();
-    if (!motionReady || reduceMotion) {
-      tabProgress.setValue(1);
-      tabShift.setValue(0);
-      return;
-    }
-    tabProgress.setValue(0.74);
-    tabShift.setValue(direction * 12);
-    Animated.parallel([
-      Animated.timing(tabProgress, {
-        toValue: 1,
-        duration: MOTION.state,
-        easing: Easing.bezier(...MOTION.easing.enter),
-        useNativeDriver: true,
-      }),
-      Animated.timing(tabShift, {
-        toValue: 0,
-        duration: MOTION.navigation,
-        easing: Easing.bezier(...MOTION.easing.enter),
-        useNativeDriver: true,
-      }),
-    ]).start();
-    return () => {
-      tabProgress.stopAnimation();
-      tabShift.stopAnimation();
-    };
-  }, [activeTab, motionReady, reduceMotion, tabProgress, tabShift]);
 
   const studentMap = useMemo(
     () => Object.fromEntries(students.map((student) => [student.id, student])),
@@ -2217,7 +2178,7 @@ export default function FinanceScreen() {
             {visibleTabs.map((tab) => <MotionTouchableOpacity accessibilityRole="tab" accessibilityState={{ selected: activeTab === tab.key }} pressScale={0.975} testID={`finance-tab-${tab.key}`} key={tab.key} style={[styles.tab, activeTab === tab.key && styles.activeTab]} onPress={() => setActiveTab(tab.key)}><Ionicons name={tab.icon as any} size={18} color={activeTab === tab.key ? COLORS.goldLight : COLORS.textSecondary} /><Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>{tab.label}{tab.key === 'online' && unresolvedCardReports.length > 0 ? ` (${unresolvedCardReports.length})` : ''}</Text></MotionTouchableOpacity>)}
           </ScrollView>
         </View>
-        <Animated.View style={[styles.contentInset, isPhone && styles.contentInsetCompact, { opacity: tabProgress, transform: [{ translateX: tabShift }] }]}>
+        <View style={[styles.contentInset, isPhone && styles.contentInsetCompact]}>
           {activeTab === 'overview' && renderOverview()}
           {activeTab === 'receivables' && renderReceivables()}
           {activeTab === 'online' && renderOnlinePayments()}
@@ -2227,7 +2188,7 @@ export default function FinanceScreen() {
           {activeTab === 'pricing' && renderPricing()}
           {activeTab === 'closures' && renderClosures()}
           <View style={styles.bottomSpace} />
-        </Animated.View>
+        </View>
       </ScrollView>
     </View>
   );

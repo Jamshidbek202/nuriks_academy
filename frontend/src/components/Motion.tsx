@@ -1,7 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import {
-  Animated,
-  Easing,
   Pressable,
   PressableProps,
   StyleProp,
@@ -10,10 +8,22 @@ import {
   TouchableOpacityProps,
   ViewStyle,
 } from 'react-native';
+import Animated, {
+  cancelAnimation,
+  Easing,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 import { MOTION, useMotionPreference } from '../contexts/MotionContext';
 
 const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
+const EASE_IN_OUT = Easing.bezier(0.77, 0, 0.175, 1);
 
 export function MotionTouchableOpacity({
   style,
@@ -21,28 +31,32 @@ export function MotionTouchableOpacity({
   onPressIn,
   onPressOut,
   activeOpacity = 0.9,
-  pressScale = 0.982,
+  pressRetentionOffset = 12,
+  pressScale = 0.97,
   children,
   ...props
 }: TouchableOpacityProps & { pressScale?: number }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const scale = useRef(new Animated.Value(1)).current;
+  const scale = useSharedValue(1);
   const flattenedStyle = StyleSheet.flatten(style as StyleProp<ViewStyle>) || {};
   const inheritedTransform = flattenedStyle.transform || [];
   const baseStyle = { ...flattenedStyle };
   delete baseStyle.transform;
 
+  useEffect(() => {
+    if (!ready || reduceMotion || disabled) scale.set(1);
+    return () => cancelAnimation(scale);
+  }, [disabled, ready, reduceMotion, scale]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [...(inheritedTransform as any[]), { scale: scale.get() }],
+  }), [inheritedTransform]);
+
   const moveTo = (value: number, duration: number) => {
-    if (!ready || reduceMotion || disabled) {
-      scale.setValue(1);
-      return;
-    }
-    Animated.timing(scale, {
-      toValue: value,
+    scale.set(withTiming(!ready || reduceMotion || disabled ? 1 : value, {
       duration,
-      easing: value < 1 ? Easing.out(Easing.quad) : Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+      easing: EASE_OUT,
+    }));
   };
 
   return (
@@ -50,6 +64,7 @@ export function MotionTouchableOpacity({
       {...props}
       disabled={disabled}
       activeOpacity={activeOpacity}
+      pressRetentionOffset={pressRetentionOffset}
       onPressIn={(event) => {
         moveTo(pressScale, MOTION.instant);
         onPressIn?.(event);
@@ -58,7 +73,7 @@ export function MotionTouchableOpacity({
         moveTo(1, MOTION.feedback);
         onPressOut?.(event);
       }}
-      style={[baseStyle, { transform: [...(inheritedTransform as any[]), { scale }] } as any]}
+      style={[baseStyle, animatedStyle]}
     >
       {children}
     </AnimatedTouchableOpacity>
@@ -72,7 +87,7 @@ export function MotionPressableCard({
   onPressOut,
   onHoverIn,
   onHoverOut,
-  pressScale = 0.982,
+  pressScale = 0.97,
   hoverLift = 2,
   hoverOverlayColor = 'rgba(241,217,139,0.035)',
   children,
@@ -85,37 +100,45 @@ export function MotionPressableCard({
   hoverOverlayColor?: string;
 }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const press = useRef(new Animated.Value(1)).current;
-  const hover = useRef(new Animated.Value(0)).current;
+  const press = useSharedValue(1);
+  const hover = useSharedValue(0);
   const flattenedStyle = StyleSheet.flatten(style as StyleProp<ViewStyle>) || {};
   const inheritedTransform = flattenedStyle.transform || [];
   const baseStyle = { ...flattenedStyle };
   delete baseStyle.transform;
 
+  useEffect(() => {
+    if (!ready || reduceMotion || disabled) press.set(1);
+    if (!ready || disabled) hover.set(0);
+    return () => {
+      cancelAnimation(press);
+      cancelAnimation(hover);
+    };
+  }, [disabled, hover, press, ready, reduceMotion]);
+
+  const cardMotion = useAnimatedStyle(() => ({
+    transform: [
+      ...(inheritedTransform as any[]),
+      { translateY: reduceMotion ? 0 : interpolate(hover.get(), [0, 1], [0, -hoverLift]) },
+      { scale: press.get() },
+    ],
+  }), [hoverLift, inheritedTransform, reduceMotion]);
+
+  const hoverLayerMotion = useAnimatedStyle(() => ({ opacity: hover.get() }));
+
   const movePressTo = (value: number, duration: number) => {
-    press.stopAnimation();
-    Animated.timing(press, {
-      toValue: !ready || reduceMotion || disabled ? 1 : value,
+    press.set(withTiming(!ready || reduceMotion || disabled ? 1 : value, {
       duration,
-      easing: value < 1 ? Easing.out(Easing.quad) : Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
+      easing: EASE_OUT,
+    }));
   };
 
   const moveHoverTo = (value: number) => {
-    hover.stopAnimation();
-    Animated.timing(hover, {
-      toValue: value,
+    hover.set(withTiming(!ready || disabled ? 0 : value, {
       duration: value > 0 ? MOTION.state : MOTION.feedback,
-      easing: Easing.bezier(...MOTION.easing.standard),
-      useNativeDriver: true,
-    }).start();
+      easing: EASE_OUT,
+    }));
   };
-
-  const hoverTranslate = hover.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, ready && !reduceMotion ? -hoverLift : 0],
-  });
 
   return (
     <AnimatedPressable
@@ -137,9 +160,9 @@ export function MotionPressableCard({
         moveHoverTo(0);
         onHoverOut?.(event);
       }}
-      style={[baseStyle, { transform: [...(inheritedTransform as any[]), { translateY: hoverTranslate }, { scale: press }] } as any]}
+      style={[baseStyle, cardMotion]}
     >
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: hoverOverlayColor, opacity: hover }]} />
+      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: hoverOverlayColor }, hoverLayerMotion]} />
       {children}
     </AnimatedPressable>
   );
@@ -166,49 +189,43 @@ export function MotionReveal({
 }) {
   const { reduceMotion, ready } = useMotionPreference();
   const canAnimateFromMount = useRef(ready && !reduceMotion);
-  const progress = useRef(new Animated.Value(ready && !reduceMotion ? 0 : 1)).current;
+  const progress = useSharedValue(ready && !reduceMotion ? 0 : 1);
 
   useEffect(() => {
-    progress.stopAnimation();
+    cancelAnimation(progress);
     if (!ready || reduceMotion) {
-      progress.setValue(1);
+      progress.set(1);
       return;
     }
     if (!canAnimateFromMount.current) {
       canAnimateFromMount.current = true;
-      progress.setValue(1);
+      progress.set(1);
       return;
     }
-    progress.setValue(0);
-    Animated.timing(progress, {
-      toValue: 1,
-      delay,
-      duration,
-      easing: Easing.bezier(...MOTION.easing.enter),
-      useNativeDriver: true,
-    }).start();
-    return () => progress.stopAnimation();
+    progress.set(0);
+    progress.set(withDelay(delay, withTiming(1, { duration, easing: EASE_OUT })));
+    return () => cancelAnimation(progress);
   }, [delay, duration, progress, ready, reduceMotion]);
 
-  const signedDistance = direction === 'up' || direction === 'left' ? distance : -distance;
-  const translate = progress.interpolate({ inputRange: [0, 1], outputRange: [signedDistance, 0] });
-  const transform = direction === 'left' || direction === 'right'
-    ? [{ translateX: translate }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }]
-    : direction === 'none'
-      ? [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }]
-      : [{ translateY: translate }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [scaleFrom, 1] }) }];
+  const revealMotion = useAnimatedStyle(() => {
+    const value = progress.get();
+    const signedDistance = direction === 'up' || direction === 'left' ? distance : -distance;
+    const translate = interpolate(value, [0, 1], [signedDistance, 0]);
+    const scale = interpolate(value, [0, 1], [scaleFrom, 1]);
+    const transform = direction === 'left' || direction === 'right'
+      ? [{ translateX: translate }, { scale }]
+      : direction === 'none'
+        ? [{ scale }]
+        : [{ translateY: translate }, { scale }];
+
+    return {
+      opacity: interpolate(value, [0, 1], [0.84, 1]),
+      transform,
+    };
+  }, [direction, distance, scaleFrom]);
 
   return (
-    <Animated.View
-      testID={testID}
-      style={[
-        style,
-        {
-          opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }),
-          transform,
-        },
-      ]}
-    >
+    <Animated.View testID={testID} style={[style, revealMotion]}>
       {children}
     </Animated.View>
   );
@@ -256,33 +273,23 @@ export function MotionRotate({
   degrees?: number;
 }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const progress = useRef(new Animated.Value(active ? 1 : 0)).current;
+  const progress = useSharedValue(active ? 1 : 0);
 
   useEffect(() => {
-    progress.stopAnimation();
+    cancelAnimation(progress);
     if (!ready || reduceMotion) {
-      progress.setValue(active ? 1 : 0);
+      progress.set(active ? 1 : 0);
       return;
     }
-    Animated.timing(progress, {
-      toValue: active ? 1 : 0,
-      duration: MOTION.state,
-      easing: Easing.bezier(...MOTION.easing.standard),
-      useNativeDriver: true,
-    }).start();
-    return () => progress.stopAnimation();
+    progress.set(withTiming(active ? 1 : 0, { duration: MOTION.state, easing: EASE_IN_OUT }));
+    return () => cancelAnimation(progress);
   }, [active, progress, ready, reduceMotion]);
 
-  return (
-    <Animated.View
-      style={[
-        style,
-        { transform: [{ rotate: progress.interpolate({ inputRange: [0, 1], outputRange: ['0deg', `${degrees}deg`] }) }] },
-      ]}
-    >
-      {children}
-    </Animated.View>
-  );
+  const rotateMotion = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${interpolate(progress.get(), [0, 1], [0, degrees])}deg` }],
+  }), [degrees]);
+
+  return <Animated.View style={[style, rotateMotion]}>{children}</Animated.View>;
 }
 
 export function MotionLine({
@@ -297,36 +304,31 @@ export function MotionLine({
   duration?: number;
 }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const progress = useRef(new Animated.Value(1)).current;
+  const progress = useSharedValue(1);
 
   useEffect(() => {
-    progress.stopAnimation();
+    cancelAnimation(progress);
     if (!ready || reduceMotion) {
-      progress.setValue(1);
+      progress.set(1);
       return;
     }
-    progress.setValue(0.18);
-    Animated.timing(progress, {
-      toValue: 1,
-      delay,
-      duration,
-      easing: Easing.bezier(...MOTION.easing.enter),
-      useNativeDriver: true,
-    }).start();
-    return () => progress.stopAnimation();
+    progress.set(0.18);
+    progress.set(withDelay(delay, withTiming(1, { duration, easing: EASE_OUT })));
+    return () => cancelAnimation(progress);
   }, [delay, duration, progress, ready, reduceMotion]);
+
+  const lineMotion = useAnimatedStyle(() => ({
+    opacity: progress.get(),
+    transform: [{ scaleX: progress.get() }],
+  }));
 
   return (
     <Animated.View
       pointerEvents="none"
       style={[
-        {
-          height: StyleSheet.hairlineWidth,
-          backgroundColor: color,
-          opacity: progress,
-          transform: [{ scaleX: progress }],
-        },
+        { height: StyleSheet.hairlineWidth, backgroundColor: color },
         style,
+        lineMotion,
       ]}
     />
   );
@@ -342,33 +344,26 @@ export function MotionPulse({
   style?: StyleProp<ViewStyle>;
 }) {
   const { reduceMotion, ready } = useMotionPreference();
-  const pulse = useRef(new Animated.Value(0)).current;
+  const pulse = useSharedValue(0);
 
   useEffect(() => {
-    pulse.stopAnimation();
+    cancelAnimation(pulse);
     if (!ready || reduceMotion) {
-      pulse.setValue(0);
+      pulse.set(0);
       return;
     }
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.out(Easing.cubic),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 900,
-          easing: Easing.in(Easing.cubic),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
+    pulse.set(withRepeat(
+      withTiming(1, { duration: 900, easing: EASE_IN_OUT }),
+      -1,
+      true,
+    ));
+    return () => cancelAnimation(pulse);
   }, [pulse, ready, reduceMotion]);
+
+  const pulseMotion = useAnimatedStyle(() => ({
+    opacity: interpolate(pulse.get(), [0, 1], [0.72, 1]),
+    transform: [{ scale: interpolate(pulse.get(), [0, 1], [1, 1.2]) }],
+  }));
 
   return (
     <Animated.View
@@ -379,10 +374,9 @@ export function MotionPulse({
           height: size,
           borderRadius: size / 2,
           backgroundColor: color,
-          opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }),
-          transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.34] }) }],
         },
         style,
+        pulseMotion,
       ]}
     />
   );

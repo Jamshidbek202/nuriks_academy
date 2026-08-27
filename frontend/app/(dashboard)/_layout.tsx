@@ -1,8 +1,6 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useMemo } from 'react';
 import {
   ActivityIndicator,
-  Animated,
-  Easing,
   Image,
   Platform,
   ScrollView,
@@ -21,7 +19,6 @@ import { Text } from '../../src/components/LocalizedText';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SHADOWS } from '../../src/constants/theme';
 import { useLanguage } from '../../src/contexts/LanguageContext';
-import { MOTION, useMotionPreference } from '../../src/contexts/MotionContext';
 
 type TabDefinition = {
   name: string;
@@ -105,7 +102,6 @@ export default function DashboardLayout() {
   const { user, isLoading } = useAuth();
   const { t } = useLanguage();
   const { width } = useWindowDimensions();
-  const { reduceMotion, ready } = useMotionPreference();
   const expanded = width >= 1040;
   const visibleTabs = useMemo(() => ROLE_TABS[user?.role || ''] || FALLBACK_TABS, [user?.role]);
   const visibleByName = useMemo(() => new Set(visibleTabs.map((item) => item.name)), [visibleTabs]);
@@ -130,11 +126,7 @@ export default function DashboardLayout() {
           headerShown: false,
           sceneStyle: [styles.scene, expanded && styles.sceneExpanded],
           tabBarHideOnKeyboard: true,
-          animation: !ready || reduceMotion ? 'none' : 'fade',
-          transitionSpec: {
-            animation: 'timing',
-            config: { duration: !ready || reduceMotion ? 0 : MOTION.navigation, easing: Easing.bezier(...MOTION.easing.standard) },
-          },
+          animation: 'none',
         }}
       >
         {visibleTabs.map((definition) => (
@@ -252,19 +244,6 @@ function RoleTabButton({ definition, focused, label, expanded, flexible, onPress
   onPress: () => void;
   onLongPress: () => void;
 }) {
-  const progress = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  const { reduceMotion, ready } = useMotionPreference();
-
-  useEffect(() => {
-    progress.stopAnimation();
-    if (!ready || reduceMotion) {
-      progress.setValue(focused ? 1 : 0);
-      return;
-    }
-    Animated.spring(progress, { toValue: focused ? 1 : 0, speed: 18, bounciness: 2, useNativeDriver: true }).start();
-    return () => progress.stopAnimation();
-  }, [focused, progress, ready, reduceMotion]);
-
   return (
     <TouchableOpacity
       accessibilityRole="tab"
@@ -279,33 +258,26 @@ function RoleTabButton({ definition, focused, label, expanded, flexible, onPress
       onPress={onPress}
       onLongPress={onLongPress}
     >
-      <Animated.View
+      <View
         pointerEvents="none"
         style={[
           styles.tabActiveSurface,
           expanded ? styles.tabActiveSurfaceDesktop : styles.tabActiveSurfaceMobile,
-          {
-            opacity: progress,
-            transform: [{ scaleX: progress.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] }) }],
-          },
+          !focused && { opacity: 0 },
         ]}
       />
-      <Animated.View
+      <View
         style={[
           styles.tabMotion,
           expanded && styles.tabMotionExpanded,
-          {
-            opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.78, 1] }),
-            transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.975, 1] }) }],
-          },
         ]}
       >
         <View style={[styles.tabIcon, focused && styles.tabIconActive]}>
           <Ionicons name={definition.icon} size={expanded ? 20 : 21} color={focused ? COLORS.textPrimary : COLORS.textTertiary} />
         </View>
         <Text numberOfLines={1} style={[styles.tabLabel, expanded && styles.tabLabelExpanded, focused && styles.tabLabelActive]}>{label}</Text>
-        {expanded && <Animated.View style={[styles.activeBeacon, { opacity: progress, transform: [{ scaleY: progress }] }]} />}
-      </Animated.View>
+        {expanded && focused && <View style={styles.activeBeacon} />}
+      </View>
     </TouchableOpacity>
   );
 }

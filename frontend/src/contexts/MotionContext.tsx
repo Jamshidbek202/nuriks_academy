@@ -9,8 +9,8 @@ export const MOTION = {
   overlay: 260,
   hero: 520,
   easing: {
-    enter: [0.16, 1, 0.3, 1] as const,
-    standard: [0.2, 0, 0, 1] as const,
+    enter: [0.23, 1, 0.32, 1] as const,
+    standard: [0.77, 0, 0.175, 1] as const,
   },
 } as const;
 
