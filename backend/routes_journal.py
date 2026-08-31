@@ -375,7 +375,12 @@ async def create_journal_entry(
                 None,
                 str(current_user["_id"]),
                 "create",
-                {"group_id": entry_data.group_id, "topic": entry_data.topic},
+                {
+                    "group_id": entry_data.group_id,
+                    "lesson_number": entry_data.lesson_number,
+                    "topic": entry_data.topic,
+                    "rated_students": len(entry_data.student_performance),
+                },
                 request.client.host if request.client else None,
             )
 
@@ -563,7 +568,25 @@ async def update_journal_entry(
             existing.get("student_performance", []),
             str(current_user["_id"]),
             "update",
-            {"group_id": entry_data.group_id, "topic": entry_data.topic},
+            {
+                "group_id": entry_data.group_id,
+                "before": {
+                    "lesson_date": existing.get("lesson_date"),
+                    "lesson_number": existing.get("lesson_number"),
+                    "topic": existing.get("topic"),
+                    "materials_covered": existing.get("materials_covered"),
+                    "homework_assigned": existing.get("homework_assigned"),
+                    "student_performance": existing.get("student_performance", []),
+                },
+                "after": {
+                    "lesson_date": updated.get("lesson_date"),
+                    "lesson_number": updated.get("lesson_number"),
+                    "topic": updated.get("topic"),
+                    "materials_covered": updated.get("materials_covered"),
+                    "homework_assigned": updated.get("homework_assigned"),
+                    "student_performance": updated.get("student_performance", []),
+                },
+            },
             request.client.host if request.client else None,
         )
         return serialize_doc(updated)
@@ -571,6 +594,68 @@ async def update_journal_entry(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{entry_id}/history")
+async def get_journal_entry_history(
+    entry_id: str,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Return the traceable change history for one journal entry."""
+    from server import db, serialize_doc
+
+    if current_user.get("role") not in {"teacher", "manager", "super_admin"}:
+        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if not ObjectId.is_valid(entry_id):
+        raise HTTPException(status_code=400, detail="Invalid journal entry ID")
+
+    entry = await db.teacher_journal.find_one({"_id": ObjectId(entry_id)})
+    if not entry:
+        raise HTTPException(status_code=404, detail="Journal entry not found")
+    group_id = entry.get("group_id")
+    if not group_id or not ObjectId.is_valid(group_id):
+        raise HTTPException(status_code=409, detail="Journal entry has an invalid group")
+    group = await db.groups.find_one({"_id": ObjectId(group_id)})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    require_manager_group_access(current_user, group)
+
+    if current_user.get("role") == "teacher":
+        teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
+        if not teacher or entry.get("teacher_id") != str(teacher["_id"]):
+            raise HTTPException(status_code=403, detail="You can only inspect your own journal entries")
+
+    logs = await db.audit_logs.find({
+        "resource_type": "journal",
+        "resource_id": entry_id,
+        "action": {"$in": ["create", "update"]},
+    }).sort("timestamp", -1).limit(50).to_list(50)
+
+    user_ids = {
+        log.get("user_id") for log in logs
+        if log.get("user_id") and ObjectId.is_valid(str(log.get("user_id")))
+    }
+    users = []
+    if user_ids:
+        users = await db.users.find({
+            "_id": {"$in": [ObjectId(user_id) for user_id in user_ids]}
+        }).to_list(len(user_ids))
+    actors = {
+        str(user["_id"]): {
+            "name": user.get("full_name") or user.get("username") or "Staff member",
+            "role": user.get("role") or "staff",
+        }
+        for user in users
+    }
+
+    result = []
+    for log in logs:
+        item = serialize_doc(log)
+        actor = actors.get(str(log.get("user_id")), {})
+        item["actor_name"] = actor.get("name", "Staff member")
+        item["actor_role"] = actor.get("role", "staff")
+        result.append(item)
+    return result
 
 @router.post("/{entry_id}/feedback")
 async def submit_lesson_feedback(

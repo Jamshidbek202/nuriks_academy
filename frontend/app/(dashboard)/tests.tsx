@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  Image,
 } from 'react-native';
 import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -517,7 +518,7 @@ export default function TestsScreen() {
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons name="clipboard-outline" size={64} color={COLORS.textTertiary} />
+            <Image source={require('../../assets/illustrations/tests.png')} style={styles.emptyIllustration} resizeMode="contain" />
             <Text style={styles.emptyText}>No tests yet</Text>
             <Text style={styles.emptySubtext}>
               {canManageTests ? 'Create a test for this group' : 'No tests for this group yet'}
@@ -761,6 +762,7 @@ const styles = StyleSheet.create({
   statLabel: { fontSize: SIZES.fontXs, color: COLORS.textTertiary, marginTop: 2 },
   statDivider: { width: 1, backgroundColor: COLORS.marbleGray },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: SIZES.xxl },
+  emptyIllustration: { width: 176, height: 150, marginBottom: SIZES.sm },
   emptyText: { fontSize: SIZES.fontMd, color: COLORS.textTertiary, marginTop: SIZES.md },
   emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },

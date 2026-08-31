@@ -22,6 +22,7 @@ import {
   AdaptiveSectionHeading,
 } from '../../src/components/AdaptiveLayout';
 import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
+import { CalendarShortcut } from '../../src/components/CalendarShortcut';
 
 interface Group {
   id: string;
@@ -140,10 +141,13 @@ export default function TeacherHomeScreen() {
       <AdaptivePageHeader
         title="Teaching workspace"
         description={`${user?.full_name || 'Teacher'} · ${today}'s schedule, attendance, and class work`}
-        action={<MotionTouchableOpacity accessibilityLabel="Open notifications" style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
-          <Ionicons name="notifications" size={24} color={COLORS.gold} />
-          {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
-        </MotionTouchableOpacity>}
+        action={<View style={{ flexDirection: 'row', gap: SIZES.sm }}>
+          <CalendarShortcut />
+          <MotionTouchableOpacity accessibilityLabel="Open notifications" style={styles.headerBadge} onPress={() => router.push('/(dashboard)/notifications')}>
+            <Ionicons name="notifications" size={24} color={COLORS.gold} />
+            {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}
+          </MotionTouchableOpacity>
+        </View>}
       />
 
       <AdaptiveScrollView

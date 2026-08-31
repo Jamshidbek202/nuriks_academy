@@ -10,14 +10,16 @@ from datetime import datetime
 from pydantic import BaseModel
 from auth import get_current_user
 from academic_access import require_student_academic_read_access
-from reportlab.lib.pagesizes import letter, landscape
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.units import inch
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import Paragraph
+from reportlab.lib.utils import ImageReader
 import io
 import base64
+import os
 
 router = APIRouter(prefix="/certificates", tags=["Certificates"])
 security = HTTPBearer()
@@ -33,79 +35,95 @@ class CertificateCreate(BaseModel):
 
 # ==================== GENERATE CERTIFICATE ====================
 
-def generate_certificate_pdf(student_name: str, course_name: str, issue_date: str, certificate_id: str):
-    """Generate a beautiful PDF certificate"""
-    
+def generate_certificate_pdf(
+    student_name: str,
+    course_name: str,
+    issue_date: str,
+    certificate_id: str,
+    certificate_type: str = "completion",
+):
+    """Generate the printable Nurik's Academy certificate."""
     buffer = io.BytesIO()
-    
-    # Create PDF in landscape
-    c = canvas.Canvas(buffer, pagesize=landscape(letter))
-    width, height = landscape(letter)
-    
-    # Set colors - Nurik's Academy branding
-    gold_color = colors.Color(0.831, 0.604, 0.184)  # #D49A2F
-    marble_dark = colors.Color(0.172, 0.172, 0.180)  # #2C2C2E
-    
-    # Draw border
-    c.setStrokeColor(gold_color)
-    c.setLineWidth(4)
-    c.rect(0.5*inch, 0.5*inch, width-inch, height-inch)
-    
-    # Inner border
-    c.setLineWidth(2)
-    c.rect(0.6*inch, 0.6*inch, width-1.2*inch, height-1.2*inch)
-    
-    # Header - Nurik's Academy
-    c.setFillColor(gold_color)
-    c.setFont("Helvetica-Bold", 48)
-    c.drawCentredString(width/2, height - 1.5*inch, "Nurik's Academy")
-    
-    # Subtitle
-    c.setFillColor(marble_dark)
-    c.setFont("Helvetica", 16)
-    c.drawCentredString(width/2, height - 2*inch, "Excellence in Education")
-    
-    # Certificate title
-    c.setFillColor(gold_color)
-    c.setFont("Helvetica-Bold", 36)
-    c.drawCentredString(width/2, height - 2.8*inch, "CERTIFICATE OF COMPLETION")
-    
-    # Awarded to text
-    c.setFillColor(marble_dark)
-    c.setFont("Helvetica", 18)
-    c.drawCentredString(width/2, height - 3.5*inch, "This certificate is proudly presented to")
-    
-    # Student name
-    c.setFillColor(gold_color)
-    c.setFont("Helvetica-Bold", 42)
-    c.drawCentredString(width/2, height - 4.3*inch, student_name)
-    
-    # Course completion text
-    c.setFillColor(marble_dark)
-    c.setFont("Helvetica", 18)
-    c.drawCentredString(width/2, height - 5*inch, "for successfully completing the")
-    
-    # Course name
-    c.setFillColor(gold_color)
-    c.setFont("Helvetica-Bold", 28)
-    c.drawCentredString(width/2, height - 5.6*inch, course_name)
-    
-    # Issue date
-    c.setFillColor(marble_dark)
-    c.setFont("Helvetica", 14)
-    c.drawCentredString(width/2, height - 6.3*inch, f"Date of Issue: {issue_date}")
-    
-    # Certificate ID
-    c.setFont("Helvetica", 10)
-    c.drawCentredString(width/2, 0.8*inch, f"Certificate ID: {certificate_id}")
-    
-    # Signature line
-    c.setLineWidth(1)
-    c.setStrokeColor(marble_dark)
-    c.line(width/2 - 2*inch, 1.8*inch, width/2 + 2*inch, 1.8*inch)
-    
+    c = canvas.Canvas(buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
+
+    gold = colors.HexColor("#D5B662")
+    gold_dark = colors.HexColor("#9A7D34")
+    charcoal = colors.HexColor("#11130F")
+    ivory = colors.HexColor("#F5F0E6")
+    muted = colors.HexColor("#686A64")
+
+    c.setFillColor(ivory)
+    c.rect(0, 0, width, height, fill=1, stroke=0)
+    c.setFillColor(charcoal)
+    c.roundRect(0.35 * inch, 0.35 * inch, width - 0.7 * inch, height - 0.7 * inch, 18, fill=1, stroke=0)
+    c.setStrokeColor(gold)
+    c.setLineWidth(1.5)
+    c.roundRect(0.55 * inch, 0.55 * inch, width - 1.1 * inch, height - 1.1 * inch, 14, fill=0, stroke=1)
+
+    # Quiet architectural accents keep the page branded without ornamental clutter.
+    c.setFillColor(gold_dark)
+    c.setFillAlpha(0.18)
+    c.circle(width - 0.85 * inch, height - 0.85 * inch, 1.15 * inch, fill=1, stroke=0)
+    c.circle(0.7 * inch, 0.65 * inch, 0.75 * inch, fill=1, stroke=0)
+    c.setFillAlpha(1)
+
+    logo_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "assets", "images", "logo.png"))
+    if os.path.exists(logo_path):
+        c.drawImage(ImageReader(logo_path), 0.8 * inch, height - 1.55 * inch, 0.72 * inch, 0.72 * inch, mask="auto", preserveAspectRatio=True)
+
+    c.setFillColor(ivory)
+    c.setFont("Helvetica-Bold", 23)
+    c.drawString(1.65 * inch, height - 1.16 * inch, "NURIK'S ACADEMY")
+    c.setFillColor(gold)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(1.66 * inch, height - 1.39 * inch, "ACADEMIC ACHIEVEMENT RECORD")
+
+    title = "CERTIFICATE OF EXCELLENCE" if certificate_type == "excellence" else "CERTIFICATE OF COMPLETION"
+    c.setFillColor(gold)
+    c.setFont("Helvetica-Bold", 27)
+    c.drawCentredString(width / 2, height - 2.05 * inch, title)
+    c.setFillColor(colors.HexColor("#BFC1BA"))
     c.setFont("Helvetica", 12)
-    c.drawCentredString(width/2, 1.5*inch, "Director, Nurik's Academy")
+    c.drawCentredString(width / 2, height - 2.42 * inch, "Presented to")
+
+    def centred_fit(text: str, y: float, maximum_size: int, minimum_size: int, maximum_width: float, color):
+        size = maximum_size
+        while size > minimum_size and c.stringWidth(text, "Helvetica-Bold", size) > maximum_width:
+            size -= 1
+        c.setFillColor(color)
+        c.setFont("Helvetica-Bold", size)
+        c.drawCentredString(width / 2, y, text)
+
+    centred_fit(student_name, height - 3.18 * inch, 38, 22, width - 2.2 * inch, ivory)
+    c.setStrokeColor(gold_dark)
+    c.setLineWidth(0.8)
+    c.line(1.55 * inch, height - 3.45 * inch, width - 1.55 * inch, height - 3.45 * inch)
+
+    c.setFillColor(colors.HexColor("#BFC1BA"))
+    c.setFont("Helvetica", 12)
+    c.drawCentredString(width / 2, height - 3.92 * inch, "for successfully completing")
+    centred_fit(course_name, height - 4.55 * inch, 27, 17, width - 2.4 * inch, gold)
+
+    c.setFillColor(colors.HexColor("#BFC1BA"))
+    c.setFont("Helvetica", 9)
+    c.drawString(0.9 * inch, 1.12 * inch, "ISSUED")
+    c.setFillColor(ivory)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawString(0.9 * inch, 0.88 * inch, issue_date)
+
+    c.setFillColor(colors.HexColor("#BFC1BA"))
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(width / 2, 1.12 * inch, "CERTIFICATE ID")
+    c.setFillColor(ivory)
+    c.setFont("Helvetica-Bold", 11)
+    c.drawCentredString(width / 2, 0.88 * inch, certificate_id)
+
+    c.setStrokeColor(gold)
+    c.line(width - 2.55 * inch, 1.14 * inch, width - 0.9 * inch, 1.14 * inch)
+    c.setFillColor(colors.HexColor("#BFC1BA"))
+    c.setFont("Helvetica", 9)
+    c.drawCentredString(width - 1.72 * inch, 0.88 * inch, "DIRECTOR · NURIK'S ACADEMY")
     
     c.save()
     buffer.seek(0)
@@ -184,7 +202,13 @@ async def create_certificate(
         course_name = course["name"]
         issue_date = datetime.utcnow().strftime("%B %d, %Y")
         
-        pdf_bytes = generate_certificate_pdf(student_name, course_name, issue_date, certificate_id)
+        pdf_bytes = generate_certificate_pdf(
+            student_name,
+            course_name,
+            issue_date,
+            certificate_id,
+            cert_data.certificate_type,
+        )
         pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
         
         # Save certificate record

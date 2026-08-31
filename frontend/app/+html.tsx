@@ -37,7 +37,7 @@ export default function Root({ children }: PropsWithChildren) {
             __html: `
               :root { color-scheme: dark; background: #080907; }
               * { box-sizing: border-box; }
-              html, body { background: #080907; }
+              html, body, #root, body > div:first-child { background: #080907 !important; overscroll-behavior: none; }
               html { scrollbar-color: #41423B #080907; scrollbar-width: thin; }
               body { caret-color: #D9B84A; }
               ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -48,6 +48,7 @@ export default function Root({ children }: PropsWithChildren) {
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
               button, [role="button"], input, select, textarea { -webkit-tap-highlight-color: transparent; }
+              input, select, textarea { font-size: 16px !important; }
               button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
                 outline: 2px solid #D9B84A !important;
                 outline-offset: 2px;

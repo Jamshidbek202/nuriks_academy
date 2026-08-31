@@ -19,6 +19,7 @@ import { useLanguage } from '../../src/contexts/LanguageContext';
 import { MotionPressableCard, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import { useAdaptiveLayout } from '../../src/components/AdaptiveLayout';
 import { ConcourseAtmosphere, ConcourseGlassLayer, ConcourseTintLayer } from '../../src/components/ConcourseAtmosphere';
+import { CalendarShortcut } from '../../src/components/CalendarShortcut';
 
 import ParentHomeScreen from './parent-home';
 import TeacherHomeScreen from './teacher-home';
@@ -161,6 +162,7 @@ export default function DashboardHome() {
             </View>
             <View style={styles.headerIdentity}>
               {!isCompact && <View style={styles.userCopy}><Text numberOfLines={1} style={styles.userName}>{user.full_name}</Text><Text style={styles.userStatus}>{t('Academy operations')}</Text></View>}
+              <CalendarShortcut />
               <MotionTouchableOpacity accessibilityRole="button" accessibilityLabel="Notifications" style={styles.notificationButton} onPress={() => router.push('/(dashboard)/notifications')}>
                 <Ionicons name="notifications-outline" size={21} color={COLORS.textPrimary} />
                 {unreadNotifications > 0 && <View style={styles.unreadBadge}><Text style={styles.unreadBadgeText}>{Math.min(unreadNotifications, 99)}</Text></View>}

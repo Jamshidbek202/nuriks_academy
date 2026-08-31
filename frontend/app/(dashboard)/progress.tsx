@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
   RefreshControl,
   Modal,
   Alert,
@@ -29,18 +30,28 @@ interface Student {
 
 interface Progress {
   student_id: string;
+  group_id?: string;
+  group_name?: string;
+  overall_grade?: number;
+  weights?: { tests: number; homework: number; attendance: number };
+  groups?: Progress[];
   attendance: {
     total_lessons: number;
+    marked?: number;
     present: number;
+    late?: number;
+    absent?: number;
     attendance_rate: number;
   };
   tests: {
+    score?: number;
     mid_test_average: number;
     end_test_average: number;
     mid_tests_taken: number;
     end_tests_taken: number;
   };
   homework: {
+    score?: number;
     total_assigned: number;
     submitted: number;
     completion_rate: number;
@@ -117,7 +128,10 @@ export default function ProgressScreen() {
     if (showLoading) setProgressLoading(true);
     try {
       const response = await api.get(`/tests/progress/${studentId}`);
-      setStudentProgress(response.data);
+      const selectedLedger = response.data.groups?.find(
+        (group: Progress) => group.group_id === selectedGroup?.id,
+      );
+      setStudentProgress(selectedLedger || response.data);
     } catch (error) {
       console.error('Error loading progress:', error);
       setStudentProgress(null);
@@ -182,13 +196,7 @@ export default function ProgressScreen() {
   };
 
   const getOverallProgress = (progress: Progress) => {
-    const attendance = progress.attendance.attendance_rate;
-    const midTest = progress.tests.mid_test_average;
-    const endTest = progress.tests.end_test_average;
-    const homework = progress.homework.completion_rate;
-    
-    // Weighted average: Attendance 20%, Mid Test 25%, End Test 35%, Homework 20%
-    return Math.round((attendance * 0.2) + (midTest * 0.25) + (endTest * 0.35) + (homework * 0.2));
+    return Math.round(progress.overall_grade ?? 100);
   };
 
   if (loading) {
@@ -304,7 +312,8 @@ export default function ProgressScreen() {
                   <>
                     {/* Overall Progress */}
                     <View style={styles.overallCard}>
-                      <Text style={styles.overallLabel}>Overall Progress</Text>
+                      <Image source={require('../../assets/illustrations/grades.png')} style={styles.gradeIllustration} resizeMode="contain" />
+                      <Text style={styles.overallLabel}>Overall Grade · {studentProgress.group_name || selectedGroup?.name || 'Group'}</Text>
                       <View style={styles.overallCircle}>
                         <Text style={[styles.overallValue, { color: getProgressColor(getOverallProgress(studentProgress)) }]}>
                           {getOverallProgress(studentProgress)}%
@@ -406,8 +415,8 @@ export default function ProgressScreen() {
                           <Ionicons name="book-outline" size={24} color={COLORS.success} />
                         </View>
                         <Text style={styles.statTitle}>Homework</Text>
-                        <Text style={[styles.statValue, { color: getProgressColor(studentProgress.homework.completion_rate) }]}>
-                          {studentProgress.homework.completion_rate}%
+                        <Text style={[styles.statValue, { color: getProgressColor(studentProgress.homework.score ?? 100) }]}>
+                          {studentProgress.homework.score ?? 100}%
                         </Text>
                         <Text style={styles.statDetail}>
                           {studentProgress.homework.submitted}/{studentProgress.homework.total_assigned} completed
@@ -417,8 +426,8 @@ export default function ProgressScreen() {
                             style={[
                               styles.statBarFill, 
                               { 
-                                width: `${studentProgress.homework.completion_rate}%`,
-                                backgroundColor: getProgressColor(studentProgress.homework.completion_rate)
+                                width: `${studentProgress.homework.score ?? 100}%`,
+                                backgroundColor: getProgressColor(studentProgress.homework.score ?? 100)
                               }
                             ]} 
                           />
@@ -428,27 +437,18 @@ export default function ProgressScreen() {
 
                     {/* Summary */}
                     <View style={styles.summaryCard}>
-                      <Text style={styles.summaryTitle}>Progress Summary</Text>
+                      <Text style={styles.summaryTitle}>Weighted Grade</Text>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Attendance Rate</Text>
-                        <Text style={[styles.summaryValue, { color: getProgressColor(studentProgress.attendance.attendance_rate) }]}>
-                          {studentProgress.attendance.attendance_rate >= 80 ? 'Excellent' : 
-                           studentProgress.attendance.attendance_rate >= 60 ? 'Good' : 'Needs Improvement'}
-                        </Text>
+                        <Text style={styles.summaryLabel}>Attendance</Text>
+                        <Text style={styles.summaryValue}>{studentProgress.weights?.attendance ?? 20}% weight</Text>
                       </View>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Academic Performance</Text>
-                        <Text style={[styles.summaryValue, { color: getProgressColor((studentProgress.tests.mid_test_average + studentProgress.tests.end_test_average) / 2) }]}>
-                          {((studentProgress.tests.mid_test_average + studentProgress.tests.end_test_average) / 2) >= 80 ? 'Excellent' : 
-                           ((studentProgress.tests.mid_test_average + studentProgress.tests.end_test_average) / 2) >= 60 ? 'Good' : 'Needs Improvement'}
-                        </Text>
+                        <Text style={styles.summaryLabel}>Tests</Text>
+                        <Text style={styles.summaryValue}>{studentProgress.weights?.tests ?? 50}% weight</Text>
                       </View>
                       <View style={styles.summaryRow}>
-                        <Text style={styles.summaryLabel}>Homework Completion</Text>
-                        <Text style={[styles.summaryValue, { color: getProgressColor(studentProgress.homework.completion_rate) }]}>
-                          {studentProgress.homework.completion_rate >= 80 ? 'Excellent' : 
-                           studentProgress.homework.completion_rate >= 60 ? 'Good' : 'Needs Improvement'}
-                        </Text>
+                        <Text style={styles.summaryLabel}>Homework</Text>
+                        <Text style={styles.summaryValue}>{studentProgress.weights?.homework ?? 30}% weight</Text>
                       </View>
                     </View>
 
@@ -568,6 +568,7 @@ const styles = StyleSheet.create({
   progressLoading: { alignItems: 'center', paddingVertical: SIZES.xxl },
   loadingText: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.md },
   overallCard: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.lg, alignItems: 'center', marginBottom: SIZES.lg },
+  gradeIllustration: { width: 116, height: 96, marginBottom: SIZES.sm },
   overallLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, textTransform: 'uppercase', marginBottom: SIZES.md },
   overallCircle: { width: 100, height: 100, borderRadius: 50, backgroundColor: COLORS.backgroundCard, justifyContent: 'center', alignItems: 'center', marginBottom: SIZES.md, borderWidth: 4, borderColor: COLORS.gold },
   overallValue: { fontSize: 32, fontWeight: 'bold' },

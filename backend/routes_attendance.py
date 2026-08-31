@@ -45,9 +45,10 @@ def _utc_naive(value: datetime) -> datetime:
 def attendance_window_state(occurrence: dict, now_utc: Optional[datetime] = None) -> str:
     """Return the server-authoritative write state for one lesson.
 
-    Attendance opens at the scheduled start. It remains editable through the
-    lesson and, as a recovery guard, after the end until the assigned teacher
-    completes the lesson. Resolution/financial locking closes it permanently.
+    Attendance opens at the scheduled start and remains editable throughout
+    the lesson. It also remains available after the end while the occurrence
+    is unresolved so the assigned teacher can correct late arrivals. Financial
+    resolution or locking closes it permanently.
     """
     if (
         occurrence.get("superseded")

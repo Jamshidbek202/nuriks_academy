@@ -8,6 +8,7 @@ import { StatusBar } from 'expo-status-bar';
 import { LanguageProvider, useLanguage } from '../src/contexts/LanguageContext';
 import { MotionProvider, MOTION, useMotionPreference } from '../src/contexts/MotionContext';
 import { COLORS } from '../src/constants/theme';
+import { AtmosphereMotionProvider } from '../src/components/ConcourseAtmosphere';
 
 function RootNavigator() {
   const { language } = useLanguage();
@@ -35,13 +36,30 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  React.useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const elements = [document.documentElement, document.body, document.getElementById('root')].filter(Boolean) as HTMLElement[];
+    elements.forEach((element) => {
+      element.style.backgroundColor = COLORS.backgroundSolid;
+      element.style.overscrollBehavior = 'none';
+    });
+    return () => {
+      elements.forEach((element) => {
+        element.style.removeProperty('background-color');
+        element.style.removeProperty('overscroll-behavior');
+      });
+    };
+  }, []);
+
   return (
     <SafeAreaProvider>
       <LanguageProvider>
         <MotionProvider>
-          <AuthProvider>
-            <RootNavigator />
-          </AuthProvider>
+          <AtmosphereMotionProvider>
+            <AuthProvider>
+              <RootNavigator />
+            </AuthProvider>
+          </AtmosphereMotionProvider>
         </MotionProvider>
       </LanguageProvider>
     </SafeAreaProvider>

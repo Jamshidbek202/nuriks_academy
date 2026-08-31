@@ -17,9 +17,24 @@ from academic_access import (
     require_student_academic_read_access,
 )
 from validation import require_date_window
+from finance_ledger import _membership_active
 
 router = APIRouter(prefix="/tests", tags=["Tests"])
 security = HTTPBearer()
+GRADING_WEIGHTS = {"tests": 50, "homework": 30, "attendance": 20}
+
+
+def neutral_average(values: List[float]) -> float:
+    """Unassessed categories start at 100 instead of lowering a new student."""
+    return sum(values) / len(values) if values else 100.0
+
+
+def weighted_overall_grade(tests_score: float, homework_score: float, attendance_score: float) -> float:
+    return (
+        tests_score * GRADING_WEIGHTS["tests"]
+        + homework_score * GRADING_WEIGHTS["homework"]
+        + attendance_score * GRADING_WEIGHTS["attendance"]
+    ) / 100
 
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
@@ -452,49 +467,43 @@ async def get_student_progress(
             raise HTTPException(status_code=404, detail="Student not found")
         await require_student_academic_read_access(db, current_user, student)
         
+        # A progress page is a set of course ledgers, never one blended score.
+        # Historical memberships remain visible after a transfer so completed
+        # work does not disappear from the student's record.
+        memberships = await db.group_memberships.find({"student_id": student_id}).to_list(2_000)
         group_ids = set(student.get("group_ids", []))
+        group_ids.update(row.get("group_id") for row in memberships if row.get("group_id"))
         groups_by_membership = await db.groups.find({"student_ids": student_id}).to_list(100)
         group_ids.update(str(group["_id"]) for group in groups_by_membership)
-        
-        # Get attendance stats
-        total_attendance = await db.attendance.count_documents({"student_id": student_id})
-        present_count = await db.attendance.count_documents({"student_id": student_id, "status": "present"})
-        attendance_rate = (present_count / total_attendance * 100) if total_attendance > 0 else 0
-        
-        # Get test averages
-        tests = await db.tests.find({"group_id": {"$in": list(group_ids)}}).to_list(100)
-        
-        mid_test_scores = []
-        end_test_scores = []
-        
-        for test in tests:
-            student_result = next(
-                (r for r in test.get("results", []) if r["student_id"] == student_id),
-                None
-            )
-            if student_result:
-                if test["test_type"] == "mid_test":
-                    mid_test_scores.append(student_result["percentage"])
-                elif test["test_type"] == "end_of_course":
-                    end_test_scores.append(student_result["percentage"])
-        
-        mid_test_avg = sum(mid_test_scores) / len(mid_test_scores) if mid_test_scores else 0
-        end_test_avg = sum(end_test_scores) / len(end_test_scores) if end_test_scores else 0
-        
-        # Get homework completion rate
-        homework_list = await db.homework.find({"group_id": {"$in": list(group_ids)}}).to_list(100)
-        total_homework = len(homework_list)
-        submitted_homework = sum(
-            1 for hw in homework_list 
-            if any(s["student_id"] == student_id for s in hw.get("submissions", []))
-        )
-        homework_completion_rate = (submitted_homework / total_homework * 100) if total_homework > 0 else 0
+        group_ids.discard(None)
+
+        valid_group_ids = [ObjectId(value) for value in group_ids if ObjectId.is_valid(value)]
+        group_rows = await db.groups.find({"_id": {"$in": valid_group_ids}}).to_list(200)
+        group_rows_by_id = {str(row["_id"]): row for row in group_rows}
+        ordered_group_ids = [
+            group_id for group_id in group_ids if group_id in group_rows_by_id
+        ]
+        ordered_group_ids.sort(key=lambda value: group_rows_by_id[value].get("name", "").lower())
+
+        now = datetime.utcnow()
+        tests = await db.tests.find({"group_id": {"$in": ordered_group_ids}}).to_list(2_000)
+        homework_list = await db.homework.find({"group_id": {"$in": ordered_group_ids}}).to_list(2_000)
+        attendance_rows = await db.attendance.find({
+            "student_id": student_id,
+            "group_id": {"$in": ordered_group_ids},
+        }).to_list(10_000)
+        occurrences = await db.lesson_occurrences.find({
+            "group_id": {"$in": ordered_group_ids},
+            "counts_as_scheduled": True,
+            "superseded": {"$ne": True},
+            "starts_at": {"$lte": now},
+        }).sort("starts_at", 1).to_list(20_000)
 
         # Lesson grades are the per-lesson participation scores recorded in the
         # teacher journal. Include the student's own feedback so the same view
         # can be updated after a review is submitted.
         journal_entries = await db.teacher_journal.find({
-            "group_id": {"$in": list(group_ids)},
+            "group_id": {"$in": ordered_group_ids},
             "student_performance.student_id": student_id,
         }).sort("lesson_date", -1).to_list(100)
         entry_ids = [str(entry["_id"]) for entry in journal_entries]
@@ -531,25 +540,160 @@ async def get_student_progress(
                 } if feedback else None),
             })
         
+        attendance_by_occurrence = {
+            row.get("occurrence_id"): row
+            for row in attendance_rows
+            if row.get("occurrence_id")
+        }
+        groups = []
+        weights = GRADING_WEIGHTS.copy()
+
+        for group_id in ordered_group_ids:
+            group = group_rows_by_id[group_id]
+            group_memberships = [row for row in memberships if row.get("group_id") == group_id]
+            legacy_active = (
+                group_id in student.get("group_ids", [])
+                or student_id in group.get("student_ids", [])
+            )
+            group_occurrences = []
+            for occurrence in occurrences:
+                if occurrence.get("group_id") != group_id:
+                    continue
+                if group_memberships and not _membership_active(
+                    group_memberships,
+                    group_id,
+                    occurrence.get("local_date"),
+                    occurrence.get("starts_at"),
+                ):
+                    continue
+                if not group_memberships and not legacy_active:
+                    continue
+                group_occurrences.append(occurrence)
+
+            present = 0
+            absent = 0
+            late = 0
+            marked = 0
+            for occurrence in group_occurrences:
+                record = attendance_by_occurrence.get(str(occurrence["_id"]))
+                status = record.get("status") if record else None
+                if status == "present":
+                    present += 1
+                    marked += 1
+                elif status == "late":
+                    late += 1
+                    marked += 1
+                elif status == "absent":
+                    absent += 1
+                    marked += 1
+            total_lessons = len(group_occurrences)
+            attendance_score = (
+                ((present + late) / total_lessons) * 100
+                if total_lessons else 100.0
+            )
+
+            group_tests = [row for row in tests if row.get("group_id") == group_id]
+            mid_test_scores = []
+            end_test_scores = []
+            all_test_scores = []
+            for test in group_tests:
+                result = next(
+                    (row for row in test.get("results", []) if row.get("student_id") == student_id),
+                    None,
+                )
+                if not result or result.get("percentage") is None:
+                    continue
+                score = float(result["percentage"])
+                all_test_scores.append(score)
+                if test.get("test_type") == "mid_test":
+                    mid_test_scores.append(score)
+                elif test.get("test_type") == "end_of_course":
+                    end_test_scores.append(score)
+            tests_score = neutral_average(all_test_scores)
+
+            group_homework = [row for row in homework_list if row.get("group_id") == group_id]
+            homework_scores = []
+            submitted_homework = 0
+            graded_homework = 0
+            for homework in group_homework:
+                submission = next(
+                    (row for row in homework.get("submissions", []) if row.get("student_id") == student_id),
+                    None,
+                )
+                if submission:
+                    submitted_homework += 1
+                    if submission.get("grade") is not None:
+                        graded_homework += 1
+                        homework_scores.append(float(submission["grade"]))
+                elif isinstance(homework.get("due_date"), datetime) and homework["due_date"] < now:
+                    # Once the deadline passes, an unsubmitted assignment is
+                    # a real zero. Upcoming and submitted-ungraded work stays
+                    # neutral, so a new course genuinely begins at 100.
+                    homework_scores.append(0.0)
+            homework_score = neutral_average(homework_scores)
+            completion_rate = (
+                (submitted_homework / len(group_homework)) * 100
+                if group_homework else 100.0
+            )
+
+            overall_grade = weighted_overall_grade(
+                tests_score,
+                homework_score,
+                attendance_score,
+            )
+            group_lesson_grades = [row for row in lesson_grades if row.get("group_id") == group_id]
+            groups.append({
+                "group_id": group_id,
+                "group_name": group.get("name", "Group"),
+                "course_id": group.get("course_id"),
+                "overall_grade": round(overall_grade, 2),
+                "weights": weights,
+                "attendance": {
+                    "total_lessons": total_lessons,
+                    "marked": marked,
+                    "present": present,
+                    "late": late,
+                    "absent": absent,
+                    "attendance_rate": round(attendance_score, 2),
+                },
+                "tests": {
+                    "score": round(tests_score, 2),
+                    "mid_test_average": round(sum(mid_test_scores) / len(mid_test_scores), 2) if mid_test_scores else 100.0,
+                    "end_test_average": round(sum(end_test_scores) / len(end_test_scores), 2) if end_test_scores else 100.0,
+                    "mid_tests_taken": len(mid_test_scores),
+                    "end_tests_taken": len(end_test_scores),
+                    "graded_count": len(all_test_scores),
+                },
+                "homework": {
+                    "score": round(homework_score, 2),
+                    "total_assigned": len(group_homework),
+                    "submitted": submitted_homework,
+                    "graded": graded_homework,
+                    "completion_rate": round(completion_rate, 2),
+                },
+                "lesson_grades": group_lesson_grades,
+            })
+
+        # Keep the old top-level shape for older clients. New clients render
+        # the per-group ledgers above and never combine separate courses.
+        primary = groups[0] if groups else {
+            "attendance": {"total_lessons": 0, "marked": 0, "present": 0, "late": 0, "absent": 0, "attendance_rate": 100.0},
+            "tests": {"score": 100.0, "mid_test_average": 100.0, "end_test_average": 100.0, "mid_tests_taken": 0, "end_tests_taken": 0, "graded_count": 0},
+            "homework": {"score": 100.0, "total_assigned": 0, "submitted": 0, "graded": 0, "completion_rate": 100.0},
+            "lesson_grades": [],
+        }
         return {
             "student_id": student_id,
-            "attendance": {
-                "total_lessons": total_attendance,
-                "present": present_count,
-                "attendance_rate": round(attendance_rate, 2)
-            },
-            "tests": {
-                "mid_test_average": round(mid_test_avg, 2),
-                "end_test_average": round(end_test_avg, 2),
-                "mid_tests_taken": len(mid_test_scores),
-                "end_tests_taken": len(end_test_scores)
-            },
-            "homework": {
-                "total_assigned": total_homework,
-                "submitted": submitted_homework,
-                "completion_rate": round(homework_completion_rate, 2)
-            },
-            "lesson_grades": lesson_grades,
+            "grading_policy": {"starts_at": 100, "weights": weights},
+            "groups": groups,
+            "group_id": primary.get("group_id"),
+            "group_name": primary.get("group_name"),
+            "overall_grade": primary.get("overall_grade", 100.0),
+            "weights": weights,
+            "attendance": primary["attendance"],
+            "tests": primary["tests"],
+            "homework": primary["homework"],
+            "lesson_grades": primary["lesson_grades"],
         }
         
     except HTTPException:

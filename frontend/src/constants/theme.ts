@@ -25,14 +25,14 @@ export const COLORS = {
   // scenes mounted, so transparency here would expose the previous route.
   background: '#090A07',
   backgroundSolid: '#050604',
-  backgroundLight: 'rgba(18, 19, 15, 0.86)',
-  backgroundCard: 'rgba(21, 22, 17, 0.82)',
+  backgroundLight: 'rgba(18, 19, 15, 0.68)',
+  backgroundCard: 'rgba(21, 22, 17, 0.62)',
   backgroundElevated: '#1B1C17',
-  backgroundSubtle: 'rgba(12, 13, 10, 0.84)',
+  backgroundSubtle: 'rgba(12, 13, 10, 0.66)',
 
   // Glass is opt-in and only belongs on bounded foreground surfaces.
-  glass: 'rgba(20, 21, 17, 0.72)',
-  glassStrong: 'rgba(20, 21, 17, 0.88)',
+  glass: 'rgba(20, 21, 17, 0.50)',
+  glassStrong: 'rgba(20, 21, 17, 0.66)',
 
   textPrimary: '#F5F0E6',
   textSecondary: '#BCC2C6',

@@ -15,6 +15,8 @@ interface CalendarDatePickerProps {
   placeholder?: string;
   style?: StyleProp<ViewStyle>;
   mode?: 'date' | 'month';
+  highlightedWeekdays?: number[];
+  highlightHint?: string;
 }
 
 function parseDate(value?: string) {
@@ -43,6 +45,8 @@ export function CalendarDatePicker({
   placeholder = 'Select a date',
   style,
   mode = 'date',
+  highlightedWeekdays = [],
+  highlightHint,
 }: CalendarDatePickerProps) {
   const [visible, setVisible] = useState(false);
   const selectedDate = parseDate(mode === 'month' && /^\d{4}-\d{2}$/.test(value) ? `${value}-01` : value);
@@ -149,6 +153,7 @@ export function CalendarDatePicker({
                 const disabled = Boolean((minimum && date < minimum) || (maximum && date > maximum));
                 const outsideMonth = date.getMonth() !== visibleMonth.getMonth();
                 const selected = dateValue === value;
+                const highlighted = highlightedWeekdays.includes(date.getDay());
                 return (
                   <TouchableOpacity
                     testID={`${testID || 'calendar'}-option-${dateValue}`}
@@ -163,10 +168,18 @@ export function CalendarDatePicker({
                       disabled && styles.disabled,
                       selected && styles.selectedDayText,
                     ]}>{date.getDate()}</Text>
+                    {highlighted && !selected ? <View style={styles.classDayDot} /> : null}
                   </TouchableOpacity>
                 );
               })}
             </View>}
+
+            {highlightHint && mode === 'date' ? (
+              <View style={styles.hintRow}>
+                <View style={styles.classDayDot} />
+                <Text style={styles.hintText}>{highlightHint}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity style={styles.cancelButton} onPress={() => setVisible(false)}>
               <Text style={styles.cancelText}>Cancel</Text>
@@ -193,6 +206,9 @@ const styles = StyleSheet.create({
   monthButton: { width: '22%', flexGrow: 1, paddingVertical: SIZES.md, alignItems: 'center', borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight },
   weekday: { width: '14.2857%', textAlign: 'center', color: COLORS.textTertiary, fontSize: SIZES.fontXs, fontWeight: '700', paddingVertical: SIZES.sm },
   day: { width: '14.2857%', aspectRatio: 1, alignItems: 'center', justifyContent: 'center', borderRadius: 999 },
+  classDayDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: COLORS.gold, marginTop: 2 },
+  hintRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, paddingHorizontal: SIZES.sm, paddingTop: SIZES.sm },
+  hintText: { color: COLORS.textSecondary, fontSize: SIZES.fontXs },
   dayText: { color: COLORS.textPrimary, fontSize: SIZES.fontSm },
   outsideMonth: { color: COLORS.textTertiary },
   disabled: { opacity: 0.25 },

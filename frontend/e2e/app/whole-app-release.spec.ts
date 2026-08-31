@@ -138,7 +138,7 @@ const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
-    { name: 'Chats', path: /\/chats/ },
+    { name: 'More', path: /\/more/ },
     { name: 'Profile', path: /\/profile/ },
   ],
   manager: [
@@ -146,42 +146,35 @@ const desktopRoleTabs: Record<RoleKey, RoleTab[]> = {
     { name: 'Students', path: /\/students/ },
     { name: 'Finance', path: /\/finance/ },
     { name: 'Leads', path: /\/leads/ },
-    { name: 'Profile', path: /\/profile/ },
+    { name: 'More', path: /\/more/ },
   ],
   reception: [
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Leads', path: /\/leads/ },
     { name: 'Payments', path: /\/finance/ },
     { name: 'Students', path: /\/students/ },
-    { name: 'Profile', path: /\/profile/ },
+    { name: 'More', path: /\/more/ },
   ],
   teacher: [
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Groups', path: /\/groups/ },
     { name: 'Attendance', path: /\/attendance/ },
     { name: 'Earnings', path: /\/earnings/ },
-    { name: 'Homework', path: /\/homework/ },
-    { name: 'Tests', path: /\/tests/ },
-    { name: 'Profile', path: /\/profile/ },
+    { name: 'More', path: /\/more/ },
   ],
   student: [
     { name: 'Home', path: /\/(?:$|\?)/ },
     { name: 'Groups', path: /\/groups/ },
-    { name: 'Chats', path: /\/chats/ },
     { name: 'Homework', path: /\/homework/ },
-    { name: 'Tests', path: /\/tests/ },
-    { name: 'Payments', path: /\/payments/ },
     { name: 'Grades', path: /\/progress/ },
-    { name: 'Profile', path: /\/profile/ },
+    { name: 'More', path: /\/more/ },
   ],
   parent: [
     { name: 'Home', path: /\/(?:$|\?)/ },
-    { name: 'Groups', path: /\/groups/ },
     { name: 'Progress', path: /\/progress/ },
     { name: 'Homework', path: /\/homework/ },
-    { name: 'Tests', path: /\/tests/ },
     { name: 'Payments', path: /\/payments/ },
-    { name: 'Profile', path: /\/profile/ },
+    { name: 'More', path: /\/more/ },
   ],
   support: [
     { name: 'Bookings', path: /\/(?:$|\?)/ },
@@ -201,6 +194,13 @@ const phoneRoleTabs: Record<RoleKey, RoleTab[]> = {
 };
 
 const tabsFor = (role: RoleKey, mobile: boolean) => mobile ? phoneRoleTabs[role] : desktopRoleTabs[role];
+
+async function openMoreItem(page: Page, label: string, expectedPath: RegExp) {
+  await page.getByRole('tab', { name: 'More' }).first().click();
+  await expect(page).toHaveURL(/\/more/);
+  await page.getByRole('button', { name: label }).first().click();
+  await expect(page).toHaveURL(expectedPath);
+}
 
 function monitor(page: Page, session: Omit<Session, 'context' | 'page'>) {
   page.on('console', (message) => {
@@ -392,7 +392,9 @@ for (const viewport of ['desktop', 'phone'] as const) {
       await expectOpaqueScreen(session.page, 'students-screen');
       await expectInactiveMarkerCovered(session.page, 'students-screen', 'Account Information');
 
-      await session.page.getByRole('tab', { name: 'Chats' }).click();
+      await session.page.getByRole('tab', { name: 'More' }).click();
+      await expect(session.page).toHaveURL(/\/more/);
+      await session.page.getByRole('button', { name: 'Chats' }).click();
       await expect(session.page).toHaveURL(/\/chats/);
       await expectOpaqueScreen(session.page, 'chats-screen');
       await expectInactiveMarkerCovered(session.page, 'chats-screen', 'Account Information');
@@ -1454,8 +1456,8 @@ test('chat messages synchronize live in both directions and read state reconcile
   const admin = await loginUi(browser, 'super_admin');
   const student = await loginUi(browser, 'student');
   try {
-    await admin.page.getByRole('tab', { name: 'Chats' }).first().click();
-    await student.page.getByRole('tab', { name: 'Chats' }).first().click();
+    await openMoreItem(admin.page, 'Chats', /\/chats/);
+    await openMoreItem(student.page, 'Chats', /\/chats/);
     const conversation = await expectApiOk(await apiCall(request, superToken, 'post', '/chat/conversations', {
       participant_id: studentIdentity.id,
     }), 'create admin/student conversation');
@@ -1533,22 +1535,18 @@ test('language preference changes the app immediately and persists after reload'
   test.setTimeout(60_000);
   const session = await loginUi(browser, 'manager');
   try {
-    await session.page.getByRole('tab', { name: 'Profile' }).first().click();
+    await openMoreItem(session.page, 'Profile', /\/profile/);
     await session.page.getByTestId('profile-language-button').click();
     await session.page.getByTestId('profile-language-option-ru').click();
-    await expect(session.page.getByRole('tab', { name: 'Профиль' }).first()).toBeVisible();
-    if (REMOTE_LIVE_AUDIT) await session.page.goto('/');
-    else await session.page.reload();
-    await expect(session.page.getByRole('tab', { name: 'Профиль' }).first()).toBeVisible();
-    if (REMOTE_LIVE_AUDIT) {
-      await session.page.getByRole('tab', { name: 'Профиль' }).first().click();
-    }
+    await expect(session.page.getByText('Данные аккаунта', { exact: true })).toBeVisible();
+    await session.page.reload();
+    await expect(session.page.getByText('Данные аккаунта', { exact: true })).toBeVisible();
     await session.page.getByTestId('profile-language-button').click();
     await session.page.getByTestId('profile-language-option-uz').click();
-    await expect(session.page.getByRole('tab', { name: 'Profil' }).first()).toBeVisible();
+    await expect(session.page.getByText('Akkaunt ma’lumotlari', { exact: true })).toBeVisible();
     await session.page.getByTestId('profile-language-button').click();
     await session.page.getByTestId('profile-language-option-en').click();
-    await expect(session.page.getByRole('tab', { name: 'Profile' }).first()).toBeVisible();
+    await expect(session.page.getByText('Account Information', { exact: true })).toBeVisible();
     await assertHealthy(session, 'language preference');
   } finally {
     await session.context.close();
@@ -1559,7 +1557,7 @@ test('profile notification, help-chat, and logout controls persist their intende
   const session = await loginUi(browser, 'student');
   const token = await apiLogin(request, 'student');
   try {
-    await session.page.getByRole('tab', { name: 'Profile' }).click();
+    await openMoreItem(session.page, 'Profile', /\/profile/);
     await session.page.getByTestId('profile-notifications-button').click();
     await expect(session.page.getByText('student settings')).toBeVisible();
 
@@ -1607,7 +1605,7 @@ test('profile notification, help-chat, and logout controls persist their intende
     await expect(session.page).toHaveURL(/\/chat\//);
 
     await session.page.getByTestId('chat-back-button').click();
-    await session.page.getByRole('tab', { name: 'Profile' }).click();
+    await expect(session.page).toHaveURL(/\/profile/);
     await session.page.getByTestId('profile-logout-button').click();
     await session.page.getByTestId('profile-logout-cancel').click();
     await expect(session.page.getByTestId('profile-logout-button')).toBeVisible();
@@ -1632,14 +1630,14 @@ test('teacher create controls save journal, homework, and tests and update stude
   const testTitle = `UI Test ${suffix}`;
   const journalTopic = `UI Journal ${suffix}`;
   try {
-    await teacher.page.getByRole('tab', { name: 'Homework' }).first().click();
+    await openMoreItem(teacher.page, 'Homework', /\/homework/);
     await student.page.getByRole('tab', { name: 'Homework' }).first().click();
     await teacher.page.getByTestId('homework-add-button').click();
     await expect(teacher.page.getByText('Create Homework', { exact: true }).first()).toBeVisible();
     await teacher.page.getByPlaceholder('Homework title').fill(homeworkTitle);
     await teacher.page.getByPlaceholder('Homework instructions').fill('Created through the real teacher interface');
     await teacher.page.getByTestId('homework-due-date').click();
-    await teacher.page.getByTestId(`homework-due-date-option-${localDate(7)}`).click();
+    await teacher.page.getByTestId(`homework-due-date-option-${localDate(1)}`).click();
     await teacher.page.getByTestId('homework-create-button').click();
     await expect(teacher.page.getByText(homeworkTitle, { exact: true })).toBeVisible({ timeout: 8_000 });
     await expect(student.page.getByText(homeworkTitle, { exact: true })).toBeVisible({ timeout: 8_000 });
@@ -1650,8 +1648,8 @@ test('teacher create controls save journal, homework, and tests and update stude
     const createdHomework = homeworkRows.find((row: any) => row.title === homeworkTitle);
     expect(createdHomework).toBeTruthy();
 
-    await teacher.page.getByRole('tab', { name: 'Tests' }).first().click();
-    await student.page.getByRole('tab', { name: 'Tests' }).first().click();
+    await openMoreItem(teacher.page, 'Tests', /\/tests/);
+    await openMoreItem(student.page, 'Tests', /\/tests/);
     await teacher.page.getByTestId('tests-add-button').click();
     await expect(teacher.page.getByText('Create Test', { exact: true }).first()).toBeVisible();
     await teacher.page.getByPlaceholder('e.g., Unit 5 Test').fill(testTitle);
@@ -1686,7 +1684,7 @@ test('teacher create controls save journal, homework, and tests and update stude
 
     // Exercise the real deletion button and leave the shared fixture isolated
     // for the progress-rate workflow that follows this test.
-    await teacher.page.getByRole('tab', { name: 'Homework' }).first().click();
+    await openMoreItem(teacher.page, 'Homework', /\/homework/);
     await teacher.page.getByTestId(`homework-card-${createdHomework.id}`).click();
     const [deleteResponse] = await Promise.all([
       teacher.page.waitForResponse((response) => response.request().method() === 'DELETE'
@@ -1810,8 +1808,8 @@ test('academic records propagate live from teacher actions to student and parent
       feedback: 'Strong QA submission',
     }), 'grade homework');
 
-    await studentUi.page.getByRole('tab', { name: 'Tests' }).first().click();
-    await parent.page.getByRole('tab', { name: 'Tests' }).first().click();
+    await openMoreItem(studentUi.page, 'Tests', /\/tests/);
+    await openMoreItem(parent.page, 'Tests', /\/tests/);
     const createdTest = await expectApiOk(await apiCall(request, teacherToken, 'post', '/tests', {
       test_type: 'mid_test',
       group_id: group.id,
@@ -1854,6 +1852,7 @@ test('academic records propagate live from teacher actions to student and parent
       await studentUi.page.goto('/attendance');
     }
     await expect(studentUi.page.getByText('Attendance', { exact: true }).first()).toBeVisible();
+    await openQaAttendanceWindow(group.id, localDate());
     await expectApiOk(await apiCall(request, teacherToken, 'post', '/attendance', {
       student_id: student.id,
       group_id: group.id,

@@ -16,6 +16,25 @@ type MoreItem = {
 };
 
 const ITEMS: Record<string, MoreItem[]> = {
+  super_admin: [
+    { label: 'Groups', detail: 'Schedules, teachers, and students', icon: 'people-circle-outline', route: '/(dashboard)/groups' },
+    { label: 'Teachers', detail: 'Teaching staff and assignments', icon: 'school-outline', route: '/(dashboard)/teachers' },
+    { label: 'Courses', detail: 'Programs and course catalogue', icon: 'book-outline', route: '/(dashboard)/courses' },
+    { label: 'Certificates', detail: 'Issue and download certificates', icon: 'ribbon-outline', route: '/(dashboard)/certificates' },
+    { label: 'Chats', detail: 'Messages and conversations', icon: 'chatbubbles-outline', route: '/(dashboard)/chats' },
+    { label: 'Settings', detail: 'Academy and finance settings', icon: 'settings-outline', route: '/(dashboard)/settings' },
+    { label: 'Profile', detail: 'Account and language settings', icon: 'person-circle-outline', route: '/(dashboard)/profile' },
+  ],
+  manager: [
+    { label: 'Groups', detail: 'Schedules, teachers, and students', icon: 'people-circle-outline', route: '/(dashboard)/groups' },
+    { label: 'Teachers', detail: 'Teaching staff and assignments', icon: 'school-outline', route: '/(dashboard)/teachers' },
+    { label: 'Certificates', detail: 'Issue and download certificates', icon: 'ribbon-outline', route: '/(dashboard)/certificates' },
+    { label: 'Profile', detail: 'Account and language settings', icon: 'person-circle-outline', route: '/(dashboard)/profile' },
+  ],
+  reception: [
+    { label: 'Groups', detail: 'Student schedules and class details', icon: 'people-circle-outline', route: '/(dashboard)/groups' },
+    { label: 'Profile', detail: 'Account and language settings', icon: 'person-circle-outline', route: '/(dashboard)/profile' },
+  ],
   teacher: [
     { label: 'Homework', detail: 'Create and review assignments', icon: 'book-outline', route: '/(dashboard)/homework' },
     { label: 'Tests', detail: 'Tests, results, and grading', icon: 'clipboard-outline', route: '/(dashboard)/tests' },
@@ -27,6 +46,7 @@ const ITEMS: Record<string, MoreItem[]> = {
     { label: 'Chats', detail: 'Messages from teachers and staff', icon: 'chatbubbles-outline', route: '/(dashboard)/chats' },
     { label: 'Tests', detail: 'Upcoming tests and results', icon: 'clipboard-outline', route: '/(dashboard)/tests' },
     { label: 'Grades', detail: 'Attendance and learning progress', icon: 'analytics-outline', route: '/(dashboard)/progress' },
+    { label: 'Receipts', detail: 'Official proof of confirmed payments', icon: 'receipt-outline', route: '/(dashboard)/payments' },
     { label: 'Profile', detail: 'Account and language settings', icon: 'person-circle-outline', route: '/(dashboard)/profile' },
   ],
   parent: [

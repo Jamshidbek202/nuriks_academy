@@ -23,6 +23,7 @@ import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
+import { CalendarShortcut } from '../../src/components/CalendarShortcut';
 import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import {
   AdaptiveColumns,
@@ -139,13 +140,14 @@ export default function StudentHomeScreen() {
 
         // Load attendance stats
         try {
-          const attendanceRes = await api.get(`/attendance/student/${studentProfile.id}`);
-          const records = attendanceRes.data;
-          const present = records.filter((r: any) => r.status === 'present' || r.status === 'late').length;
+          const attendanceRes = await api.get(`/tests/progress/${studentProfile.id}`);
+          const ledgers = attendanceRes.data.groups || [];
+          const total = ledgers.reduce((sum: number, group: any) => sum + (group.attendance?.total_lessons || 0), 0);
+          const present = ledgers.reduce((sum: number, group: any) => sum + (group.attendance?.present || 0) + (group.attendance?.late || 0), 0);
           setAttendanceStats({
-            total: records.length,
+            total,
             present,
-            rate: records.length > 0 ? Math.round((present / records.length) * 100) : 0,
+            rate: total > 0 ? Math.round((present / total) * 100) : 100,
           });
         } catch {
           setAttendanceStats({ total: 0, present: 0, rate: 0 });
@@ -339,18 +341,21 @@ export default function StudentHomeScreen() {
       <AdaptivePageHeader
         title="My learning"
         description={`${profile?.first_name || 'Student'} ${profile?.last_name || ''}${profile?.student_id ? ` · ${profile.student_id}` : ''}`}
-        action={<MotionTouchableOpacity
-          accessibilityLabel="Open notifications"
-          style={styles.notificationButton}
-          onPress={() => router.push('/(dashboard)/notifications')}
-        >
-          <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount}</Text>
-            </View>
-          )}
-        </MotionTouchableOpacity>}
+        action={<View style={{ flexDirection: 'row', gap: SIZES.sm }}>
+          <CalendarShortcut />
+          <MotionTouchableOpacity
+            accessibilityLabel="Open notifications"
+            style={styles.notificationButton}
+            onPress={() => router.push('/(dashboard)/notifications')}
+          >
+            <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
+            {unreadCount > 0 && (
+              <View style={styles.badge}>
+                <Text style={styles.badgeText}>{unreadCount}</Text>
+              </View>
+            )}
+          </MotionTouchableOpacity>
+        </View>}
       />
 
       <AdaptiveScrollView

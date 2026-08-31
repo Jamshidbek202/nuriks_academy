@@ -16,7 +16,8 @@ import { Picker } from '@react-native-picker/picker';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
 import { COLORS, SIZES, SHADOWS } from '../../src/constants/theme';
-import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
+import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
+import { MotionPressableCard, MotionReveal } from '../../src/components/Motion';
 import { Button } from '../../src/components/Button';
 import { Input } from '../../src/components/Input';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
@@ -57,6 +58,15 @@ interface Student {
   group_ids?: string[];
 }
 
+interface JournalAuditEvent {
+  id: string;
+  action: 'create' | 'update';
+  actor_name: string;
+  actor_role: string;
+  timestamp: string;
+  changes?: Record<string, unknown>;
+}
+
 export default function JournalScreen() {
   const { user } = useAuth();
   const canManageJournal = ['teacher', 'manager', 'super_admin'].includes(user?.role || '');
@@ -70,6 +80,9 @@ export default function JournalScreen() {
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [detailModalVisible, setDetailModalVisible] = useState(false);
+  const [historyModalVisible, setHistoryModalVisible] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyEvents, setHistoryEvents] = useState<JournalAuditEvent[]>([]);
   const [selectedEntry, setSelectedEntry] = useState<JournalEntry | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const creationKey = useRef('');
@@ -271,6 +284,26 @@ export default function JournalScreen() {
     setModalVisible(true);
   };
 
+  const openHistoryModal = async (entry: JournalEntry) => {
+    setSelectedEntry(entry);
+    setDetailModalVisible(false);
+    setHistoryEvents([]);
+    setHistoryModalVisible(true);
+    setHistoryLoading(true);
+    try {
+      const response = await api.get(`/journal/${entry.id}/history`, {
+        params: { _: Date.now() },
+        headers: { 'Cache-Control': 'no-cache' },
+      });
+      setHistoryEvents(response.data);
+    } catch (error: any) {
+      Alert.alert('History unavailable', error.response?.data?.detail || 'Could not load the journal history.');
+      setHistoryModalVisible(false);
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       lesson_date: todayDateString(),
@@ -335,11 +368,11 @@ export default function JournalScreen() {
   return (
     <View style={styles.container}>
       <ConcourseAtmosphere />
-      {/* Header */}
-      <View style={styles.header}>
+      <MotionReveal style={styles.header} distance={10}>
         <View>
+          <Text style={styles.headerEyebrow}>CLASS RECORDS</Text>
           <Text style={styles.headerTitle}>Teacher Journal</Text>
-          <Text style={styles.headerSubtitle}>Track lessons and student performance</Text>
+          <Text style={styles.headerSubtitle}>One lesson record, one clear source of truth</Text>
         </View>
         {canManageJournal && (
           <TouchableOpacity
@@ -353,7 +386,7 @@ export default function JournalScreen() {
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
         )}
-      </View>
+      </MotionReveal>
 
       {loadError ? (
         <View style={styles.errorBanner}>
@@ -385,6 +418,24 @@ export default function JournalScreen() {
             ))}
           </Picker>
         </View>
+        {selectedGroup ? (
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryValue}>{entries.length}</Text>
+              <Text style={styles.summaryLabel}>Lesson records</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryValue}>{studentsForGroup(selectedGroup).length}</Text>
+              <Text style={styles.summaryLabel}>Students in group</Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <Ionicons name="shield-checkmark-outline" size={20} color={COLORS.gold} />
+              <Text style={styles.summaryLabel}>Changes audited</Text>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       {/* Journal Entries */}
@@ -395,12 +446,14 @@ export default function JournalScreen() {
         }
       >
         {entries.length > 0 ? (
-          entries.map((entry) => (
-            <TouchableOpacity
+          entries.map((entry, index) => (
+            <MotionReveal key={entry.id} delay={Math.min(index, 6) * 45}>
+            <MotionPressableCard
               key={entry.id}
               style={styles.entryCard}
               onPress={() => { setSelectedEntry(entry); setDetailModalVisible(true); }}
             >
+              <ConcourseGlassLayer intensity={30} />
               <View style={styles.entryHeader}>
                 <View style={styles.lessonBadge}>
                   <Text style={styles.lessonNumber}>#{entry.lesson_number}</Text>
@@ -429,7 +482,8 @@ export default function JournalScreen() {
                   {getVisiblePerformance(entry.student_performance).length} students rated
                 </Text>
               </View>
-            </TouchableOpacity>
+            </MotionPressableCard>
+            </MotionReveal>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -501,8 +555,55 @@ export default function JournalScreen() {
                 </View>
 
                 {canManageJournal && (
-                  <Button title="Edit Entry" onPress={() => openEditModal(selectedEntry)} style={{ marginTop: SIZES.lg }} />
+                  <View style={styles.detailActions}>
+                    <Button title="Edit Entry" onPress={() => openEditModal(selectedEntry)} style={styles.detailAction} />
+                    <TouchableOpacity style={styles.historyButton} onPress={() => openHistoryModal(selectedEntry)}>
+                      <Ionicons name="time-outline" size={19} color={COLORS.gold} />
+                      <Text style={styles.historyButtonText}>View change history</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={historyModalVisible} animationType="slide" transparent onRequestClose={() => setHistoryModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Change history</Text>
+                <Text style={styles.historySubtitle}>{selectedEntry?.topic || 'Journal entry'}</Text>
+              </View>
+              <TouchableOpacity onPress={() => setHistoryModalVisible(false)}>
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {historyLoading ? (
+              <ActivityIndicator style={styles.historyLoading} color={COLORS.gold} />
+            ) : (
+              <ScrollView contentContainerStyle={styles.historyList}>
+                {historyEvents.map((event, index) => (
+                  <View key={event.id} style={styles.historyEvent}>
+                    <View style={styles.historyRail}>
+                      <View style={styles.historyDot} />
+                      {index < historyEvents.length - 1 ? <View style={styles.historyLine} /> : null}
+                    </View>
+                    <View style={styles.historyBody}>
+                      <Text style={styles.historyTitle}>{event.action === 'create' ? 'Entry created' : 'Entry updated'}</Text>
+                      <Text style={styles.historyMeta}>{event.actor_name} · {event.actor_role}</Text>
+                      <Text style={styles.historyMeta}>{formatDate(event.timestamp)}</Text>
+                    </View>
+                  </View>
+                ))}
+                {!historyEvents.length ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="time-outline" size={44} color={COLORS.textTertiary} />
+                    <Text style={styles.emptyText}>No recorded changes yet</Text>
+                  </View>
+                ) : null}
               </ScrollView>
             )}
           </View>
@@ -615,12 +716,13 @@ export default function JournalScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: COLORS.background },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, backgroundColor: COLORS.marbleDark },
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingTop: SIZES.headerTop, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md },
+  headerEyebrow: { color: COLORS.gold, fontSize: SIZES.fontXs, fontWeight: '800', letterSpacing: 1.6, marginBottom: 6 },
   headerTitle: { fontSize: SIZES.fontXxl, fontWeight: 'bold', color: COLORS.textPrimary },
   headerSubtitle: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs },
   addButton: { width: 48, height: 48, borderRadius: 24, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', ...SHADOWS.medium },
   addButtonDisabled: { opacity: 0.45 },
-  groupSelector: { padding: SIZES.md, maxWidth: 720, width: '100%' },
+  groupSelector: { padding: SIZES.md, maxWidth: 820, width: '100%', alignSelf: 'center' },
   selectorLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.xs },
   pickerContainer: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.marbleGray, overflow: 'hidden', height: 48, justifyContent: 'center' },
   picker: { width: '100%', height: 48, color: COLORS.textPrimary, backgroundColor: COLORS.backgroundCard },
@@ -628,8 +730,13 @@ const styles = StyleSheet.create({
   errorBanner: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, marginHorizontal: SIZES.md, marginBottom: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.error + '18', borderWidth: 1, borderColor: COLORS.error + '55' },
   errorText: { flex: 1, color: COLORS.textPrimary, fontSize: SIZES.fontSm },
   retryText: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
-  entriesList: { flex: 1, paddingHorizontal: SIZES.md },
-  entryCard: { backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
+  summaryRow: { flexDirection: 'row', alignItems: 'stretch', marginTop: SIZES.md, padding: SIZES.md, borderRadius: SIZES.radiusLg, backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border },
+  summaryItem: { flex: 1, minHeight: 48, justifyContent: 'center', alignItems: 'center', gap: 3 },
+  summaryValue: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800' },
+  summaryLabel: { color: COLORS.textSecondary, fontSize: SIZES.fontXs, textAlign: 'center' },
+  summaryDivider: { width: 1, backgroundColor: COLORS.border, marginHorizontal: SIZES.sm },
+  entriesList: { flex: 1, paddingHorizontal: SIZES.md, maxWidth: 820, width: '100%', alignSelf: 'center' },
+  entryCard: { overflow: 'hidden', backgroundColor: COLORS.backgroundCard, borderWidth: 1, borderColor: COLORS.border, borderRadius: SIZES.radiusLg, padding: SIZES.md, marginBottom: SIZES.md, ...SHADOWS.small },
   entryHeader: { flexDirection: 'row', alignItems: 'center' },
   lessonBadge: { width: 44, height: 44, borderRadius: 22, backgroundColor: COLORS.gold, justifyContent: 'center', alignItems: 'center', marginRight: SIZES.md },
   lessonNumber: { fontSize: SIZES.fontSm, fontWeight: 'bold', color: COLORS.marbleDark },
@@ -663,6 +770,20 @@ const styles = StyleSheet.create({
   participationDisplay: { flexDirection: 'row', marginTop: SIZES.sm, gap: 4 },
   participationDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: COLORS.marbleGray },
   performanceNotes: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: SIZES.xs, fontStyle: 'italic' },
+  detailActions: { gap: SIZES.sm, marginTop: SIZES.lg },
+  detailAction: { width: '100%' },
+  historyButton: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SIZES.sm, borderWidth: 1, borderColor: COLORS.goldHairline, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.goldGlass },
+  historyButtonText: { color: COLORS.gold, fontSize: SIZES.fontSm, fontWeight: '700' },
+  historySubtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 4 },
+  historyLoading: { paddingVertical: SIZES.xxl },
+  historyList: { padding: SIZES.lg, paddingBottom: 48 },
+  historyEvent: { flexDirection: 'row', minHeight: 76 },
+  historyRail: { width: 24, alignItems: 'center' },
+  historyDot: { width: 12, height: 12, marginTop: 5, borderRadius: 6, backgroundColor: COLORS.gold, borderWidth: 3, borderColor: COLORS.goldGlass },
+  historyLine: { width: 1, flex: 1, marginTop: 5, backgroundColor: COLORS.goldHairline },
+  historyBody: { flex: 1, paddingLeft: SIZES.sm, paddingBottom: SIZES.lg },
+  historyTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '700' },
+  historyMeta: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: 3 },
   formRow: { flexDirection: 'row', alignItems: 'flex-end' },
   performanceSection: { marginTop: SIZES.md },
   sectionLabel: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.textSecondary, marginBottom: SIZES.md },

@@ -488,16 +488,16 @@ export default function AttendanceScreen() {
     switch (selectedOccurrence.attendance_state) {
       case 'upcoming':
         return {
-          icon: 'lock-closed-outline' as const,
-          title: `Opens at ${occurrenceTime(selectedOccurrence.starts_at)}`,
-          detail: 'Attendance unlocks automatically when the lesson begins.',
-          color: COLORS.warning,
+          icon: 'create-outline' as const,
+          title: 'Register is ready',
+          detail: `Class begins at ${occurrenceTime(selectedOccurrence.starts_at)}. You can prepare or update attendance now.`,
+          color: COLORS.success,
         };
       case 'in_progress':
         return {
           icon: 'radio-button-on' as const,
           title: 'Attendance is open',
-          detail: `You can update late arrivals until the lesson ends at ${occurrenceTime(selectedOccurrence.ends_at)}.`,
+          detail: `Class ends at ${occurrenceTime(selectedOccurrence.ends_at)}. Late arrivals can be updated at any time before completion.`,
           color: COLORS.success,
         };
       case 'ended_unresolved':

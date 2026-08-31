@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Platform,
+  Image,
 } from 'react-native';
 import { Text, LocalizedPickerItem } from '../../src/components/LocalizedText';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,7 +50,13 @@ interface Group {
   id: string;
   name: string;
   student_ids: string[];
+  schedule?: { day: string; start_time: string; end_time: string; room?: string }[];
 }
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+  thursday: 4, friday: 5, saturday: 6,
+};
 
 interface Student {
   id: string;
@@ -422,7 +429,7 @@ export default function HomeworkScreen() {
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons name="book-outline" size={64} color={COLORS.textTertiary} />
+            <Image source={require('../../assets/illustrations/homework.png')} style={styles.emptyIllustration} resizeMode="contain" />
             <Text style={styles.emptyText}>No homework assigned</Text>
             <Text style={styles.emptySubtext}>
               {canManageHomework ? 'Create homework for this group' : 'No homework for this group yet'}
@@ -581,6 +588,10 @@ export default function HomeworkScreen() {
                 label="Due Date *"
                 value={formData.due_date}
                 onChange={(date) => setFormData({ ...formData, due_date: date })}
+                highlightedWeekdays={(selectedGroup?.schedule || [])
+                  .map((item) => WEEKDAY_INDEX[item.day.toLowerCase()])
+                  .filter((day): day is number => day !== undefined)}
+                highlightHint="Gold dots show this group's class days"
                 minimumDate={todayDateString()}
                 maximumDate={dateStringWithOffset(730)}
                 placeholder="Choose a due date"
@@ -628,6 +639,7 @@ const styles = StyleSheet.create({
   progressFill: { height: '100%', borderRadius: 3 },
   gradedText: { color: COLORS.textTertiary, fontSize: 11, fontWeight: '700' },
   emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: SIZES.xxl },
+  emptyIllustration: { width: 176, height: 150, marginBottom: SIZES.sm },
   emptyText: { fontSize: SIZES.fontMd, color: COLORS.textTertiary, marginTop: SIZES.md },
   emptySubtext: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs },
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },

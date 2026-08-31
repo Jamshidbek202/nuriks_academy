@@ -17,6 +17,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import Constants from 'expo-constants';
 import { api } from '../../src/services/api';
 import { useAuth } from '../../src/contexts/AuthContext';
@@ -286,17 +288,18 @@ export default function ConversationScreen() {
       const fileExtension = uriParts[uriParts.length - 1];
       const name = filename || `file_${Date.now()}.${fileExtension}`;
       
-      formData.append('file', {
-        uri,
-        name,
-        type: type === 'image' ? `image/${fileExtension}` : 'application/octet-stream',
-      } as any);
+      if (Platform.OS === 'web') {
+        const blob = await fetch(uri).then((response) => response.blob());
+        formData.append('file', blob, name);
+      } else {
+        formData.append('file', {
+          uri,
+          name,
+          type: type === 'image' ? `image/${fileExtension === 'jpg' ? 'jpeg' : fileExtension}` : 'application/octet-stream',
+        } as any);
+      }
 
-      const uploadResponse = await api.post('/chat/upload', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      });
+      const uploadResponse = await api.post('/chat/upload', formData);
 
       // Send message with file
       const response = await api.post(`/chat/conversations/${id}/messages`, {
@@ -316,9 +319,30 @@ export default function ConversationScreen() {
     }
   };
 
-  const openFile = (fileUrl: string) => {
-    const fullUrl = `${API_URL}${fileUrl}`;
-    Linking.openURL(fullUrl);
+  const mediaUrl = (fileUrl: string) => /^https?:\/\//i.test(fileUrl) ? fileUrl : `${API_URL}${fileUrl}`;
+
+  const openFile = async (fileUrl: string, fileName = 'academy-file') => {
+    try {
+      if (Platform.OS === 'web') {
+        const response = await api.get(fileUrl.replace(/^.*\/api/, ''), { responseType: 'blob' });
+        const objectUrl = URL.createObjectURL(response.data);
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = fileName;
+        link.target = '_blank';
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30_000);
+        return;
+      }
+      const destination = `${FileSystem.cacheDirectory}${fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+      const result = await FileSystem.downloadAsync(mediaUrl(fileUrl), destination, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(result.uri);
+      else await Linking.openURL(result.uri);
+    } catch (error: any) {
+      showAlert('File unavailable', error?.response?.data?.detail || error?.message || 'Could not open this file.');
+    }
   };
 
   const formatTime = (dateString: string) => {
@@ -374,9 +398,9 @@ export default function ConversationScreen() {
             )}
             
             {message.message_type === 'image' && message.file_url && (
-              <TouchableOpacity onPress={() => openFile(message.file_url)}>
+              <TouchableOpacity onPress={() => void openFile(message.file_url, message.file_name || 'image.png')}>
                 <Image
-                  source={{ uri: `${API_URL}${message.file_url}` }}
+                  source={{ uri: mediaUrl(message.file_url), headers: token ? { Authorization: `Bearer ${token}` } : {} }}
                   style={styles.messageImage}
                   resizeMode="cover"
                 />
@@ -386,7 +410,7 @@ export default function ConversationScreen() {
             {message.message_type === 'document' && message.file_url && (
               <TouchableOpacity 
                 style={styles.documentContainer}
-                onPress={() => openFile(message.file_url)}
+                onPress={() => void openFile(message.file_url, message.file_name || 'document')}
               >
                 <Ionicons name="document" size={24} color={COLORS.gold} />
                 <View style={styles.documentInfo}>

@@ -19,6 +19,7 @@ import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useUnreadNotifications } from '../../src/hooks/use-unread-notifications';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
+import { CalendarShortcut } from '../../src/components/CalendarShortcut';
 import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import {
   AdaptiveColumns,
@@ -85,13 +86,14 @@ export default function ParentHomeScreen() {
       if (parentChild) {
         // Load attendance stats
         try {
-          const attendanceRes = await api.get(`/attendance/student/${parentChild.id}`);
-          const records = attendanceRes.data;
-          const present = records.filter((r: any) => r.status === 'present' || r.status === 'late').length;
+          const attendanceRes = await api.get(`/tests/progress/${parentChild.id}`);
+          const ledgers = attendanceRes.data.groups || [];
+          const total = ledgers.reduce((sum: number, group: any) => sum + (group.attendance?.total_lessons || 0), 0);
+          const present = ledgers.reduce((sum: number, group: any) => sum + (group.attendance?.present || 0) + (group.attendance?.late || 0), 0);
           setAttendanceStats({
-            total: records.length,
+            total,
             present,
-            rate: records.length > 0 ? Math.round((present / records.length) * 100) : 0,
+            rate: total > 0 ? Math.round((present / total) * 100) : 100,
           });
         } catch {
           setAttendanceStats({ total: 0, present: 0, rate: 0 });
@@ -155,18 +157,21 @@ export default function ParentHomeScreen() {
       <AdaptivePageHeader
         title="Family overview"
         description={`${user?.full_name || 'Parent'} · attendance, class work, and payments in one place`}
-        action={<MotionTouchableOpacity
-          accessibilityLabel="Open notifications"
-          style={styles.notificationButton}
-          onPress={() => router.push('/(dashboard)/notifications')}
-        >
-          <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
-          {unreadNotifications > 0 && (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
-            </View>
-          )}
-        </MotionTouchableOpacity>}
+        action={<View style={{ flexDirection: 'row', gap: SIZES.sm }}>
+          <CalendarShortcut />
+          <MotionTouchableOpacity
+            accessibilityLabel="Open notifications"
+            style={styles.notificationButton}
+            onPress={() => router.push('/(dashboard)/notifications')}
+          >
+            <Ionicons name="notifications" size={24} color={COLORS.textPrimary} />
+            {unreadNotifications > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
+              </View>
+            )}
+          </MotionTouchableOpacity>
+        </View>}
       />
 
       <AdaptiveScrollView

@@ -93,6 +93,15 @@ def main() -> None:
         action="store_true",
         help="Use when Playwright Chromium is already installed",
     )
+    parser.add_argument(
+        "--app-grep",
+        help="Run only whole-app browser tests whose title matches this Playwright grep pattern",
+    )
+    parser.add_argument(
+        "--skip-app-browser",
+        action="store_true",
+        help="Skip whole-app Playwright journeys while retaining the finance-wide browser reconciliation",
+    )
     args = parser.parse_args()
 
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -187,13 +196,17 @@ def main() -> None:
                 env,
                 REPO_ROOT / "frontend",
             )
-        run_stage(
-            report,
-            "all-role desktop and phone whole-app browser suite",
-            ["npm", "run", "test:app-e2e"],
-            env,
-            REPO_ROOT / "frontend",
-        )
+        if not args.skip_app_browser:
+            app_browser_command = ["npm", "run", "test:app-e2e"]
+            if args.app_grep:
+                app_browser_command.extend(["--", "--grep", args.app_grep])
+            run_stage(
+                report,
+                "all-role desktop and phone whole-app browser suite",
+                app_browser_command,
+                env,
+                REPO_ROOT / "frontend",
+            )
         run_stage(
             report,
             "reset finance browser database after whole-app mutations",

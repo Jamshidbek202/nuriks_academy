@@ -2,6 +2,7 @@ import { getActiveLocale } from '../../src/i18n/translations';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Modal,
   RefreshControl,
   ScrollView,
@@ -127,6 +128,18 @@ export default function PaymentsScreen() {
 
   const loadData = async () => {
     try {
+      if (user?.role === 'student') {
+        const [studentResponse, receiptResponse] = await Promise.all([
+          api.get('/students', { params: { limit: 1000 } }),
+          api.get('/finance/receipts', { params: { limit: 500 } }),
+        ]);
+        setStudents(studentResponse.data || []);
+        setReceipts(receiptResponse.data || []);
+        setInvoices([]);
+        setDestinations([]);
+        setPaymentReports([]);
+        return;
+      }
       const [studentResponse, invoiceResponse, receiptResponse, destinationResponse, reportResponse] = await Promise.all([
         api.get('/students', { params: { limit: 1000 } }),
         api.get('/finance/invoices', { params: { limit: 2000 } }),
@@ -229,6 +242,47 @@ export default function PaymentsScreen() {
 
   if (!['student', 'parent'].includes(user?.role || '')) {
     return <View style={styles.loading}><Text style={styles.muted}>Use the Finance page for staff payment operations.</Text></View>;
+  }
+
+  if (user?.role === 'student') {
+    return (
+      <View style={styles.container}>
+        <ConcourseAtmosphere />
+        <View style={styles.receiptHero}>
+          <View style={styles.flex}>
+            <Text style={styles.title}>Receipts</Text>
+            <Text style={styles.subtitle}>Official proof of payments posted to your account</Text>
+          </View>
+          <Image source={require('../../assets/illustrations/payments.png')} style={styles.paymentIllustration} resizeMode="contain" />
+        </View>
+        <ScrollView
+          style={styles.content}
+          contentContainerStyle={styles.contentInset}
+          refreshControl={<RefreshControl refreshing={refreshing} tintColor={COLORS.gold} onRefresh={() => { setRefreshing(true); void loadData(); }} />}
+        >
+          {receipts.length === 0 ? <View style={styles.receiptsEmpty}>
+            <Image source={require('../../assets/illustrations/payments.png')} style={styles.emptyIllustration} resizeMode="contain" />
+            <Text style={styles.emptyTitle}>No receipts yet</Text>
+            <Text style={styles.muted}>A receipt appears here after the academy confirms and posts a payment.</Text>
+          </View> : receipts.map((receipt) => (
+            <View key={receipt.id} style={styles.card}>
+              <View style={styles.row}>
+                <View style={styles.receiptIcon}><Ionicons name="receipt" size={20} color={COLORS.gold} /></View>
+                <View style={styles.flex}>
+                  <Text style={styles.cardTitle}>{receipt.receipt_number}</Text>
+                  <Text style={styles.meta}>{tashkentDateTime(receipt.received_at)}</Text>
+                  <Text style={styles.meta}>{receipt.payment_method === 'personal_card_transfer' ? `${receipt.payment_provider?.toUpperCase() || 'CARD'} transfer` : 'Cash payment'}</Text>
+                </View>
+                <Text style={styles.receiptAmount}>{uzs(receipt.amount_uzs)}</Text>
+              </View>
+              <View style={styles.divider} />
+              <MoneyRow label="Applied to tuition" value={receipt.allocated_amount_uzs} />
+              {receipt.advance_amount_uzs > 0 && <MoneyRow label="Advance balance" value={receipt.advance_amount_uzs} />}
+            </View>
+          ))}
+        </ScrollView>
+      </View>
+    );
   }
 
   return (
@@ -389,6 +443,11 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
   loading: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.background, padding: SIZES.lg },
   header: { paddingTop: SIZES.xxl, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.lg, backgroundColor: COLORS.marbleDark },
+  receiptHero: { minHeight: 138, paddingTop: SIZES.xxl, paddingHorizontal: SIZES.lg, paddingBottom: SIZES.md, flexDirection: 'row', alignItems: 'center', gap: SIZES.md },
+  paymentIllustration: { width: 108, height: 108 },
+  receiptsEmpty: { alignItems: 'center', padding: SIZES.xl, borderRadius: SIZES.radiusLg, backgroundColor: COLORS.glass, borderWidth: 1, borderColor: COLORS.glassHighlight },
+  emptyIllustration: { width: 150, height: 150, marginBottom: SIZES.sm },
+  emptyTitle: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '800', marginBottom: SIZES.xs },
   title: { color: COLORS.textPrimary, fontSize: SIZES.fontXxl, fontWeight: '800' },
   subtitle: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, marginTop: SIZES.xs },
   content: { flex: 1 },

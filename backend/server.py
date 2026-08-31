@@ -68,6 +68,7 @@ from routes_auth import router as auth_router
 from routes_staff_accounts import router as staff_accounts_router
 from routes_telegram import router as telegram_router
 from routes_courses import router as courses_router
+from routes_calendar import router as calendar_router
 
 # Include all routers
 api_router.include_router(students_router)
@@ -91,6 +92,7 @@ api_router.include_router(auth_router)
 api_router.include_router(staff_accounts_router)
 api_router.include_router(telegram_router)
 api_router.include_router(courses_router)
+api_router.include_router(calendar_router)
 
 logger.info("All route modules loaded and registered")
 

@@ -228,10 +228,16 @@ async function loginPaymentsUi(browser: Browser, loginName: 'qa_parent_a' | 'qa_
   await page.getByTestId(ids.login).fill(loginIdentity(loginName));
   await page.getByTestId(ids.password).fill(PASSWORD);
   await page.getByTestId(ids.submit).click();
-  const paymentsTab = page.getByRole('tab', { name: 'Payments' });
-  await expect(paymentsTab).toBeVisible({ timeout: 15_000 });
-  await paymentsTab.click();
-  await expect(page.getByText('Live lesson charges, official invoices, payments, and receipts')).toBeVisible({ timeout: 15_000 });
+  if (loginName === 'qa_student_a') {
+    await page.getByRole('tab', { name: 'More' }).click();
+    await page.getByRole('button', { name: 'Receipts' }).click();
+    await expect(page.getByText('Official proof of payments posted to your account')).toBeVisible({ timeout: 15_000 });
+  } else {
+    const paymentsTab = page.getByRole('tab', { name: 'Payments' });
+    await expect(paymentsTab).toBeVisible({ timeout: 15_000 });
+    await paymentsTab.click();
+    await expect(page.getByText('Live lesson charges, official invoices, payments, and receipts')).toBeVisible({ timeout: 15_000 });
+  }
   return { context, page, frames, dialogs };
 }
 
@@ -493,7 +499,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     const baselineDraft = baselineInvoices.find((row) => row.status === 'draft');
     expect(baselineDraft).toBeTruthy();
     await expectLiveMoney(teacherEarnings.page, 'teacher-earned-to-date', baselineEarnings.earned_to_date_uzs);
-    await expectLiveMoney(studentPayments.page, `student-rolling-accrued-${baselineDraft.id}`, baselineDraft.amount_due_uzs);
+    await expectLiveMoney(parent.page, `parent-rolling-accrued-${baselineDraft.id}`, baselineDraft.amount_due_uzs);
 
     const present = teacherAttendance.page.getByRole('button', { name: 'Live Student: Present' });
     await expect(present).toBeVisible({ timeout: LIVE_TIMEOUT_MS });
@@ -529,7 +535,7 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     expect(updatedDraft.amount_due_uzs).toBeGreaterThan(baselineDraft.amount_due_uzs);
     expect(updatedEarnings.earned_to_date_uzs).toBeGreaterThan(baselineEarnings.earned_to_date_uzs);
     await expectLiveMoney(teacherEarnings.page, 'teacher-earned-to-date', updatedEarnings.earned_to_date_uzs);
-    await expectLiveMoney(studentPayments.page, `student-rolling-accrued-${baselineDraft.id}`, updatedDraft.amount_due_uzs);
+    await expectLiveMoney(parent.page, `parent-rolling-accrued-${baselineDraft.id}`, updatedDraft.amount_due_uzs);
     expect(Date.now() - startedAt).toBeLessThanOrEqual(LIVE_TIMEOUT_MS);
     expect(teacherEarnings.frames.some((frame) => frame.includes('finance_changed'))).toBe(true);
     expect(studentPayments.frames.some((frame) => frame.includes('finance_changed'))).toBe(true);
@@ -1058,7 +1064,6 @@ test('every finance-page domain synchronizes live across authorized sessions', a
   });
 
   await test.step('parent card report stays non-financial until manager verification and synchronizes live', async () => {
-    const amount = 100_000;
     const positionBeforeReport = await apiGet<Position>(
       request,
       managerToken,
@@ -1067,6 +1072,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
     const invoiceBeforeReport = await qaDb.collection('finance_invoices').findOne({
       _id: new ObjectId(finalizedInvoice.id),
     });
+    expect(Number(invoiceBeforeReport?.balance_uzs)).toBeGreaterThan(2);
+    const amount = Math.max(1, Math.floor(Number(invoiceBeforeReport?.balance_uzs) / 2));
 
     for (const page of [manager.page, managerB.page, superAdmin.page]) {
       await page.getByTestId(ids.onlineTab).click();
@@ -1129,7 +1136,9 @@ test('every finance-page domain synchronizes live across authorized sessions', a
         student.first_name,
         { timeout: LIVE_TIMEOUT_MS },
       );
-      await expect(page.getByTestId(`finance-card-report-${report.id}`)).toContainText('100,000');
+      await expect(page.getByTestId(`finance-card-report-${report.id}`)).toContainText(
+        amount.toLocaleString('en-US'),
+      );
     }
     await expect(managerB.page.getByTestId(`finance-card-report-${report.id}`)).toHaveCount(0);
     await expect(parent.page.getByTestId(`parent-payment-report-${report.id}`)).toContainText(
@@ -1204,8 +1213,13 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       - Number(positionBeforeReport.card_transfer_received_uzs)).toBe(amount);
     expect(Number(positionAfterConfirmation.total_collections_uzs)
       - Number(positionBeforeReport.total_collections_uzs)).toBe(amount);
-    expect(Number(positionAfterConfirmation.receivables_uzs)
-      - Number(positionBeforeReport.receivables_uzs)).toBe(-amount);
+    const receivableReduction = Number(positionBeforeReport.receivables_uzs)
+      - Number(positionAfterConfirmation.receivables_uzs);
+    const advanceIncrease = Number(positionAfterConfirmation.advance_balances_uzs)
+      - Number(positionBeforeReport.advance_balances_uzs);
+    expect(receivableReduction).toBe(Number(receipt?.allocated_amount_uzs || 0));
+    expect(advanceIncrease).toBe(Number(receipt?.advance_amount_uzs || 0));
+    expect(receivableReduction + advanceIncrease).toBe(amount);
     expect(positionAfterConfirmation.cash_received_uzs).toBe(positionBeforeReport.cash_received_uzs);
     expect(positionAfterConfirmation.cashbox_position_uzs).toBe(positionBeforeReport.cashbox_position_uzs);
     expect(positionAfterConfirmation.net_tuition_uzs).toBe(positionBeforeReport.net_tuition_uzs);
@@ -1219,6 +1233,8 @@ test('every finance-page domain synchronizes live across authorized sessions', a
       workflow: 'parent_personal_card_report_and_confirmation',
       unresolved_financial_delta_uzs: 0,
       confirmed_collection_delta_uzs: amount,
+      confirmed_receivable_reduction_uzs: receivableReduction,
+      confirmed_advance_increase_uzs: advanceIncrease,
       report_rapid_click_request_count: reportRequestCount,
       confirmation_rapid_click_request_count: resolutionRequestCount,
       staff_notifications: 2,

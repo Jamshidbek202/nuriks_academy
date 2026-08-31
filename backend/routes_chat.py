@@ -5,7 +5,7 @@ WebSocket support for instant communication
 """
 from fastapi import APIRouter, HTTPException, Depends, Request, UploadFile, File, WebSocket, WebSocketDisconnect
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from bson import ObjectId
 from typing import List, Optional, Dict
 from datetime import datetime
@@ -687,17 +687,25 @@ async def upload_file(
     if is_document and file_size > MAX_DOC_SIZE:
         raise HTTPException(status_code=400, detail=f"Document size exceeds {MAX_DOC_SIZE // (1024*1024)}MB limit")
     
-    # Generate unique filename
+    # Persist chat media in MongoDB GridFS. Render's service filesystem is
+    # ephemeral, so disk-only uploads disappear after a deploy.
     ext = file.filename.split('.')[-1] if file.filename else 'bin'
     unique_filename = f"{uuid.uuid4()}.{ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
-    
-    # Save file
-    with open(file_path, "wb") as f:
-        f.write(content)
+    from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+    bucket = AsyncIOMotorGridFSBucket(db, bucket_name="chat_files")
+    file_id = await bucket.upload_from_stream(
+        unique_filename,
+        content,
+        metadata={
+            "original_name": file.filename,
+            "content_type": content_type or "application/octet-stream",
+            "uploaded_by": str(current_user["_id"]),
+            "uploaded_at": datetime.utcnow(),
+        },
+    )
     
     return {
-        "file_url": f"/api/chat/files/{unique_filename}",
+        "file_url": f"/api/chat/files/{file_id}",
         "file_name": file.filename,
         "file_size": file_size,
         "file_type": "image" if is_image else "document"
@@ -709,11 +717,51 @@ async def get_file(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Download a chat file"""
-    file_path = os.path.join(UPLOAD_DIR, filename)
-    
+    from server import db
+    user_id = str(current_user["_id"])
+
+    async def require_message_access(file_url: str, uploaded_by: Optional[str] = None) -> None:
+        if uploaded_by == user_id:
+            return
+        message = await db.messages.find_one({"file_url": file_url})
+        if not message:
+            raise HTTPException(status_code=403, detail="File access denied")
+        conversation_id = message.get("conversation_id")
+        if not conversation_id or not ObjectId.is_valid(str(conversation_id)):
+            raise HTTPException(status_code=403, detail="File access denied")
+        conversation = await db.conversations.find_one({"_id": ObjectId(str(conversation_id))})
+        if not conversation or user_id not in conversation.get("participants", []):
+            raise HTTPException(status_code=403, detail="File access denied")
+
+    if ObjectId.is_valid(filename):
+        from motor.motor_asyncio import AsyncIOMotorGridFSBucket
+        from gridfs.errors import NoFile
+
+        bucket = AsyncIOMotorGridFSBucket(db, bucket_name="chat_files")
+        try:
+            stored = await bucket.open_download_stream(ObjectId(filename))
+        except NoFile as error:
+            raise HTTPException(status_code=404, detail="File not found") from error
+        metadata = stored.metadata or {}
+        await require_message_access(
+            f"/api/chat/files/{filename}",
+            str(metadata.get("uploaded_by")) if metadata.get("uploaded_by") else None,
+        )
+        payload = await stored.read()
+        return Response(
+            content=payload,
+            media_type=metadata.get("content_type") or "application/octet-stream",
+            headers={
+                "Content-Disposition": f'inline; filename="{metadata.get("original_name") or stored.filename}"',
+                "Cache-Control": "private, max-age=3600",
+            },
+        )
+
+    # Backward-compatible access to files uploaded before GridFS migration.
+    file_path = os.path.join(UPLOAD_DIR, os.path.basename(filename))
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="File not found")
-    
+    await require_message_access(f"/api/chat/files/{os.path.basename(filename)}")
     return FileResponse(file_path)
 
 # ==================== UNREAD COUNT ====================
