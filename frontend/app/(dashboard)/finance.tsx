@@ -354,6 +354,7 @@ export default function FinanceScreen() {
   const [teacherShares, setTeacherShares] = useState<Policy[]>([]);
   const [recurringPolicies, setRecurringPolicies] = useState<Policy[]>([]);
   const [billingPolicy, setBillingPolicy] = useState<Policy | null>(null);
+  const billingFormDirtyRef = useRef(false);
   const [closures, setClosures] = useState<any[]>([]);
   const [groups, setGroups] = useState<GroupSummary[]>([]);
   const [financeCourses, setFinanceCourses] = useState<FinanceCourse[]>([]);
@@ -644,7 +645,10 @@ export default function FinanceScreen() {
       setCardPaymentReports(admin[13].data || []);
       setSelectedGroupId((current) => current || admin[5].data?.[0]?.id || '');
       const billing = admin[3].data.billing_rules?.value;
-      if (billing) {
+      // A delayed invalidation from a different policy update must never
+      // replace billing dates while the super admin is actively editing them.
+      // Read-only manager forms still reconcile immediately from the server.
+      if (billing && (!isSuperAdmin || !billingFormDirtyRef.current)) {
         setBillingForm((current) => ({
           ...current,
           due: String(billing.student_due_day),
@@ -1200,7 +1204,11 @@ export default function FinanceScreen() {
       operation_mode: billingPolicy?.value.operation_mode || 'shadow',
       automatic_freeze_enabled: billingPolicy?.value.automatic_freeze_enabled || false,
       reason: billingForm.reason || 'Authorized billing calendar update',
-    }), 'Billing dates were versioned. Existing invoices remain unchanged.');
+    }), 'Billing dates were versioned. Existing invoices remain unchanged.').then((success) => {
+      if (!success) return;
+      billingFormDirtyRef.current = false;
+      void loadData({ silent: true });
+    });
   };
 
   const saveTeacherShare = () => {
@@ -2092,8 +2100,8 @@ export default function FinanceScreen() {
         </Section>
       )}
       <Section title="Billing calendar" subtitle={`Mode: ${billingPolicy?.value.operation_mode || 'not configured'} · automatic freeze: ${billingPolicy?.value.automatic_freeze_enabled ? 'on' : 'off'}`}>
-        <View style={styles.threeColumns}><Input testID={FINANCE.billingDue} label="Student due day" keyboardType="number-pad" value={billingForm.due} onChangeText={(due) => setBillingForm({ ...billingForm, due })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingFreeze} label="Freeze day" keyboardType="number-pad" value={billingForm.freeze} onChangeText={(freeze) => setBillingForm({ ...billingForm, freeze })} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingSalary} label="Salary due day" keyboardType="number-pad" value={billingForm.salary} onChangeText={(salary) => setBillingForm({ ...billingForm, salary })} style={styles.compactInput} editable={isSuperAdmin} /></View>
-        {isSuperAdmin && <><CalendarDatePicker testID={FINANCE.billingEffectiveFrom} label="Effective from" value={billingForm.effective_from} onChange={(effective_from) => setBillingForm({ ...billingForm, effective_from })} /><Input testID={FINANCE.billingReason} label="Reason" value={billingForm.reason} onChangeText={(reason) => setBillingForm({ ...billingForm, reason })} /><Button testID={FINANCE.billingSubmit} title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
+        <View style={styles.threeColumns}><Input testID={FINANCE.billingDue} label="Student due day" keyboardType="number-pad" value={billingForm.due} onChangeText={(due) => { billingFormDirtyRef.current = true; setBillingForm((current) => ({ ...current, due })); }} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingFreeze} label="Freeze day" keyboardType="number-pad" value={billingForm.freeze} onChangeText={(freeze) => { billingFormDirtyRef.current = true; setBillingForm((current) => ({ ...current, freeze })); }} style={styles.compactInput} editable={isSuperAdmin} /><Input testID={FINANCE.billingSalary} label="Salary due day" keyboardType="number-pad" value={billingForm.salary} onChangeText={(salary) => { billingFormDirtyRef.current = true; setBillingForm((current) => ({ ...current, salary })); }} style={styles.compactInput} editable={isSuperAdmin} /></View>
+        {isSuperAdmin && <><CalendarDatePicker testID={FINANCE.billingEffectiveFrom} label="Effective from" value={billingForm.effective_from} onChange={(effective_from) => { billingFormDirtyRef.current = true; setBillingForm((current) => ({ ...current, effective_from })); }} /><Input testID={FINANCE.billingReason} label="Reason" value={billingForm.reason} onChangeText={(reason) => { billingFormDirtyRef.current = true; setBillingForm((current) => ({ ...current, reason })); }} /><Button testID={FINANCE.billingSubmit} title="Version billing dates" variant="outline" onPress={saveBillingRules} loading={busy === 'billing'} /></>}
       </Section>
     </>
   );

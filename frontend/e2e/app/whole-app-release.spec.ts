@@ -219,6 +219,15 @@ function monitor(page: Page, session: Omit<Session, 'context' | 'page'>) {
 }
 
 async function loginUi(browser: Browser, role: RoleKey, mobile = false): Promise<Session> {
+  return loginUiWithPhone(browser, roleLogins[role], role, mobile);
+}
+
+async function loginUiWithPhone(
+  browser: Browser,
+  phone: string,
+  expectedRole: RoleKey,
+  mobile = false,
+): Promise<Session> {
   const context = await browser.newContext(mobile ? {
     viewport: { width: 390, height: 844 },
     screen: { width: 390, height: 844 },
@@ -229,10 +238,10 @@ async function loginUi(browser: Browser, role: RoleKey, mobile = false): Promise
   const observed = { consoleErrors: [] as string[], pageErrors: [] as string[], serverErrors: [] as string[], dialogs: [] as string[] };
   monitor(page, observed);
   await page.goto(REMOTE_LIVE_AUDIT ? '/' : '/login');
-  await page.getByTestId('login-email-input').fill(roleLogins[role]);
+  await page.getByTestId('login-email-input').fill(phone);
   await page.getByTestId('login-password-input').fill(PASSWORD);
   await page.getByTestId('login-submit-button').click();
-  await expect(page.getByRole('tab', { name: tabsFor(role, mobile)[0].name }).first()).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('tab', { name: tabsFor(expectedRole, mobile)[0].name }).first()).toBeVisible({ timeout: 15_000 });
   return { context, page, ...observed };
 }
 
@@ -340,6 +349,47 @@ const academyDate = () => new Intl.DateTimeFormat('en-CA', {
 const academyWeekday = () => new Intl.DateTimeFormat('en-US', {
   timeZone: 'Asia/Tashkent', weekday: 'long',
 }).format(new Date()).toLowerCase();
+
+test('mobile viewport prevents zoom and cached user data cannot authenticate without a token', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    screen: { width: 390, height: 844 },
+    isMobile: true,
+    hasTouch: true,
+  });
+  await context.addInitScript(() => {
+    try {
+      localStorage.setItem('user', JSON.stringify({
+        id: 'stale-account-id',
+        login: '+998000000000',
+        full_name: 'Stale Account',
+        role: 'super_admin',
+      }));
+      localStorage.removeItem('token');
+      localStorage.setItem('pushToken', 'stale-push-token');
+    } catch {
+      // about:blank does not expose storage; the script runs again at the app origin.
+    }
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('/');
+    await expect(page).toHaveURL(/\/login/);
+    await expect(page.getByTestId('login-submit-button')).toBeVisible();
+    const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
+    expect(viewport).toContain('maximum-scale=1');
+    expect(viewport).toContain('user-scalable=no');
+    expect(viewport).toContain('viewport-fit=cover');
+    await expect.poll(() => page.evaluate(() => ({
+      user: localStorage.getItem('user'),
+      token: localStorage.getItem('token'),
+      pushToken: localStorage.getItem('pushToken'),
+    }))).toEqual({ user: null, token: null, pushToken: null });
+    await assertPhoneGeometry(page, 'mobile login without token');
+  } finally {
+    await context.close();
+  }
+});
 
 for (const viewport of ['desktop', 'phone'] as const) {
   test(`all role navigation renders and remains usable on ${viewport}`, async ({ browser }, testInfo) => {
@@ -2074,6 +2124,72 @@ test('support booking can be received, accepted, and reflected live', async ({ b
     await student.context.close();
     await support.context.close();
     await reception.context.close();
+  }
+});
+
+test('student can discover and join a shared support topic without identity leakage', async ({ browser, request }) => {
+  test.setTimeout(75_000);
+  const creatorToken = await apiLogin(request, 'student');
+  const joinerToken = await apiLoginAs(request, '+998990000009');
+  const supportToken = await apiLogin(request, 'support');
+  const supportRows = await expectApiOk(
+    await apiCall(request, creatorToken, 'get', '/support'),
+    'load support staff for shared session',
+  );
+  const supportProfile = supportRows.find((row: any) => row.first_name === 'Live');
+  expect(supportProfile).toBeTruthy();
+  const topic = `Shared IELTS topic ${Date.now().toString().slice(-6)}`;
+  const created = await expectApiOk(await apiCall(request, creatorToken, 'post', '/support-bookings', {
+    support_staff_id: supportProfile.id,
+    booking_date: localDate(1),
+    start_time: '09:00',
+    duration_minutes: 40,
+    topic,
+  }), 'create shared support session');
+  const joiner = await loginUiWithPhone(browser, '+998990000009', 'student');
+  const support = await loginUi(browser, 'support');
+  try {
+    await support.page.getByText('All', { exact: true }).click();
+    const joinableCard = joiner.page.getByTestId(`student-joinable-booking-${created.id}`);
+    await expect(joinableCard).toBeVisible({ timeout: 7_000 });
+    await expect(joinableCard).toContainText(topic);
+    await expect(joinableCard).toContainText('1 / 6');
+    await expect(joinableCard).not.toContainText('Live Student');
+    await joiner.page.getByTestId(`student-join-booking-${created.id}`).click();
+    await expect.poll(async () => {
+      const rows = await expectApiOk(
+        await apiCall(request, joinerToken, 'get', '/support-bookings'),
+        'poll joined support session',
+      );
+      return rows.find((row: any) => row.id === created.id)?.participant_count;
+    }, { timeout: 7_000 }).toBe(2);
+    await expect(joinableCard).toHaveCount(0, { timeout: 7_000 });
+    await expect(joiner.page.getByTestId(`student-booking-${created.id}`)).toBeVisible({ timeout: 7_000 });
+
+    const supportCard = support.page.getByTestId(`support-booking-${created.id}`);
+    await expect(supportCard).toBeVisible({ timeout: 7_000 });
+    await expect(supportCard).toContainText('Live Student');
+    await expect(supportCard).toContainText('Joiner Student');
+    await expect(supportCard).toContainText('2 / 6');
+
+    const creatorLeaves = await apiCall(request, creatorToken, 'put', `/support-bookings/${created.id}/cancel`);
+    expect(creatorLeaves.ok(), await creatorLeaves.text()).toBeTruthy();
+    await expect(supportCard).not.toContainText('Live Student', { timeout: 7_000 });
+    await expect(supportCard).toContainText('1 / 6');
+
+    await joiner.page.getByTestId(`student-cancel-booking-${created.id}`).click();
+    await expect.poll(async () => {
+      const rows = await expectApiOk(
+        await apiCall(request, supportToken, 'get', '/support-bookings'),
+        'poll final shared support cancellation',
+      );
+      return rows.find((row: any) => row.id === created.id)?.status;
+    }, { timeout: 7_000 }).toBe('cancelled');
+    await assertHealthy(joiner, 'shared support joiner');
+    await assertHealthy(support, 'shared support staff observer');
+  } finally {
+    await joiner.context.close();
+    await support.context.close();
   }
 });
 

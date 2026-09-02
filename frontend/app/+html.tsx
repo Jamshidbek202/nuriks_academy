@@ -24,7 +24,7 @@ export default function Root({ children }: PropsWithChildren) {
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no"
+          content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
         />
         {/*
           Disable body scrolling on web to make ScrollView components work correctly.
@@ -37,6 +37,11 @@ export default function Root({ children }: PropsWithChildren) {
             __html: `
               :root { color-scheme: dark; background: #080907; }
               * { box-sizing: border-box; }
+              html {
+                -webkit-text-size-adjust: 100%;
+                text-size-adjust: 100%;
+                touch-action: manipulation;
+              }
               html, body, #root, body > div:first-child { background: #080907 !important; overscroll-behavior: none; }
               html { scrollbar-color: #41423B #080907; scrollbar-width: thin; }
               body { caret-color: #D9B84A; }
@@ -47,7 +52,10 @@ export default function Root({ children }: PropsWithChildren) {
               body > div:first-child { position: fixed !important; top: 0; left: 0; right: 0; bottom: 0; }
               [role="tablist"] [role="tab"] * { overflow: visible !important; }
               [role="heading"], [role="heading"] * { overflow: visible !important; }
-              button, [role="button"], input, select, textarea { -webkit-tap-highlight-color: transparent; }
+              button, [role="button"], input, select, textarea {
+                -webkit-tap-highlight-color: transparent;
+                touch-action: manipulation;
+              }
               input, select, textarea { font-size: 16px !important; }
               button:focus-visible, [role="button"]:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
                 outline: 2px solid #D9B84A !important;

@@ -38,6 +38,22 @@ function RootNavigator() {
 export default function RootLayout() {
   React.useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const viewport = document.querySelector('meta[name="viewport"]');
+    viewport?.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+    );
+    let hardeningStyle = document.getElementById('nuriks-web-hardening') as HTMLStyleElement | null;
+    if (!hardeningStyle) {
+      hardeningStyle = document.createElement('style');
+      hardeningStyle.id = 'nuriks-web-hardening';
+      hardeningStyle.textContent = `
+        html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; touch-action: manipulation; }
+        button, [role="button"], input, select, textarea { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        input, select, textarea { font-size: 16px !important; }
+      `;
+      document.head.appendChild(hardeningStyle);
+    }
     const elements = [document.documentElement, document.body, document.getElementById('root')].filter(Boolean) as HTMLElement[];
     elements.forEach((element) => {
       element.style.backgroundColor = COLORS.backgroundSolid;
@@ -48,6 +64,7 @@ export default function RootLayout() {
         element.style.removeProperty('background-color');
         element.style.removeProperty('overscroll-behavior');
       });
+      hardeningStyle?.remove();
     };
   }, []);
 

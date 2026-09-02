@@ -45,6 +45,9 @@ interface Booking {
   status: string;
   notes?: string;
   session_notes?: string;
+  participant_count?: number;
+  capacity?: number;
+  participant_names?: string[];
 }
 
 interface Student {
@@ -102,7 +105,7 @@ export default function SupportHomeScreen() {
     loadSupportData,
     user?.role === 'support',
     `support-bookings:${user?.id || user?._id || ''}`,
-    3000,
+    1500,
   );
 
   const handleAcceptBooking = async (bookingId: string) => {
@@ -160,6 +163,7 @@ export default function SupportHomeScreen() {
   };
 
   const getBookingStudentName = (booking: Booking) => {
+    if (booking.participant_names?.length) return booking.participant_names.join(', ');
     return booking.student_name || getStudentName(booking.student_id);
   };
 
@@ -275,6 +279,7 @@ export default function SupportHomeScreen() {
             <MotionListItem key={booking.id} index={index}>
             <MotionTouchableOpacity
               key={booking.id}
+              testID={`support-booking-${booking.id}`}
               style={styles.bookingCard}
               activeOpacity={0.8}
               onPress={() => openDetailModal(booking)}
@@ -293,6 +298,9 @@ export default function SupportHomeScreen() {
 
               <View style={styles.bookingInfo}>
                 <Text style={styles.studentName}>{getBookingStudentName(booking)}</Text>
+                <Text style={styles.participantCount}>
+                  {booking.participant_count || 1} / {booking.capacity || 6} · <Text style={styles.participantCount}>students</Text>
+                </Text>
                 {!!booking.topic && (
                   <Text style={styles.bookingTopic}>{booking.topic}</Text>
                 )}
@@ -362,6 +370,9 @@ export default function SupportHomeScreen() {
             {selectedBooking && (
               <View style={styles.modalForm}>
                 <Text style={styles.modalStudentName}>{getBookingStudentName(selectedBooking)}</Text>
+                <Text style={styles.modalParticipantCount}>
+                  {selectedBooking.participant_count || 1} / {selectedBooking.capacity || 6} · <Text style={styles.modalParticipantCount}>students</Text>
+                </Text>
                 {!!selectedBooking.student_code && (
                   <Text style={styles.modalStudentCode}>{selectedBooking.student_code}</Text>
                 )}
@@ -492,6 +503,7 @@ const styles = StyleSheet.create({
   statusText: { fontSize: SIZES.fontXs, fontWeight: '600', textTransform: 'capitalize' },
   bookingInfo: { marginBottom: SIZES.sm },
   studentName: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.textPrimary },
+  participantCount: { fontSize: SIZES.fontXs, color: COLORS.textTertiary, marginTop: 2 },
   bookingTopic: { fontSize: SIZES.fontSm, fontWeight: '600', color: COLORS.gold, marginTop: 2 },
   bookingDate: { fontSize: SIZES.fontSm, color: COLORS.textSecondary, marginTop: 2 },
   bookingNotes: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: SIZES.xs, fontStyle: 'italic' },
@@ -513,6 +525,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: SIZES.fontXl, fontWeight: 'bold', color: COLORS.textPrimary },
   modalForm: { padding: SIZES.lg },
   modalStudentName: { fontSize: SIZES.fontLg, fontWeight: '600', color: COLORS.textPrimary, marginBottom: SIZES.lg, textAlign: 'center' },
+  modalParticipantCount: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: -SIZES.md, marginBottom: SIZES.md, textAlign: 'center' },
   modalStudentCode: { fontSize: SIZES.fontSm, color: COLORS.textTertiary, marginTop: -SIZES.md, marginBottom: SIZES.lg, textAlign: 'center' },
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, marginBottom: SIZES.sm },
   detailText: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, fontWeight: '500' },

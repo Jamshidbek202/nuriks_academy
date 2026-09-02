@@ -108,7 +108,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const loadStoredAuth = useCallback(async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      const storedUser = await AsyncStorage.getItem('user');
       const storedPushToken = await AsyncStorage.getItem('pushToken');
 
       if (storedToken) {
@@ -124,21 +123,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           await AsyncStorage.setItem('user', JSON.stringify(currentUser));
         } catch (error) {
           console.error('Stored auth token is no longer valid:', error);
-          await AsyncStorage.removeItem('token');
-          await AsyncStorage.removeItem('user');
-          delete api.defaults.headers.common.Authorization;
-          setToken(null);
-          setUser(null);
+          await clearLocalSession();
         }
-      } else if (storedUser) {
-        const currentUser = normalizeUser(JSON.parse(storedUser));
-        setUser(currentUser);
-        if (currentUser.language_preference) {
-          await setLanguage(currentUser.language_preference);
-        }
+      } else {
+        // A cached user record is display data, never proof of identity.
+        // Clearing the whole local session prevents an account mismatch after
+        // database resets, revoked tokens, or partially-cleared browser data.
+        await clearLocalSession();
       }
       
-      if (storedPushToken) {
+      if (storedToken && storedPushToken) {
         setPushToken(storedPushToken);
       }
     } catch (error) {
@@ -146,7 +140,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } finally {
       setIsLoading(false);
     }
-  }, [setLanguage]);
+  }, [clearLocalSession, setLanguage]);
 
   useEffect(() => {
     if (isLanguageReady) loadStoredAuth();

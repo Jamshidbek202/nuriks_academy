@@ -24,6 +24,7 @@ import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { showAlert, showConfirm } from '../../src/utils/cross-platform-alert';
 import { AcademyIllustration } from '../../src/components/AcademyIllustration';
 import { CalendarShortcut } from '../../src/components/CalendarShortcut';
+import { useLanguage } from '../../src/contexts/LanguageContext';
 import { MotionListItem, MotionReveal, MotionTouchableOpacity } from '../../src/components/Motion';
 import {
   AdaptiveColumns,
@@ -74,6 +75,15 @@ interface Booking {
   status: string;
   support_name?: string;
   topic?: string;
+  participant_count?: number;
+  capacity?: number;
+  remaining_places?: number;
+}
+
+interface JoinableSession extends Booking {
+  participant_count: number;
+  capacity: number;
+  remaining_places: number;
 }
 
 interface AttendanceStats {
@@ -93,12 +103,14 @@ interface Notification {
 
 export default function StudentHomeScreen() {
   const { user } = useAuth();
+  const { t } = useLanguage();
   const router = useRouter();
   const unreadCount = useUnreadNotifications();
   const [profile, setProfile] = useState<StudentProfile | null>(null);
   const [groups, setGroups] = useState<Group[]>([]);
   const [attendanceStats, setAttendanceStats] = useState<AttendanceStats | null>(null);
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([]);
+  const [joinableSessions, setJoinableSessions] = useState<JoinableSession[]>([]);
   const [supportStaff, setSupportStaff] = useState<SupportStaff[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -109,11 +121,13 @@ export default function StudentHomeScreen() {
   const [selectedStaff, setSelectedStaff] = useState<SupportStaff | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [availableSlots, setAvailableSlots] = useState<TimeSlot[]>([]);
+  const [dateJoinableSessions, setDateJoinableSessions] = useState<JoinableSession[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [bookingTopic, setBookingTopic] = useState('');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
+  const [joiningBookingId, setJoiningBookingId] = useState<string | null>(null);
   
   // Notification modal
   const [notificationModalVisible, setNotificationModalVisible] = useState(false);
@@ -155,12 +169,17 @@ export default function StudentHomeScreen() {
 
         // Load support bookings
         try {
-          const bookingsRes = await api.get('/support-bookings');
+          const [bookingsRes, joinableRes] = await Promise.all([
+            api.get('/support-bookings'),
+            api.get('/support-bookings/joinable'),
+          ]);
           setUpcomingBookings(bookingsRes.data.filter((b: Booking) => 
             b.status === 'scheduled' || b.status === 'confirmed'
           ).slice(0, 5));
+          setJoinableSessions(joinableRes.data);
         } catch {
           setUpcomingBookings([]);
+          setJoinableSessions([]);
         }
       }
 
@@ -216,7 +235,7 @@ export default function StudentHomeScreen() {
     },
     Boolean(user),
     `student-home:${user?.id || user?._id || ''}`,
-    3000,
+    1500,
   );
 
   const loadAvailableSlots = useCallback(async () => {
@@ -231,9 +250,11 @@ export default function StudentHomeScreen() {
         }
       });
       setAvailableSlots(res.data.available_slots || []);
+      setDateJoinableSessions(res.data.joinable_sessions || []);
     } catch (error) {
       console.error('Error loading slots:', error);
       setAvailableSlots([]);
+      setDateJoinableSessions([]);
     } finally {
       setLoadingSlots(false);
     }
@@ -291,12 +312,34 @@ export default function StudentHomeScreen() {
     );
   };
 
+  const joinSupportSession = (session: JoinableSession) => {
+    showConfirm(
+      t('Join support session?'),
+      `${formatDate(session.booking_date)} at ${session.start_time} · ${session.topic || 'General Support'}`,
+      async () => {
+        setJoiningBookingId(session.id);
+        try {
+          await api.post(`/support-bookings/${session.id}/join`);
+          setJoinableSessions((current) => current.filter((row) => row.id !== session.id));
+          setDateJoinableSessions((current) => current.filter((row) => row.id !== session.id));
+          await loadStudentData();
+        } catch (error: any) {
+          showAlert(t('Could not join session'), error.response?.data?.detail || t('This support session is no longer available.'));
+        } finally {
+          setJoiningBookingId(null);
+        }
+      },
+      t('Join session'),
+    );
+  };
+
   const resetBookingForm = () => {
     setSelectedStaff(null);
     setSelectedDate('');
     setSelectedSlot(null);
     setBookingTopic('');
     setAvailableSlots([]);
+    setDateJoinableSessions([]);
   };
 
   const formatDate = (dateString: string) => {
@@ -466,6 +509,36 @@ export default function StudentHomeScreen() {
 
         {/* Upcoming Support Sessions */}
           <View>
+            <AdaptiveSectionHeading title="Join a support session" description="Join classmates working on a topic you need" />
+            {joinableSessions.length > 0 ? joinableSessions.slice(0, 5).map((session, index) => (
+              <MotionListItem key={session.id} index={index} testID={`student-joinable-booking-${session.id}`} style={styles.joinableCard}>
+                <View style={styles.joinableHeader}>
+                  <View style={styles.bookingTime}>
+                    <Ionicons name="people" size={18} color={COLORS.gold} />
+                    <Text style={styles.bookingTimeText}>{session.start_time} - {session.end_time}</Text>
+                  </View>
+                  <View style={styles.placeBadge}>
+                    <Text style={styles.placeBadgeText}>{session.participant_count} / {session.capacity}</Text>
+                  </View>
+                </View>
+                <Text style={styles.joinableTopic}>{session.topic || 'General Support'}</Text>
+                <Text style={styles.bookingDate}>{formatDate(session.booking_date)}{session.support_name ? ` · ${session.support_name}` : ''}</Text>
+                <Text style={styles.remainingText}>{session.remaining_places} <Text style={styles.remainingText}>places available</Text></Text>
+                <Button
+                  testID={`student-join-booking-${session.id}`}
+                  title={joiningBookingId === session.id ? 'Joining...' : 'Join session'}
+                  onPress={() => joinSupportSession(session)}
+                  disabled={joiningBookingId === session.id}
+                  style={styles.joinButton}
+                />
+              </MotionListItem>
+            )) : (
+              <View style={styles.emptySupportCard}>
+                <Ionicons name="people-outline" size={30} color={COLORS.textTertiary} />
+                <Text style={styles.emptyText}>No open group support sessions</Text>
+              </View>
+            )}
+
             <AdaptiveSectionHeading title="Upcoming Support Sessions" description="Bookings and changes" />
         {upcomingBookings.length > 0 ? upcomingBookings.map((booking, index) => (
               <MotionListItem key={booking.id} index={index} testID={`student-booking-${booking.id}`} style={styles.bookingCard}>
@@ -564,6 +637,31 @@ export default function StudentHomeScreen() {
               {/* Step 3: Select Time Slot */}
               {selectedDate && (
                 <>
+                  {dateJoinableSessions.length > 0 && (
+                    <>
+                      <Text style={styles.stepTitle}>Join an existing session</Text>
+                      <Text style={styles.stepHint}>If the topic matches what you need, you can join this time instead.</Text>
+                      {dateJoinableSessions.map((session) => (
+                        <View key={session.id} style={styles.modalJoinableCard}>
+                          <View style={styles.modalJoinableCopy}>
+                            <Text style={styles.joinableTopic}>{session.start_time} · {session.topic || 'General Support'}</Text>
+                            <Text style={styles.remainingText}>{session.participant_count} / {session.capacity} · <Text style={styles.remainingText}>students</Text></Text>
+                          </View>
+                          <TouchableOpacity
+                            testID={`student-modal-join-booking-${session.id}`}
+                            accessibilityRole="button"
+                            disabled={joiningBookingId === session.id}
+                            style={styles.modalJoinButton}
+                            onPress={() => joinSupportSession(session)}
+                          >
+                            {joiningBookingId === session.id
+                              ? <ActivityIndicator size="small" color={COLORS.marbleDark} />
+                              : <Text style={styles.modalJoinButtonText}>Join</Text>}
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </>
+                  )}
                   <Text style={styles.stepTitle}>3. Select Time (40 min sessions)</Text>
                   {loadingSlots ? (
                     <ActivityIndicator size="small" color={COLORS.gold} style={{ marginVertical: SIZES.md }} />
@@ -718,6 +816,13 @@ const styles = StyleSheet.create({
   bookingCancelButton: { alignSelf: 'flex-start', minHeight: SIZES.touchTarget, marginTop: SIZES.sm, paddingHorizontal: SIZES.md, justifyContent: 'center', borderRadius: SIZES.radiusSm, borderWidth: 1, borderColor: COLORS.error + '66' },
   bookingCancelText: { color: COLORS.error, fontSize: SIZES.fontSm, fontWeight: '700' },
   emptySupportCard: { minHeight: 150, alignItems: 'center', justifyContent: 'center', gap: SIZES.xs, backgroundColor: COLORS.backgroundCard, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.glassHighlight },
+  joinableCard: { backgroundColor: COLORS.backgroundElevated, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginBottom: SIZES.sm, borderWidth: 1, borderColor: COLORS.goldHairline, ...SHADOWS.small },
+  joinableHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SIZES.sm },
+  joinableTopic: { color: COLORS.textPrimary, fontSize: SIZES.fontMd, fontWeight: '800', marginTop: SIZES.sm },
+  placeBadge: { backgroundColor: COLORS.goldGlass, borderRadius: SIZES.radiusSm, paddingHorizontal: SIZES.sm, paddingVertical: 4 },
+  placeBadgeText: { color: COLORS.gold, fontSize: SIZES.fontXs, fontWeight: '800' },
+  remainingText: { color: COLORS.textTertiary, fontSize: SIZES.fontXs, marginTop: 4 },
+  joinButton: { marginTop: SIZES.md },
   
   // Modal styles
   modalOverlay: { flex: 1, backgroundColor: COLORS.overlay, justifyContent: 'flex-end' },
@@ -729,6 +834,11 @@ const styles = StyleSheet.create({
   modalBody: { padding: SIZES.lg },
   
   stepTitle: { fontSize: SIZES.fontMd, fontWeight: '600', color: COLORS.gold, marginBottom: SIZES.sm, marginTop: SIZES.md },
+  stepHint: { fontSize: SIZES.fontSm, lineHeight: 20, color: COLORS.textSecondary, marginBottom: SIZES.sm },
+  modalJoinableCard: { minHeight: 72, flexDirection: 'row', alignItems: 'center', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.goldHairline, backgroundColor: COLORS.goldGlass, marginBottom: SIZES.sm },
+  modalJoinableCopy: { flex: 1 },
+  modalJoinButton: { minWidth: 72, minHeight: SIZES.touchTarget, paddingHorizontal: SIZES.md, borderRadius: SIZES.radiusMd, alignItems: 'center', justifyContent: 'center', backgroundColor: COLORS.gold },
+  modalJoinButtonText: { color: COLORS.marbleDark, fontSize: SIZES.fontSm, fontWeight: '800' },
   
   staffList: { flexDirection: 'row', marginBottom: SIZES.md },
   staffCard: { alignItems: 'center', padding: SIZES.md, marginRight: SIZES.sm, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.backgroundLight, minWidth: 80 },

@@ -7,6 +7,7 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from pydantic import BaseModel, Field
 from auth import get_current_user, generate_unique_id
 from validation import require_date_string_window, require_time_string
@@ -14,6 +15,8 @@ from validation import require_date_string_window, require_time_string
 router = APIRouter(prefix="/support-bookings", tags=["Support Bookings"])
 support_staff_router = APIRouter(prefix="/support", tags=["Support Staff"])
 security = HTTPBearer()
+DEFAULT_SUPPORT_SESSION_CAPACITY = 6
+MAX_SUPPORT_SESSION_CAPACITY = 12
 
 # Pydantic models for Support Booking
 class SupportBookingCreate(BaseModel):
@@ -40,6 +43,89 @@ async def get_next_booking_id(db):
         return_document=True
     )
     return generate_unique_id("BK", result["seq"])
+
+
+def _participant_student_ids(booking: dict) -> List[str]:
+    values = booking.get("participant_student_ids")
+    if isinstance(values, list) and values:
+        return list(dict.fromkeys(str(value) for value in values if value))
+    return [str(booking["student_id"])] if booking.get("student_id") else []
+
+
+def _participant_user_ids(booking: dict) -> List[str]:
+    values = booking.get("participant_user_ids")
+    if isinstance(values, list) and values:
+        return list(dict.fromkeys(str(value) for value in values if value))
+    return [str(booking["student_user_id"])] if booking.get("student_user_id") else []
+
+
+def _booking_capacity(booking: dict) -> int:
+    try:
+        value = int(booking.get("capacity", DEFAULT_SUPPORT_SESSION_CAPACITY))
+    except (TypeError, ValueError):
+        value = DEFAULT_SUPPORT_SESSION_CAPACITY
+    return max(2, min(MAX_SUPPORT_SESSION_CAPACITY, value))
+
+
+async def ensure_booking_participants(db, booking: dict) -> dict:
+    """Upgrade a legacy single-student booking to the shared-session shape."""
+    student_ids = _participant_student_ids(booking)
+    user_ids = _participant_user_ids(booking)
+    capacity = _booking_capacity(booking)
+    participant_count = max(len(student_ids), len(user_ids), 1)
+    expected = {
+        "participant_student_ids": student_ids,
+        "participant_user_ids": user_ids,
+        "participant_count": participant_count,
+        "capacity": capacity,
+        "is_group_session": True,
+    }
+    if any(booking.get(key) != value for key, value in expected.items()):
+        await db.support_bookings.update_one(
+            {"_id": booking["_id"]},
+            {"$set": expected},
+        )
+        booking.update(expected)
+    return booking
+
+
+async def support_session_capacity(db) -> int:
+    settings = await db.system_settings.find_one() or {}
+    return _booking_capacity({"capacity": settings.get("support_session_capacity")})
+
+
+async def get_current_student(db, current_user: dict) -> Optional[dict]:
+    return await db.students.find_one({
+        "user_id": str(current_user["_id"]),
+        "status": {"$ne": "archived"},
+    })
+
+
+def _safe_joinable_session(booking: dict, support: Optional[dict]) -> dict:
+    participant_count = max(
+        int(booking.get("participant_count", 0) or 0),
+        len(_participant_user_ids(booking)),
+        1,
+    )
+    capacity = _booking_capacity(booking)
+    return {
+        "id": str(booking["_id"]),
+        "booking_id": booking.get("booking_id"),
+        "booking_date": booking.get("booking_date"),
+        "start_time": booking.get("start_time"),
+        "end_time": booking.get("end_time"),
+        "duration_minutes": booking.get("duration_minutes", 40),
+        "topic": booking.get("topic") or "General Support",
+        "status": booking.get("status"),
+        "support_staff_id": booking.get("support_staff_id"),
+        "support_name": (
+            f"{support.get('first_name', '')} {support.get('last_name', '')}".strip()
+            if support else booking.get("support_name")
+        ),
+        "participant_count": participant_count,
+        "capacity": capacity,
+        "remaining_places": max(0, capacity - participant_count),
+    }
 
 
 async def get_booking_branch_id(db, booking: dict) -> Optional[str]:
@@ -103,7 +189,7 @@ async def create_booking(
         # Validate duration (max 40 minutes)
         if booking_data.duration_minutes > 40:
             raise HTTPException(status_code=400, detail="Maximum booking duration is 40 minutes")
-        
+
         if booking_data.duration_minutes < 15:
             raise HTTPException(status_code=400, detail="Minimum booking duration is 15 minutes")
         
@@ -116,10 +202,7 @@ async def create_booking(
             raise HTTPException(status_code=404, detail="Support staff not found")
         
         # Get student profile
-        student = await db.students.find_one({
-            "user_id": str(current_user["_id"]),
-            "status": {"$ne": "archived"}
-        })
+        student = await get_current_student(db, current_user)
         if not student:
             raise HTTPException(status_code=404, detail="Student profile not found")
         require_same_branch(current_user, support_staff, "Support staff belongs to another branch")
@@ -139,11 +222,29 @@ async def create_booking(
         
         if conflicting:
             raise HTTPException(status_code=400, detail="This time slot is not available")
+
+        # A student cannot hold overlapping support sessions, even with
+        # different support teachers.
+        student_conflict = await db.support_bookings.find_one({
+            "booking_date": booking_data.booking_date,
+            "status": {"$in": ["scheduled", "confirmed"]},
+            "is_deleted": {"$ne": True},
+            "$and": [
+                {"$or": [
+                    {"student_user_id": str(current_user["_id"])},
+                    {"participant_user_ids": str(current_user["_id"])},
+                ]},
+                {"start_time": {"$lt": end_time}, "end_time": {"$gt": booking_data.start_time}},
+            ],
+        })
+        if student_conflict:
+            raise HTTPException(status_code=409, detail="You already have a support session at this time")
         
         # Generate booking ID
         booking_id = await get_next_booking_id(db)
         
         # Create booking
+        capacity = await support_session_capacity(db)
         booking = {
             "booking_id": booking_id,
             "student_id": str(student["_id"]),
@@ -154,9 +255,14 @@ async def create_booking(
             "start_time": booking_data.start_time,
             "end_time": end_time,
             "duration_minutes": booking_data.duration_minutes,
-            "topic": booking_data.topic,
+            "topic": (booking_data.topic or "General Support").strip() or "General Support",
             "notes": booking_data.notes,
             "status": "scheduled",
+            "participant_student_ids": [str(student["_id"])],
+            "participant_user_ids": [str(current_user["_id"])],
+            "participant_count": 1,
+            "capacity": capacity,
+            "is_group_session": True,
             "session_notes": None,
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
@@ -197,15 +303,18 @@ async def get_bookings(
     try:
         query = {"is_deleted": {"$ne": True}}
         
+        participant_scoped = False
+
         # Role-based filtering
         if current_user["role"] == "student":
-            # Students see only their own bookings
-            student = await db.students.find_one({
-                "user_id": str(current_user["_id"]),
-                "status": {"$ne": "archived"}
-            })
+            # Students see sessions they created or joined.
+            student = await get_current_student(db, current_user)
             if student:
-                query["student_id"] = str(student["_id"])
+                query["$or"] = [
+                    {"student_id": str(student["_id"])},
+                    {"participant_student_ids": str(student["_id"])},
+                ]
+                participant_scoped = True
             else:
                 return []
         
@@ -225,11 +334,16 @@ async def get_bookings(
                     "_id": {"$in": [ObjectId(sid) for sid in parent["student_ids"] if ObjectId.is_valid(sid)]},
                     "status": {"$ne": "archived"}
                 }).to_list(100)
-                query["student_id"] = {"$in": [str(child["_id"]) for child in active_children]}
+                child_ids = [str(child["_id"]) for child in active_children]
+                query["$or"] = [
+                    {"student_id": {"$in": child_ids}},
+                    {"participant_student_ids": {"$in": child_ids}},
+                ]
+                participant_scoped = True
             else:
                 return []
 
-        if "student_id" not in query:
+        if not participant_scoped:
             student_query = {"status": {"$ne": "archived"}}
             if current_user["role"] in ["manager", "support", "reception"]:
                 student_query["branch_id"] = current_user.get("branch_id")
@@ -250,6 +364,7 @@ async def get_bookings(
         
         # Enrich with student and support info
         for booking in bookings:
+            booking = await ensure_booking_participants(db, booking)
             # Get student info
             student = await db.students.find_one({
                 "_id": ObjectId(booking["student_id"]),
@@ -263,9 +378,38 @@ async def get_bookings(
             support = await db.support_staff.find_one({"_id": ObjectId(booking["support_staff_id"])})
             if support:
                 booking["support_name"] = f"{support['first_name']} {support['last_name']}"
-        
+
+            booking["participant_count"] = max(
+                int(booking.get("participant_count", 0) or 0),
+                len(_participant_student_ids(booking)),
+                1,
+            )
+            booking["capacity"] = _booking_capacity(booking)
+
+            if current_user["role"] in {"support", "super_admin", "manager", "reception"}:
+                participant_ids = [
+                    ObjectId(value)
+                    for value in _participant_student_ids(booking)
+                    if ObjectId.is_valid(value)
+                ]
+                participants = await db.students.find({
+                    "_id": {"$in": participant_ids},
+                    "status": {"$ne": "archived"},
+                }).to_list(MAX_SUPPORT_SESSION_CAPACITY)
+                names_by_id = {
+                    str(participant["_id"]): f"{participant.get('first_name', '')} {participant.get('last_name', '')}".strip()
+                    for participant in participants
+                }
+                booking["participant_names"] = [
+                    names_by_id[value]
+                    for value in _participant_student_ids(booking)
+                    if value in names_by_id
+                ]
+
+        if current_user["role"] in {"student", "parent"}:
+            return [_safe_joinable_session(booking, None) for booking in bookings]
         return [serialize_doc(b) for b in bookings]
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -310,8 +454,13 @@ async def get_available_slots(
         existing_bookings = await db.support_bookings.find({
             "support_staff_id": support_staff_id,
             "booking_date": date,
-            "status": {"$in": ["scheduled", "confirmed"]}
+            "status": {"$in": ["scheduled", "confirmed"]},
+            "is_deleted": {"$ne": True},
         }).to_list(100)
+        existing_bookings = [
+            await ensure_booking_participants(db, booking)
+            for booking in existing_bookings
+        ]
         
         # Filter out booked slots
         available_slots = []
@@ -325,16 +474,173 @@ async def get_available_slots(
             if is_available:
                 available_slots.append(slot)
         
+        current_student = (
+            await get_current_student(db, current_user)
+            if current_user.get("role") == "student"
+            else None
+        )
+        current_user_id = str(current_user["_id"])
+        joinable_sessions = []
+        for booking in existing_bookings:
+            participant_count = max(
+                int(booking.get("participant_count", 0) or 0),
+                len(_participant_user_ids(booking)),
+                1,
+            )
+            if (
+                current_student
+                and current_user_id not in _participant_user_ids(booking)
+                and participant_count < _booking_capacity(booking)
+            ):
+                joinable_sessions.append(_safe_joinable_session(booking, support_staff))
+
         return {
             "support_staff": serialize_doc(support_staff),
             "date": date,
-            "available_slots": available_slots
+            "available_slots": available_slots,
+            "joinable_sessions": joinable_sessions,
         }
         
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/joinable")
+async def get_joinable_sessions(
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """List upcoming shared support sessions without exposing student identities."""
+    from server import db
+
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can join support sessions")
+
+    student = await get_current_student(db, current_user)
+    if not student:
+        return []
+    today = datetime.now(ZoneInfo("Asia/Tashkent")).date().isoformat()
+    bookings = await db.support_bookings.find({
+        "branch_id": student.get("branch_id"),
+        "booking_date": {"$gte": today},
+        "status": {"$in": ["scheduled", "confirmed"]},
+        "is_deleted": {"$ne": True},
+    }).sort([("booking_date", 1), ("start_time", 1)]).to_list(100)
+
+    support_ids = {
+        ObjectId(booking["support_staff_id"])
+        for booking in bookings
+        if ObjectId.is_valid(booking.get("support_staff_id", ""))
+    }
+    support_rows = await db.support_staff.find({"_id": {"$in": list(support_ids)}}).to_list(100)
+    support_by_id = {str(row["_id"]): row for row in support_rows}
+    current_user_id = str(current_user["_id"])
+    result = []
+    for booking in bookings:
+        booking = await ensure_booking_participants(db, booking)
+        participant_count = max(
+            int(booking.get("participant_count", 0) or 0),
+            len(_participant_user_ids(booking)),
+            1,
+        )
+        if current_user_id in _participant_user_ids(booking):
+            continue
+        if participant_count >= _booking_capacity(booking):
+            continue
+        result.append(_safe_joinable_session(
+            booking,
+            support_by_id.get(booking.get("support_staff_id")),
+        ))
+    return result
+
+
+@router.post("/{booking_id}/join")
+async def join_booking(
+    booking_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Join an existing shared support session (students only)."""
+    from server import db, serialize_doc, create_audit_log
+
+    if current_user.get("role") != "student":
+        raise HTTPException(status_code=403, detail="Only students can join support sessions")
+    if not ObjectId.is_valid(booking_id):
+        raise HTTPException(status_code=404, detail="Support session not found")
+
+    booking = await db.support_bookings.find_one({
+        "_id": ObjectId(booking_id),
+        "is_deleted": {"$ne": True},
+    })
+    if not booking:
+        raise HTTPException(status_code=404, detail="Support session not found")
+    if booking.get("status") not in {"scheduled", "confirmed"}:
+        raise HTTPException(status_code=409, detail="This support session is no longer open")
+    require_date_string_window(booking.get("booking_date", ""), future_days=30, label="Booking date")
+
+    student = await get_current_student(db, current_user)
+    if not student:
+        raise HTTPException(status_code=404, detail="Student profile not found")
+    if booking.get("branch_id") != student.get("branch_id"):
+        raise HTTPException(status_code=403, detail="Support session belongs to another branch")
+
+    booking = await ensure_booking_participants(db, booking)
+    current_user_id = str(current_user["_id"])
+    if current_user_id in _participant_user_ids(booking):
+        raise HTTPException(status_code=409, detail="You already joined this support session")
+
+    conflicting = await db.support_bookings.find_one({
+        "_id": {"$ne": booking["_id"]},
+        "booking_date": booking.get("booking_date"),
+        "status": {"$in": ["scheduled", "confirmed"]},
+        "is_deleted": {"$ne": True},
+        "$and": [
+            {"$or": [
+                {"student_user_id": current_user_id},
+                {"participant_user_ids": current_user_id},
+            ]},
+            {
+                "start_time": {"$lt": booking.get("end_time")},
+                "end_time": {"$gt": booking.get("start_time")},
+            },
+        ],
+    })
+    if conflicting:
+        raise HTTPException(status_code=409, detail="You already have a support session at this time")
+
+    result = await db.support_bookings.update_one(
+        {
+            "_id": booking["_id"],
+            "status": {"$in": ["scheduled", "confirmed"]},
+            "participant_user_ids": {"$ne": current_user_id},
+            "$expr": {"$lt": [{"$size": "$participant_user_ids"}, "$capacity"]},
+        },
+        {
+            "$addToSet": {
+                "participant_student_ids": str(student["_id"]),
+                "participant_user_ids": current_user_id,
+            },
+            "$inc": {"participant_count": 1},
+            "$set": {"updated_at": datetime.utcnow()},
+        },
+    )
+    if result.modified_count != 1:
+        latest = await db.support_bookings.find_one({"_id": booking["_id"]})
+        if latest and current_user_id in _participant_user_ids(latest):
+            raise HTTPException(status_code=409, detail="You already joined this support session")
+        raise HTTPException(status_code=409, detail="This support session is full")
+
+    updated = await db.support_bookings.find_one({"_id": booking["_id"]})
+    await create_audit_log(
+        current_user_id,
+        "join",
+        "support_booking",
+        booking_id,
+        {"participant_count": updated.get("participant_count")},
+        request.client.host if request.client else None,
+    )
+    return _safe_joinable_session(updated, None)
 
 @router.put("/{booking_id}/confirm")
 async def confirm_booking(
@@ -396,11 +702,59 @@ async def cancel_booking(
             raise HTTPException(status_code=404, detail="Booking not found")
         if booking.get("status") not in {"scheduled", "confirmed"}:
             raise HTTPException(status_code=409, detail="Only an upcoming booking can be cancelled")
+        booking = await ensure_booking_participants(db, booking)
         
         # Check permissions
         if current_user["role"] == "student":
-            if booking["student_user_id"] != str(current_user["_id"]):
+            current_user_id = str(current_user["_id"])
+            if current_user_id not in _participant_user_ids(booking):
                 raise HTTPException(status_code=403, detail="You can only cancel your own bookings")
+            student = await get_current_student(db, current_user)
+            if not student:
+                raise HTTPException(status_code=404, detail="Student profile not found")
+
+            remaining_user_ids = [
+                value for value in _participant_user_ids(booking)
+                if value != current_user_id
+            ]
+            if remaining_user_ids:
+                remaining_students = await db.students.find({
+                    "user_id": {"$in": remaining_user_ids},
+                    "status": {"$ne": "archived"},
+                }).to_list(MAX_SUPPORT_SESSION_CAPACITY)
+                student_by_user = {
+                    str(row.get("user_id")): str(row["_id"])
+                    for row in remaining_students
+                }
+                remaining_student_ids = [
+                    student_by_user[user_id]
+                    for user_id in remaining_user_ids
+                    if user_id in student_by_user
+                ]
+                if not remaining_student_ids:
+                    raise HTTPException(status_code=409, detail="The remaining session participants could not be resolved")
+                update = {
+                    "participant_user_ids": remaining_user_ids,
+                    "participant_student_ids": remaining_student_ids,
+                    "participant_count": len(remaining_user_ids),
+                    "student_user_id": remaining_user_ids[0],
+                    "student_id": remaining_student_ids[0],
+                    "updated_at": datetime.utcnow(),
+                }
+                await db.support_bookings.update_one(
+                    {"_id": ObjectId(booking_id), "participant_user_ids": current_user_id},
+                    {"$set": update},
+                )
+                await create_audit_log(
+                    current_user_id,
+                    "leave",
+                    "support_booking",
+                    booking_id,
+                    {"participant_count": len(remaining_user_ids)},
+                    request.client.host if request.client else None,
+                )
+                updated = await db.support_bookings.find_one({"_id": ObjectId(booking_id)})
+                return _safe_joinable_session(updated, None)
         elif current_user["role"] == "support":
             await require_booking_staff_access(db, current_user, booking)
         elif current_user["role"] not in ["super_admin", "manager"]:
@@ -408,7 +762,8 @@ async def cancel_booking(
         else:
             await require_booking_staff_access(db, current_user, booking)
         
-        # Update status
+        # The last student, support owner, or authorized manager cancels the
+        # complete session.
         await db.support_bookings.update_one(
             {"_id": ObjectId(booking_id)},
             {"$set": {"status": "cancelled", "updated_at": datetime.utcnow()}}
@@ -424,6 +779,8 @@ async def cancel_booking(
         )
         
         updated = await db.support_bookings.find_one({"_id": ObjectId(booking_id)})
+        if current_user["role"] == "student":
+            return _safe_joinable_session(updated, None)
         return serialize_doc(updated)
         
     except HTTPException:

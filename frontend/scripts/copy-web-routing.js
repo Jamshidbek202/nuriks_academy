@@ -20,11 +20,20 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
 -->`;
 
 if (existsSync(htmlPath)) {
-  const html = readFileSync(htmlPath, 'utf8');
+  let html = readFileSync(htmlPath, 'utf8');
+  html = html.replace(
+    /<meta\s+name=["']viewport["']\s+content=["'][^"']*["']\s*\/?\s*>/i,
+    '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />',
+  );
+  const hardeningStyle = '<style id="nuriks-web-hardening">html{-webkit-text-size-adjust:100%;text-size-adjust:100%;touch-action:manipulation}button,[role="button"],input,select,textarea{touch-action:manipulation;-webkit-tap-highlight-color:transparent}input,select,textarea{font-size:16px!important}</style>';
+  if (!html.includes('id="nuriks-web-hardening"')) {
+    html = html.replace('</head>', `${hardeningStyle}</head>`);
+  }
   const previousContract = /(<body[^>]*>)\s*<!--\s*THESIS:[\s\S]*?FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN\.md\s*-->/i;
   if (previousContract.test(html)) {
-    writeFileSync(htmlPath, html.replace(previousContract, `$1\n${designContract}`));
+    html = html.replace(previousContract, `$1\n${designContract}`);
   } else if (!html.includes('seed 6abe2f43')) {
-    writeFileSync(htmlPath, html.replace(/<body([^>]*)>/i, (match) => `${match}\n${designContract}`));
+    html = html.replace(/<body([^>]*)>/i, (match) => `${match}\n${designContract}`);
   }
+  writeFileSync(htmlPath, html);
 }

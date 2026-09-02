@@ -45,7 +45,7 @@ export default defineConfig({
     {
       name: 'app-web',
       cwd: path.join(repositoryRoot, 'frontend'),
-      command: 'npx expo start --web --port 8082',
+      command: 'npx expo start --web --port 8082 --clear',
       url: 'http://127.0.0.1:8082/login',
       reuseExistingServer: false,
       timeout: 180_000,

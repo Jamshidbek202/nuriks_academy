@@ -48,6 +48,7 @@ from finance_models import (  # noqa: E402
     ScheduleSlot,
 )
 from finance_service import create_group_finance_version, record_lesson_resolution  # noqa: E402
+from scripts.reset_shadow_database import reset_shadow_database  # noqa: E402
 from finance_qa.mongo_support import (  # noqa: E402
     QA_PASSWORD,
     QA_USERS,
@@ -98,6 +99,31 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    async def test_shadow_reset_preserves_source_and_copies_only_super_admin(self):
+        target_name = f"nurik_shadow_qa_{uuid4().hex[:10]}"
+        source_users_before = await self.db.users.count_documents({})
+        source_admin = await self.db.users.find_one({"role": "super_admin"})
+        try:
+            report = await reset_shadow_database(
+                self.db.name,
+                target_name,
+                target_name,
+            )
+            self.assertEqual(report["users"], 1)
+            self.assertEqual(report["non_admin_users"], 0)
+            self.assertEqual(report["other_documents"], 0)
+            target = self.mongo_client[target_name]
+            target_users = await target.users.find({}).to_list(5)
+            self.assertEqual(len(target_users), 1)
+            self.assertEqual(target_users[0]["_id"], source_admin["_id"])
+            self.assertEqual(target_users[0]["password_hash"], source_admin["password_hash"])
+            self.assertEqual(target_users[0]["role"], "super_admin")
+            self.assertTrue(target_users[0]["is_active"])
+            self.assertEqual(target_users[0]["account_status"], "active")
+            self.assertEqual(await self.db.users.count_documents({}), source_users_before)
+        finally:
+            await self.mongo_client.drop_database(target_name)
 
     async def test_finance_indexes_preserve_legacy_cash_shifts_without_business_dates(self):
         index_name = "cashbox_id_1_business_date_1"
@@ -297,6 +323,87 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
             f"/api/support-bookings/{booking_id}/cancel", headers=student_headers
         )
         self.assertEqual(second_cancel.status_code, 409, second_cancel.text)
+
+    async def test_students_can_discover_join_and_leave_shared_support_session(self):
+        browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
+        student_a_headers = await self.login(QA_USERS["student_a"])
+        student_b_headers = await self.login(QA_USERS["student_b"])
+        support_headers = await self.login(QA_USERS["support_a"])
+        session_date = (date.today() + timedelta(days=1)).isoformat()
+
+        created = await self.http.post(
+            "/api/support-bookings",
+            headers=student_a_headers,
+            json={
+                "support_staff_id": browser_fixture["support_staff_id"],
+                "booking_date": session_date,
+                "start_time": "09:00",
+                "duration_minutes": 40,
+                "topic": "IELTS speaking: describing a graph",
+            },
+        )
+        self.assertEqual(created.status_code, 200, created.text)
+        booking_id = created.json()["id"]
+        self.assertEqual(created.json()["participant_count"], 1)
+
+        joinable = await self.http.get(
+            "/api/support-bookings/joinable", headers=student_b_headers
+        )
+        self.assertEqual(joinable.status_code, 200, joinable.text)
+        row = next(item for item in joinable.json() if item["id"] == booking_id)
+        self.assertEqual(row["participant_count"], 1)
+        self.assertEqual(row["capacity"], 6)
+        self.assertEqual(row["topic"], "IELTS speaking: describing a graph")
+        self.assertNotIn("student_name", row)
+        self.assertNotIn("participant_names", row)
+        self.assertNotIn("participant_user_ids", row)
+
+        joined = await self.http.post(
+            f"/api/support-bookings/{booking_id}/join", headers=student_b_headers
+        )
+        self.assertEqual(joined.status_code, 200, joined.text)
+        self.assertEqual(joined.json()["participant_count"], 2)
+        duplicate = await self.http.post(
+            f"/api/support-bookings/{booking_id}/join", headers=student_b_headers
+        )
+        self.assertEqual(duplicate.status_code, 409, duplicate.text)
+
+        support_rows = await self.http.get(
+            "/api/support-bookings", headers=support_headers
+        )
+        self.assertEqual(support_rows.status_code, 200, support_rows.text)
+        staff_row = next(item for item in support_rows.json() if item["id"] == booking_id)
+        self.assertEqual(staff_row["participant_count"], 2)
+        self.assertEqual(
+            set(staff_row["participant_names"]),
+            {"Live Student", "Joiner Student"},
+        )
+
+        first_leaves = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel", headers=student_a_headers
+        )
+        self.assertEqual(first_leaves.status_code, 200, first_leaves.text)
+        self.assertEqual(first_leaves.json()["status"], "scheduled")
+        self.assertEqual(first_leaves.json()["participant_count"], 1)
+        stored_after_first_leave = await self.db.support_bookings.find_one(
+            {"_id": ObjectId(booking_id)}
+        )
+        self.assertEqual(stored_after_first_leave["student_id"], browser_fixture["student_b_id"])
+
+        student_a_rows = await self.http.get(
+            "/api/support-bookings", headers=student_a_headers
+        )
+        student_b_rows = await self.http.get(
+            "/api/support-bookings", headers=student_b_headers
+        )
+        self.assertNotIn(booking_id, {row["id"] for row in student_a_rows.json()})
+        self.assertIn(booking_id, {row["id"] for row in student_b_rows.json()})
+
+        last_leaves = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel", headers=student_b_headers
+        )
+        self.assertEqual(last_leaves.status_code, 200, last_leaves.text)
+        self.assertEqual(last_leaves.json()["status"], "cancelled")
 
     async def test_concurrent_idempotent_expense_and_cash_payment_reconcile(self):
         manager = await self.db.users.find_one({"login": QA_USERS["manager_a"]})
