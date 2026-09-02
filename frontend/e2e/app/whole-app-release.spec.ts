@@ -391,6 +391,32 @@ test('mobile viewport prevents zoom and cached user data cannot authenticate wit
   }
 });
 
+test('a valid saved session opens the account from a direct login link', async ({ browser, request }) => {
+  const token = await apiLogin(request, 'super_admin');
+  const context = await browser.newContext();
+  await context.addInitScript((savedToken) => {
+    localStorage.setItem('token', savedToken);
+  }, token);
+  const page = await context.newPage();
+  const observed = {
+    consoleErrors: [] as string[],
+    pageErrors: [] as string[],
+    serverErrors: [] as string[],
+    dialogs: [] as string[],
+  };
+  monitor(page, observed);
+  try {
+    await page.goto('/login?returning=1');
+    await expect(page.getByRole('tab', { name: 'Home' }).first()).toBeVisible({ timeout: 15_000 });
+    await expect(page).not.toHaveURL(/\/login/);
+    await expect(page.getByTestId('login-submit-button')).toHaveCount(0);
+    expect(await page.evaluate(() => localStorage.getItem('token'))).toBe(token);
+    await assertHealthy({ context, page, ...observed }, 'saved session direct login redirect');
+  } finally {
+    await context.close();
+  }
+});
+
 for (const viewport of ['desktop', 'phone'] as const) {
   test(`all role navigation renders and remains usable on ${viewport}`, async ({ browser }, testInfo) => {
     test.setTimeout(240_000);

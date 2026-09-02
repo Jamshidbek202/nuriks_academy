@@ -173,7 +173,13 @@ export default function LoginScreen() {
   const [passwordFocused, setPasswordFocused] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
-  const { login: authLogin, sessionNotice, clearSessionNotice } = useAuth();
+  const {
+    user,
+    isLoading: authIsLoading,
+    login: authLogin,
+    sessionNotice,
+    clearSessionNotice,
+  } = useAuth();
   const { t } = useLanguage();
   const router = useRouter();
   const { reduceMotion, ready: motionReady } = useMotionPreference();
@@ -187,6 +193,12 @@ export default function LoginScreen() {
   const sheen = useSharedValue(0);
   const logoSheen = useSharedValue(0);
   const panelSheen = useSharedValue(0);
+
+  useEffect(() => {
+    if (!authIsLoading && user) {
+      router.replace('/(dashboard)');
+    }
+  }, [authIsLoading, router, user]);
 
   useEffect(() => {
     cancelAnimation(sceneEntrance);
@@ -315,6 +327,19 @@ export default function LoginScreen() {
   const arrowMotion = useAnimatedStyle(() => ({
     transform: [{ translateX: reduceMotion ? 0 : interpolate(sheen.get(), [0, 0.62, 1], [0, 4, 0]) }],
   }), [reduceMotion]);
+
+  if (authIsLoading || user) {
+    return (
+      <View style={[styles.container, styles.sessionGate]} testID="login-session-gate">
+        <ConcourseAtmosphere />
+        <ActivityIndicator
+          size="large"
+          color={COLORS.gold}
+          accessibilityLabel={t('Loading...')}
+        />
+      </View>
+    );
+  }
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -573,6 +598,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: { flex: 1, backgroundColor: COLORS.background },
+  sessionGate: { alignItems: 'center', justifyContent: 'center' },
   edgeVignette: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'transparent',
