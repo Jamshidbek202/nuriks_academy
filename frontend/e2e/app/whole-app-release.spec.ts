@@ -39,6 +39,19 @@ async function rawMongoRecord(collection: string, id: string) {
   }
 }
 
+async function rawMongoCount(collection: string, query: Record<string, unknown>) {
+  const mongoUrl = process.env.MONGO_URL;
+  const databaseName = process.env.DB_NAME;
+  if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
+  const client = new MongoClient(mongoUrl);
+  try {
+    await client.connect();
+    return await client.db(databaseName).collection(collection).countDocuments(query);
+  } finally {
+    await client.close();
+  }
+}
+
 async function openQaAttendanceWindow(groupId: string, localDateValue: string) {
   const mongoUrl = process.env.MONGO_URL;
   const databaseName = process.env.DB_NAME;
@@ -669,7 +682,7 @@ test('course catalog CRUD, permissions, safeguards, and live UI synchronization 
   }
 });
 
-test('every worker supports reversible deactivation and guarded permanent deletion with reusable identity', async ({ browser, request }) => {
+test('every worker supports reversible deactivation and complete permanent deletion with reusable identity', async ({ browser, request }) => {
   test.setTimeout(180_000);
   const superToken = await apiLogin(request, 'super_admin');
   const session = await loginUi(browser, 'super_admin');
@@ -727,13 +740,10 @@ test('every worker supports reversible deactivation and guarded permanent deleti
     await session.page.getByTestId('teacher-delete-button').click();
     const deletedTeacher = await teacherDeleteResponse;
     expect(deletedTeacher.ok(), `delete activated teacher: ${await deletedTeacher.text()}`).toBeTruthy();
-    expect((await deletedTeacher.json()).deletion_mode).toBe('history_tombstone');
+    expect((await deletedTeacher.json()).deletion_mode).toBe('hard_delete');
     await expect(session.page.getByTestId(`teacher-card-${teacher.id}`)).toHaveCount(0);
-    const teacherTombstone = await rawMongoRecord('teachers', teacher.id);
-    const teacherUserTombstone = await rawMongoRecord('users', teacher.user_id);
-    expect(teacherTombstone?.is_deleted).toBe(true);
-    expect(teacherUserTombstone?.is_deleted).toBe(true);
-    expect(teacherUserTombstone).not.toHaveProperty('phone_normalized');
+    expect(await rawMongoRecord('teachers', teacher.id)).toBeNull();
+    expect(await rawMongoRecord('users', teacher.user_id)).toBeNull();
     const retiredTeacherLogin = await request.post(`${API_URL}/auth/login`, {
       data: { login: `+99895${suffix}`, password: 'UiTeacher@2026!' },
     });
@@ -829,11 +839,9 @@ test('every worker supports reversible deactivation and guarded permanent deleti
     await session.page.getByTestId('staff-delete-button').click();
     const deletedManager = await managerDeleteResponse;
     expect(deletedManager.ok(), `delete activated manager: ${await deletedManager.text()}`).toBeTruthy();
-    expect((await deletedManager.json()).deletion_mode).toBe('history_tombstone');
+    expect((await deletedManager.json()).deletion_mode).toBe('hard_delete');
     await expect(session.page.getByTestId(`staff-account-card-${managerAccount.id}`)).toHaveCount(0);
-    const managerTombstone = await rawMongoRecord('users', managerAccount.id);
-    expect(managerTombstone?.is_deleted).toBe(true);
-    expect(managerTombstone).not.toHaveProperty('phone_normalized');
+    expect(await rawMongoRecord('users', managerAccount.id)).toBeNull();
     const reusedManager = await expectApiOk(
       await apiCall(request, superToken, 'post', '/staff-accounts', {
         full_name: `Reused Manager${suffix}`,
@@ -896,13 +904,10 @@ test('every worker supports reversible deactivation and guarded permanent deleti
     await session.page.getByTestId('support-staff-delete-button').click();
     const deletedSupport = await supportDeleteResponse;
     expect(deletedSupport.ok(), `delete activated support worker: ${await deletedSupport.text()}`).toBeTruthy();
-    expect((await deletedSupport.json()).deletion_mode).toBe('history_tombstone');
+    expect((await deletedSupport.json()).deletion_mode).toBe('hard_delete');
     await expect(session.page.getByTestId(`support-staff-card-${support.id}`)).toHaveCount(0);
-    const supportTombstone = await rawMongoRecord('support_staff', support.id);
-    const supportUserTombstone = await rawMongoRecord('users', support.user_id);
-    expect(supportTombstone?.is_deleted).toBe(true);
-    expect(supportUserTombstone?.is_deleted).toBe(true);
-    expect(supportUserTombstone).not.toHaveProperty('phone_normalized');
+    expect(await rawMongoRecord('support_staff', support.id)).toBeNull();
+    expect(await rawMongoRecord('users', support.user_id)).toBeNull();
     const reusedSupport = await expectApiOk(
       await apiCall(request, superToken, 'post', '/support-staff', {
         first_name: 'Reused',
@@ -921,6 +926,76 @@ test('every worker supports reversible deactivation and guarded permanent deleti
   } finally {
     await session.context.close();
   }
+});
+
+test('student creation has one canonical identity and permanent deletion leaves no stale account', async ({ request }) => {
+  const superToken = await apiLogin(request, 'super_admin');
+  const suffix = Date.now().toString().slice(-7);
+  const phone = `+99891${suffix}`;
+
+  const created = await expectApiOk(
+    await apiCall(request, superToken, 'post', '/students', {
+      first_name: 'Canonical',
+      last_name: `Student${suffix}`,
+      phone,
+      courses: [],
+    }),
+    'create canonical student',
+  );
+  expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(1);
+  expect(await rawMongoCount('students', { user_id: created.user_id })).toBe(1);
+
+  const duplicate = await apiCall(request, superToken, 'post', '/students', {
+    first_name: 'Duplicate',
+    last_name: `Student${suffix}`,
+    phone,
+    courses: [],
+  });
+  expect(duplicate.status()).toBe(409);
+  expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(1);
+  expect(await rawMongoCount('students', { user_id: created.user_id })).toBe(1);
+
+  const deleted = await expectApiOk(
+    await apiCall(
+      request,
+      superToken,
+      'delete',
+      `/students/${created.id}/permanent?confirmation=${encodeURIComponent(created.student_id)}`,
+    ),
+    'permanently delete canonical student',
+  );
+  expect(deleted.deleted).toBe(true);
+  expect(deleted.linked_account_deleted).toBe(true);
+  expect(await rawMongoRecord('students', created.id)).toBeNull();
+  expect(await rawMongoRecord('users', created.user_id)).toBeNull();
+  expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(0);
+
+  const visibleStudents = await expectApiOk(
+    await apiCall(request, superToken, 'get', '/students?include_archived=true&limit=1000'),
+    'load students after permanent deletion',
+  );
+  expect(visibleStudents.some((row: any) => row.id === created.id)).toBe(false);
+
+  const reused = await expectApiOk(
+    await apiCall(request, superToken, 'post', '/students', {
+      first_name: 'Reused',
+      last_name: `Student${suffix}`,
+      phone,
+      courses: [],
+    }),
+    'reuse permanently deleted student phone',
+  );
+  expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(1);
+  await expectApiOk(
+    await apiCall(
+      request,
+      superToken,
+      'delete',
+      `/students/${reused.id}/permanent?confirmation=${encodeURIComponent(reused.student_id)}`,
+    ),
+    'clean up reused student',
+  );
+  expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(0);
 });
 
 test('invited manager creates and recovers a password through the phone-auth UI', async ({ browser, request }) => {
@@ -1305,15 +1380,6 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
 
   expect((await apiCall(request, managerBToken, 'delete', `/teachers/${teacher.id}`)).status()).toBe(403);
   expect((await apiCall(request, managerBToken, 'delete', `/support-staff/${support.id}`)).status()).toBe(403);
-  const assignedTeacherDeletion = await apiCall(request, superToken, 'delete', `/teachers/${teacher.id}`);
-  const assignedTeacherDeletionBody = await assignedTeacherDeletion.text();
-  expect(assignedTeacherDeletion.status(), assignedTeacherDeletionBody).toBe(409);
-  expect(assignedTeacherDeletionBody).toContain('Reassign or close');
-  const bookedSupportDeletion = await apiCall(request, superToken, 'delete', `/support-staff/${support.id}`);
-  const bookedSupportDeletionBody = await bookedSupportDeletion.text();
-  expect(bookedSupportDeletion.status(), bookedSupportDeletionBody).toBe(409);
-  expect(bookedSupportDeletionBody).toContain('Reassign or cancel');
-
   for (const [label, response] of [
     ['student list override', await apiCall(request, managerAToken, 'get', `/students?branch_id=${branchBId}`)],
     ['teacher list override', await apiCall(request, managerAToken, 'get', `/teachers?branch_id=${branchBId}`)],
@@ -1408,6 +1474,29 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
   await expectApiOk(await apiCall(request, managerBToken, 'patch', `/students/${student.id}/restore`), 'restore own-branch student');
   const restored = await expectApiOk(await apiCall(request, managerBToken, 'get', `/students/${student.id}`), 'read restored student');
   expect(restored.status).toBe('active');
+
+  const assignedTeacherDeletion = await expectApiOk(
+    await apiCall(request, superToken, 'delete', `/teachers/${teacher.id}`),
+    'super admin hard-deletes assigned teacher',
+  );
+  expect(assignedTeacherDeletion.deletion_mode).toBe('hard_delete');
+  const bookedSupportDeletion = await expectApiOk(
+    await apiCall(request, superToken, 'delete', `/support-staff/${support.id}`),
+    'super admin hard-deletes booked support worker',
+  );
+  expect(bookedSupportDeletion.deletion_mode).toBe('hard_delete');
+  expect(await rawMongoRecord('teachers', teacher.id)).toBeNull();
+  expect(await rawMongoRecord('support_staff', support.id)).toBeNull();
+  expect(await rawMongoRecord('support_bookings', branchBBooking.id)).toBeNull();
+  const groupRowsAfterTeacherDeletion = await expectApiOk(
+    await apiCall(request, managerBToken, 'get', '/groups'),
+    'groups survive teacher deletion',
+  );
+  const groupAfterTeacherDeletion = groupRowsAfterTeacherDeletion.find(
+    (row: any) => row.id === branchBGroup.id,
+  );
+  expect(groupAfterTeacherDeletion).toBeTruthy();
+  expect(groupAfterTeacherDeletion.teacher_id).toBeFalsy();
 });
 
 test('lead detail, status, conversion, and student list synchronize across active staff sessions', async ({ browser, request }) => {
@@ -1457,6 +1546,15 @@ test('lead detail, status, conversion, and student list synchronize across activ
     const convertedLead = await expectApiOk(await apiCall(request, receptionToken, 'get', `/leads/${lead.id}`), 'load converted lead');
     expect(convertedLead.status).toBe('enrolled');
     expect(convertedLead.converted_to_student_id).toBeTruthy();
+    const duplicateConversion = await apiCall(
+      request, receptionToken, 'post', `/leads/${lead.id}/convert`,
+    );
+    expect(duplicateConversion.status()).toBe(409);
+    const visibleStudents = await expectApiOk(
+      await apiCall(request, receptionToken, 'get', '/students?limit=1000'),
+      'verify one converted student',
+    );
+    expect(visibleStudents.filter((row: any) => row.first_name === `Live${unique}`).length).toBe(1);
     await expect(
       manager.page
         .getByTestId(`student-card-${convertedLead.converted_to_student_id}`)

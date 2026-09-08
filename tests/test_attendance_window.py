@@ -44,17 +44,26 @@ class AttendanceWindowTests(unittest.TestCase):
         self.assertEqual(attendance_window_state(self.occurrence, after_end), "ended_unresolved")
         self.assertTrue(attendance_is_open(self.occurrence, after_end))
 
-    def test_resolution_or_financial_lock_closes_attendance(self):
+    def test_resolution_or_financial_lock_does_not_close_attendance(self):
         for change in (
             {"resolution_status": "resolved"},
             {"resolution_status": "pending_approval"},
             {"resolution_status": "replacement_required"},
             {"locked_at": self.end},
-            {"superseded": True},
         ):
             occurrence = {**self.occurrence, **change}
-            self.assertEqual(attendance_window_state(occurrence, self.end), "closed")
-            self.assertFalse(attendance_is_open(occurrence, self.end))
+            self.assertEqual(attendance_window_state(occurrence, self.end), "in_progress")
+            self.assertTrue(attendance_is_open(occurrence, self.end))
+            self.assertEqual(
+                attendance_window_state(occurrence, self.end + timedelta(days=30)),
+                "ended_unresolved",
+            )
+            self.assertTrue(attendance_is_open(occurrence, self.end + timedelta(days=30)))
+
+    def test_superseded_occurrence_is_not_a_real_lesson_register(self):
+        occurrence = {**self.occurrence, "superseded": True}
+        self.assertEqual(attendance_window_state(occurrence, self.end), "closed")
+        self.assertFalse(attendance_is_open(occurrence, self.end))
 
     def test_timezone_aware_instants_are_compared_as_utc(self):
         occurrence = {

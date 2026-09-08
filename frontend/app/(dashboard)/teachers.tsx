@@ -232,7 +232,7 @@ export default function TeachersScreen() {
   const handleDeleteTeacher = (teacher: Teacher) => {
     showConfirm(
       'Permanently Delete Teacher',
-      `Delete ${teacher.first_name} ${teacher.last_name} permanently?\n\nThis cannot be undone. Their login, phone number, and Telegram connection will be released, while historical payroll, lesson, and audit records remain. Active groups must be reassigned or closed first.`,
+      `Delete ${teacher.first_name} ${teacher.last_name} permanently?\n\nThis cannot be undone. Their login and profile will be deleted, their phone and Telegram connection released, and existing groups will become unassigned.`,
       async () => {
         setActionLoading(true);
         try {

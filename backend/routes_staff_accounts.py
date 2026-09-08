@@ -463,9 +463,8 @@ async def delete_staff_account(
 ):
     """Permanently remove a manager or reception account.
 
-    Activated staff become hidden non-login tombstones so historical audit and
-    operational records retain a resolvable actor. Their phone and Telegram
-    identity are still released immediately.
+    The canonical user document and all private account artifacts are removed;
+    the phone and Telegram identity are released immediately.
     """
     from server import db
 

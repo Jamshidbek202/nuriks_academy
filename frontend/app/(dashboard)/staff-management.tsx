@@ -278,7 +278,7 @@ export default function StaffManagementScreen() {
   const deleteWorker = (staff: StaffRecord) => {
     showConfirm(
       'Permanently Delete Worker',
-      `Delete ${displayName(staff)} permanently?\n\nThis cannot be undone. Their login, phone number, and Telegram connection will be released, while historical records remain. Open assignments or bookings must be reassigned first. Use Deactivate if the worker may return.`,
+      `Delete ${displayName(staff)} permanently?\n\nThis cannot be undone. Their login, profile, phone, Telegram connection, and personal data will be removed. Support bookings will also be deleted. Use Deactivate if the worker may return.`,
       async () => {
         setActionLoading(true);
         try {

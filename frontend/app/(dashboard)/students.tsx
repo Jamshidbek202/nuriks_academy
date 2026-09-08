@@ -171,7 +171,7 @@ export default function StudentsScreen() {
     if (Platform.OS !== 'web' || user?.role !== 'super_admin') return;
 
     const confirmation = window.prompt(
-      `Permanent deletion cannot be undone. Type ${student.student_id} to continue. Students with historical records cannot be permanently deleted.`
+      `Permanent deletion cannot be undone. Type ${student.student_id} to continue. The account and all linked student data will be deleted.`
     );
     if (confirmation === null) return;
 
@@ -391,17 +391,32 @@ export default function StudentsScreen() {
                   </View>
                 </MotionTouchableOpacity>
                 {!isReception && student.status !== 'archived' && (
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`Archive ${student.first_name} ${student.last_name}`}
-                    style={styles.deleteButton}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleArchiveStudent(student);
-                    }}
-                  >
-                    <Ionicons name="archive-outline" size={20} color={COLORS.error} />
-                  </TouchableOpacity>
+                  <View style={styles.archivedActions}>
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={`Archive ${student.first_name} ${student.last_name}`}
+                      style={styles.deleteButton}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        handleArchiveStudent(student);
+                      }}
+                    >
+                      <Ionicons name="archive-outline" size={20} color={COLORS.error} />
+                    </TouchableOpacity>
+                    {Platform.OS === 'web' && user?.role === 'super_admin' && (
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityLabel={`Permanently delete ${student.first_name} ${student.last_name}`}
+                        style={styles.deleteButton}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handlePermanentDelete(student);
+                        }}
+                      >
+                        <Ionicons name="trash-outline" size={20} color={COLORS.error} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
                 )}
                 {!isReception && student.status === 'archived' && (
                   <View style={styles.archivedActions}>

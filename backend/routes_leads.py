@@ -15,6 +15,7 @@ from phone_auth import (
     phone_required_user_document,
 )
 from pymongo import ReturnDocument
+from pymongo.errors import DuplicateKeyError, OperationFailure
 
 router = APIRouter(prefix="/leads", tags=["CRM"])
 security = HTTPBearer()
@@ -401,8 +402,8 @@ async def convert_lead_to_student(
     request: Request,
     current_user: dict = Depends(get_current_user_dep)
 ):
-    """Convert lead to student"""
-    from server import db, serialize_doc, create_audit_log
+    """Atomically convert one lead into exactly one canonical student account."""
+    from server import db
     
     if current_user["role"] not in LEAD_OPERATION_ROLES:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -410,165 +411,200 @@ async def convert_lead_to_student(
     try:
         if not ObjectId.is_valid(lead_id):
             raise HTTPException(status_code=404, detail="Lead not found")
-        lead = await db.leads.find_one({"_id": ObjectId(lead_id)})
-        if not lead:
-            raise HTTPException(status_code=404, detail="Lead not found")
-        require_lead_access(current_user, lead)
-        
-        if lead.get("converted_to_student_id"):
-            raise HTTPException(status_code=400, detail="Lead already converted")
 
-        # Older leads may predate branch inheritance. Converted students must
-        # still land in the converting manager/admin's visible branch.
-        student_branch_id = lead.get("branch_id") or current_user.get("branch_id")
-        
-        # Get next student ID
-        result = await db.counters.find_one_and_update(
-            {"_id": "student_id"},
-            {"$inc": {"seq": 1}},
-            upsert=True,
-            return_document=ReturnDocument.AFTER,
-        )
-        from auth import generate_student_id
-        student_id = generate_student_id(result["seq"])
-        
-        account_access_mode, contact_phone, parent_phone = validate_lead_access_fields(lead)
-        student_login_phone = (
-            contact_phone if account_access_mode in {"student_only", "separate"} else None
-        )
+        invitation_users: list[dict] = []
+        parent_account_status = None
+        async with await db.client.start_session() as session:
+            async with session.start_transaction():
+                lead = await db.leads.find_one({"_id": ObjectId(lead_id)}, session=session)
+                if not lead:
+                    raise HTTPException(status_code=404, detail="Lead not found")
+                require_lead_access(current_user, lead)
+                if lead.get("converted_to_student_id"):
+                    raise HTTPException(status_code=409, detail="Lead already converted")
 
-        # Validate ownership before creating either account. One phone can own
-        # one login only; a parent-managed child has a profile but no login phone.
-        existing_parent_user = None
-        if parent_phone:
-            existing_parent_user = await db.users.find_one({"phone_normalized": parent_phone})
-            if existing_parent_user and existing_parent_user.get("role") != "parent":
-                raise HTTPException(status_code=409, detail="Parent phone is already used by another account")
-        if student_login_phone and await db.users.find_one({"phone_normalized": student_login_phone}):
-            raise HTTPException(status_code=409, detail="Student phone is already used by another account")
+                existing_conversion = await db.students.find_one(
+                    {"source_lead_id": lead_id}, session=session
+                )
+                if existing_conversion:
+                    raise HTTPException(status_code=409, detail="Lead already converted")
 
-        parent_id = None
-        invitation_users = []
-        if account_access_mode in {"parent_only", "separate"}:
-            # Check if parent already exists
-            existing_parent = None
-            if existing_parent_user:
-                existing_parent = await db.parents.find_one({"user_id": str(existing_parent_user["_id"])})
-            
-            if existing_parent:
-                parent_id = str(existing_parent["_id"])
-            else:
-                parent_names = lead["parent_name"].split()
-                if existing_parent_user:
-                    parent_user = existing_parent_user
-                    parent_user_id = existing_parent_user["_id"]
-                    if parent_user.get("account_status") == "pending_invite":
-                        invitation_users.append(parent_user)
-                else:
-                    parent_user = invited_user_document(
-                        phone=parent_phone,
-                        full_name=lead["parent_name"],
-                        role="parent",
+                student_branch_id = lead.get("branch_id") or current_user.get("branch_id")
+                account_access_mode, contact_phone, parent_phone = validate_lead_access_fields(lead)
+                student_login_phone = (
+                    contact_phone if account_access_mode in {"student_only", "separate"} else None
+                )
+
+                course_ids = []
+                if lead.get("interested_course"):
+                    course = await db.courses.find_one({
+                        "name": lead["interested_course"],
+                        "is_active": {"$ne": False},
+                    }, session=session)
+                    if not course:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="The lead's selected course is no longer active. Update the lead before conversion.",
+                        )
+                    course_ids = [str(course["_id"])]
+
+                existing_parent_user = None
+                if parent_phone:
+                    existing_parent_user = await db.users.find_one(
+                        {"phone_normalized": parent_phone}, session=session
+                    )
+                    if existing_parent_user and existing_parent_user.get("role") != "parent":
+                        raise HTTPException(status_code=409, detail="Parent phone is already used by another account")
+                if student_login_phone and await db.users.find_one(
+                    {"phone_normalized": student_login_phone}, session=session
+                ):
+                    raise HTTPException(status_code=409, detail="Student phone is already used by another account")
+
+                counter = await db.counters.find_one_and_update(
+                    {"_id": "student_id"},
+                    {"$inc": {"seq": 1}},
+                    upsert=True,
+                    return_document=ReturnDocument.AFTER,
+                    session=session,
+                )
+                from auth import generate_student_id
+                student_id = generate_student_id(counter["seq"])
+
+                parent_id = None
+                if account_access_mode in {"parent_only", "separate"}:
+                    existing_parent = None
+                    if existing_parent_user:
+                        existing_parent = await db.parents.find_one(
+                            {"user_id": str(existing_parent_user["_id"])}, session=session
+                        )
+                    if existing_parent:
+                        parent_id = str(existing_parent["_id"])
+                        parent_account_status = existing_parent_user.get("account_status")
+                    else:
+                        parent_names = lead["parent_name"].split()
+                        parent_user = existing_parent_user
+                        if not parent_user:
+                            parent_user = invited_user_document(
+                                phone=parent_phone,
+                                full_name=lead["parent_name"],
+                                role="parent",
+                                email=None,
+                                branch_id=student_branch_id,
+                                language_preference=current_user.get("language_preference", "ru"),
+                                created_by=str(current_user["_id"]),
+                            )
+                            inserted_parent_user = await db.users.insert_one(parent_user, session=session)
+                            parent_user["_id"] = inserted_parent_user.inserted_id
+                        if parent_user.get("account_status") == "pending_invite":
+                            invitation_users.append(parent_user)
+                        parent_account_status = parent_user.get("account_status")
+                        parent_profile = {
+                            "user_id": str(parent_user["_id"]),
+                            "first_name": parent_names[0],
+                            "last_name": parent_names[-1] if len(parent_names) > 1 else "",
+                            "phone": parent_phone,
+                            "email": None,
+                            "student_ids": [],
+                            "branch_id": student_branch_id,
+                            "created_at": datetime.utcnow(),
+                            "updated_at": datetime.utcnow(),
+                        }
+                        parent_result = await db.parents.insert_one(parent_profile, session=session)
+                        parent_id = str(parent_result.inserted_id)
+
+                full_name = f"{lead['first_name']} {lead['last_name']}"
+                student_user = (
+                    invited_user_document(
+                        phone=student_login_phone,
+                        full_name=full_name,
+                        role="student",
                         email=None,
                         branch_id=student_branch_id,
                         language_preference=current_user.get("language_preference", "ru"),
                         created_by=str(current_user["_id"]),
                     )
-                    parent_user_result = await db.users.insert_one(parent_user)
-                    parent_user["_id"] = parent_user_result.inserted_id
-                    parent_user_id = parent_user_result.inserted_id
-                    invitation_users.append(parent_user)
-                
-                # Create parent profile
-                parent_profile = {
-                    "user_id": str(parent_user_id),
-                    "first_name": parent_names[0],
-                    "last_name": parent_names[-1] if len(parent_names) > 1 else "",
-                    "phone": parent_phone,
-                    "email": None,
-                    "student_ids": [],
-                    "branch_id": student_branch_id,
-                    "created_at": datetime.utcnow()
-                }
-                parent_result = await db.parents.insert_one(parent_profile)
-                parent_id = str(parent_result.inserted_id)
-        
-        if not student_login_phone:
-            student_user = phone_required_user_document(
-                login=student_id.lower(),
-                full_name=f"{lead['first_name']} {lead['last_name']}",
-                role="student",
-                email=None,
-                branch_id=student_branch_id,
-                language_preference=current_user.get("language_preference", "ru"),
-                created_by=str(current_user["_id"]),
-            )
-        else:
-            student_user = invited_user_document(
-                phone=student_login_phone,
-                full_name=f"{lead['first_name']} {lead['last_name']}",
-                role="student",
-                email=None,
-                branch_id=student_branch_id,
-                language_preference=current_user.get("language_preference", "ru"),
-                created_by=str(current_user["_id"]),
-            )
-        student_user_result = await db.users.insert_one(student_user)
-        student_user["_id"] = student_user_result.inserted_id
-        if student_login_phone:
-            invitation_users.append(student_user)
-        
-        # Get interested course ID
-        course_ids = []
-        if lead.get("interested_course"):
-            course = await db.courses.find_one({
-                "name": lead["interested_course"],
-                "is_active": {"$ne": False},
-            })
-            if course:
-                course_ids = [str(course["_id"])]
-            else:
-                raise HTTPException(
-                    status_code=409,
-                    detail="The lead's selected course is no longer active. Update the lead before conversion.",
+                    if student_login_phone
+                    else phone_required_user_document(
+                        login=student_id.lower(),
+                        full_name=full_name,
+                        role="student",
+                        email=None,
+                        branch_id=student_branch_id,
+                        language_preference=current_user.get("language_preference", "ru"),
+                        created_by=str(current_user["_id"]),
+                    )
                 )
-        
-        # Create student profile
-        student = {
-            "student_id": student_id,
-            "user_id": str(student_user_result.inserted_id),
-            "parent_id": parent_id,
-            "first_name": lead["first_name"],
-            "last_name": lead["last_name"],
-            "date_of_birth": None,
-            "phone": student_login_phone,
-            "email": None,
-            "photo": None,
-            "address": None,
-            "course_ids": course_ids,
-            "group_ids": [],
-            "status": "active",
-            "enrollment_date": datetime.utcnow(),
-            "branch_id": student_branch_id,
-            "referred_by_student_id": lead.get("referred_by_student_id"),
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-        student_result = await db.students.insert_one(student)
-        
-        # Update parent's student list
-        if parent_id:
-            await db.parents.update_one(
-                {"_id": ObjectId(parent_id)},
-                {"$push": {"student_ids": str(student_result.inserted_id)}}
-            )
+                student_user_result = await db.users.insert_one(student_user, session=session)
+                student_user["_id"] = student_user_result.inserted_id
+                if student_login_phone:
+                    invitation_users.append(student_user)
+
+                now = datetime.utcnow()
+                student = {
+                    "student_id": student_id,
+                    "source_lead_id": lead_id,
+                    "user_id": str(student_user_result.inserted_id),
+                    "parent_id": parent_id,
+                    "first_name": lead["first_name"],
+                    "last_name": lead["last_name"],
+                    "date_of_birth": None,
+                    "phone": student_login_phone,
+                    "email": None,
+                    "photo": None,
+                    "address": None,
+                    "course_ids": course_ids,
+                    "group_ids": [],
+                    "status": "active",
+                    "enrollment_date": now,
+                    "branch_id": student_branch_id,
+                    "referred_by_student_id": lead.get("referred_by_student_id"),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+                student_result = await db.students.insert_one(student, session=session)
+                student_db_id = str(student_result.inserted_id)
+                if parent_id:
+                    await db.parents.update_one(
+                        {"_id": ObjectId(parent_id)},
+                        {"$addToSet": {"student_ids": student_db_id}},
+                        session=session,
+                    )
+
+                lead_update = await db.leads.update_one(
+                    {
+                        "_id": ObjectId(lead_id),
+                        "$or": [
+                            {"converted_to_student_id": None},
+                            {"converted_to_student_id": {"$exists": False}},
+                        ],
+                    },
+                    {"$set": {
+                        "status": "enrolled",
+                        "converted_to_student_id": student_db_id,
+                        "updated_at": now,
+                    }},
+                    session=session,
+                )
+                if lead_update.modified_count != 1:
+                    raise DuplicateKeyError("lead conversion raced with another request")
+                await db.audit_logs.insert_one({
+                    "user_id": str(current_user["_id"]),
+                    "action": "convert_lead",
+                    "resource_type": "lead",
+                    "resource_id": lead_id,
+                    "changes": {"student_id": student_id, "student_db_id": student_db_id},
+                    "ip_address": request.client.host if request.client else None,
+                    "timestamp": now,
+                }, session=session)
 
         invite_status = {}
         telegram_invites = {}
         for invited_user in invitation_users:
             try:
                 invitation = await issue_invitation(
-                    db, invited_user, actor_id=str(current_user["_id"]),
+                    db,
+                    invited_user,
+                    actor_id=str(current_user["_id"]),
                     request_ip=request.client.host if request.client else None,
                 )
                 invite_status[invited_user["role"]] = invitation.delivery_status
@@ -580,39 +616,24 @@ async def convert_lead_to_student(
                     }
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
-        
-        # Update lead status
-        await db.leads.update_one(
-            {"_id": ObjectId(lead_id)},
-            {
-                "$set": {
-                    "status": "enrolled",
-                    "converted_to_student_id": str(student_result.inserted_id),
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        await create_audit_log(
-            str(current_user["_id"]),
-            "convert_lead",
-            "lead",
-            lead_id,
-            {"student_id": student_id, "student_db_id": str(student_result.inserted_id)},
-            request.client.host if request.client else None
-        )
-        
+
         return {
             "message": "Lead converted to student successfully",
             "student_id": student_id,
-            "student_db_id": str(student_result.inserted_id),
+            "student_db_id": student_db_id,
             "invite_delivery_status": invite_status,
             "telegram_invites": telegram_invites,
             "student_account_status": student_user.get("account_status"),
-            "parent_account_status": "pending_invite" if parent_id else None,
+            "parent_account_status": parent_account_status,
             "account_access_mode": account_access_mode,
         }
-        
+
+    except DuplicateKeyError as error:
+        raise HTTPException(status_code=409, detail="Lead already converted") from error
+    except OperationFailure as error:
+        if error.code in {11000, 112, 251}:
+            raise HTTPException(status_code=409, detail="Lead conversion conflicted with another request; reload the lead") from error
+        raise
     except HTTPException:
         raise
     except Exception as e:

@@ -13,8 +13,9 @@ from phone_auth import (
     OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
     invited_user_document, issue_access_code, issue_invitation, normalize_phone,
 )
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from worker_lifecycle import permanently_remove_worker
+from account_integrity import filter_canonical_profiles, is_canonical_profile
 
 router = APIRouter(prefix="/support-staff", tags=["Support Staff"])
 security = HTTPBearer()
@@ -58,7 +59,7 @@ async def create_support_staff(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create a new support staff member"""
-    from server import db, serialize_doc, create_audit_log
+    from server import db, serialize_doc
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -67,10 +68,6 @@ async def create_support_staff(
     
     try:
         normalized_phone = normalize_phone(data.phone)
-        # Phone number is the global login identity across every role.
-        existing = await db.users.find_one({"phone_normalized": normalized_phone})
-        if existing:
-            raise HTTPException(status_code=409, detail="An account with this phone number already exists")
         user = invited_user_document(
             phone=normalized_phone,
             full_name=f"{data.first_name} {data.last_name}",
@@ -80,12 +77,8 @@ async def create_support_staff(
             language_preference=current_user.get("language_preference", "ru"),
             created_by=str(current_user["_id"]),
         )
-        user_result = await db.users.insert_one(user)
-        user["_id"] = user_result.inserted_id
-        
-        # Create support profile
+        now = datetime.utcnow()
         support = {
-            "user_id": str(user_result.inserted_id),
             "first_name": data.first_name,
             "last_name": data.last_name,
             "phone": normalized_phone,
@@ -93,13 +86,33 @@ async def create_support_staff(
             "photo": data.photo,
             "available_hours": data.available_hours or {},
             "branch_id": support_branch_id,
-            "created_at": datetime.utcnow()
+            "created_at": now,
         }
-        try:
-            result = await db.support_staff.insert_one(support)
-        except Exception:
-            await db.users.delete_one({"_id": user_result.inserted_id})
-            raise
+        async with await db.client.start_session() as session:
+            async with session.start_transaction():
+                if await db.users.find_one(
+                    {"phone_normalized": normalized_phone}, session=session
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="An account with this phone number already exists",
+                    )
+                user_result = await db.users.insert_one(user, session=session)
+                user["_id"] = user_result.inserted_id
+                support["user_id"] = str(user_result.inserted_id)
+                result = await db.support_staff.insert_one(support, session=session)
+                await db.audit_logs.insert_one({
+                    "user_id": str(current_user["_id"]),
+                    "action": "create",
+                    "resource_type": "support_staff",
+                    "resource_id": str(result.inserted_id),
+                    "changes": {
+                        "name": f"{data.first_name} {data.last_name}",
+                        "invite_delivery_status": "pending",
+                    },
+                    "ip_address": request.client.host if request.client else None,
+                    "timestamp": now,
+                }, session=session)
 
         invite_delivery_status = "failed"
         invitation = None
@@ -111,17 +124,16 @@ async def create_support_staff(
             invite_delivery_status = invitation.delivery_status
         except (OtpDeliveryError, OtpRateLimitError):
             await db.users.update_one(
-                {"_id": user_result.inserted_id},
+                {"_id": user["_id"]},
                 {"$set": {"invite_delivery_status": "failed", "updated_at": datetime.utcnow()}},
             )
-        
-        await create_audit_log(
-            str(current_user["_id"]),
-            "create",
-            "support_staff",
-            str(result.inserted_id),
-            {"name": f"{data.first_name} {data.last_name}", "invite_delivery_status": invite_delivery_status},
-            request.client.host if request.client else None
+        await db.audit_logs.update_one(
+            {
+                "resource_type": "support_staff",
+                "resource_id": str(result.inserted_id),
+                "action": "create",
+            },
+            {"$set": {"changes.invite_delivery_status": invite_delivery_status}},
         )
         
         support["id"] = str(result.inserted_id)
@@ -138,6 +150,10 @@ async def create_support_staff(
         return response
     except (PhoneValidationError, DuplicateKeyError) as e:
         raise HTTPException(status_code=409 if isinstance(e, DuplicateKeyError) else 400, detail=str(e)) from e
+    except OperationFailure as error:
+        if error.code in {11000, 112, 251}:
+            raise HTTPException(status_code=409, detail="Support account creation conflicted with another account") from error
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -169,12 +185,13 @@ async def get_all_support_staff(
             query["branch_id"] = own_branch_id
         
         support_staff = await db.support_staff.find(query).skip(skip).limit(limit).to_list(limit)
+        support_staff, canonical_users = await filter_canonical_profiles(db, support_staff, "support")
         
         result = []
         for staff in support_staff:
             staff_data = serialize_doc(staff)
             # Get user status
-            user = await db.users.find_one({"_id": ObjectId(staff["user_id"])})
+            user = canonical_users.get(str(staff.get("user_id")))
             if user:
                 staff_data["is_active"] = user.get("is_active", True)
                 staff_data["role"] = "support"
@@ -212,6 +229,8 @@ async def get_support_staff(
         })
         if not staff:
             raise HTTPException(status_code=404, detail="Support staff not found")
+        if not await is_canonical_profile(db, staff, "support"):
+            raise HTTPException(status_code=404, detail="Support staff account not found")
         require_support_manager(current_user, staff)
         
         staff_data = serialize_doc(staff)
@@ -457,7 +476,7 @@ async def delete_support_staff(
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    """Permanently remove support staff access while preserving history."""
+    """Permanently remove support staff and their bookings."""
     from server import db
 
     if current_user.get("role") != "super_admin":
@@ -475,25 +494,6 @@ async def delete_support_staff(
     if not staff:
         raise HTTPException(status_code=404, detail="Support staff not found")
 
-    open_booking = await db.support_bookings.find_one(
-        {
-            "support_staff_id": staff_id,
-            "status": {"$in": ["scheduled", "confirmed"]},
-        },
-        {"booking_date": 1, "start_time": 1},
-    )
-    if open_booking:
-        booking_time = " ".join(
-            value for value in [open_booking.get("booking_date"), open_booking.get("start_time")] if value
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Reassign or cancel the open booking{f' on {booking_time}' if booking_time else ''} "
-                "before permanently deleting this support worker. You can deactivate the account instead."
-            ),
-        )
-
     user_id = staff.get("user_id")
     if not user_id or not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=409, detail="Support staff has no valid linked user account")
@@ -501,15 +501,12 @@ async def delete_support_staff(
     if not user:
         raise HTTPException(status_code=404, detail="Support staff user account not found")
 
-    preserve_profile = bool(
-        await db.support_bookings.find_one({"support_staff_id": staff_id}, {"_id": 1})
-    )
     snapshot = {
         "name": f"{staff.get('first_name', '')} {staff.get('last_name', '')}".strip(),
         "role": "support",
         "phone": user.get("phone_normalized") or user.get("phone"),
         "user_id": user_id,
-        "preserved_for_history": preserve_profile,
+        "bookings_deleted": True,
     }
     result = await permanently_remove_worker(
         db,
@@ -522,7 +519,7 @@ async def delete_support_staff(
         audit_ip=request.client.host if request.client else None,
         profile_collection="support_staff",
         profile_id=staff["_id"],
-        preserve_profile=preserve_profile,
+        preserve_profile=False,
     )
     return {"message": "Support staff permanently deleted", **result}
 

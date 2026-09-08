@@ -295,6 +295,8 @@ async def get_groups(
                 "_id": {"$in": [ObjectId(sid) for sid in all_student_ids]},
                 "status": {"$ne": "archived"}
             }).to_list(len(all_student_ids))
+            from account_integrity import filter_canonical_profiles
+            active_students, _ = await filter_canonical_profiles(db, active_students, "student")
             active_student_ids = {str(student["_id"]) for student in active_students}
 
         result = []

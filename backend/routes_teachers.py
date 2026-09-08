@@ -12,8 +12,9 @@ from phone_auth import (
     OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
     invited_user_document, issue_access_code, issue_invitation, normalize_phone,
 )
-from pymongo.errors import DuplicateKeyError
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from worker_lifecycle import permanently_remove_worker
+from account_integrity import filter_canonical_profiles, is_canonical_profile
 
 router = APIRouter(prefix="/teachers", tags=["Teachers"])
 security = HTTPBearer()
@@ -49,7 +50,7 @@ async def create_teacher(
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Create a new teacher (Manager or Super Admin only)"""
-    from server import db, serialize_doc, create_audit_log
+    from server import db, serialize_doc
     
     if current_user["role"] not in ["super_admin", "manager"]:
         raise HTTPException(status_code=403, detail="Insufficient permissions")
@@ -58,8 +59,6 @@ async def create_teacher(
     
     try:
         normalized_phone = normalize_phone(teacher_data.phone)
-        if await db.users.find_one({"phone_normalized": normalized_phone}):
-            raise HTTPException(status_code=409, detail="An account with this phone number already exists")
         teacher_user = invited_user_document(
             phone=normalized_phone,
             full_name=f"{teacher_data.first_name} {teacher_data.last_name}",
@@ -69,12 +68,8 @@ async def create_teacher(
             language_preference=current_user.get("language_preference", "ru"),
             created_by=str(current_user["_id"]),
         )
-        user_result = await db.users.insert_one(teacher_user)
-        teacher_user["_id"] = user_result.inserted_id
-        
-        # Create teacher profile
+        now = datetime.utcnow()
         teacher = {
-            "user_id": str(user_result.inserted_id),
             "first_name": teacher_data.first_name,
             "last_name": teacher_data.last_name,
             "phone": normalized_phone,
@@ -84,13 +79,33 @@ async def create_teacher(
             "courses": teacher_data.courses,
             "group_ids": [],
             "branch_id": teacher_branch_id,
-            "created_at": datetime.utcnow()
+            "created_at": now,
         }
-        try:
-            result = await db.teachers.insert_one(teacher)
-        except Exception:
-            await db.users.delete_one({"_id": user_result.inserted_id})
-            raise
+        async with await db.client.start_session() as session:
+            async with session.start_transaction():
+                if await db.users.find_one(
+                    {"phone_normalized": normalized_phone}, session=session
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="An account with this phone number already exists",
+                    )
+                user_result = await db.users.insert_one(teacher_user, session=session)
+                teacher_user["_id"] = user_result.inserted_id
+                teacher["user_id"] = str(user_result.inserted_id)
+                result = await db.teachers.insert_one(teacher, session=session)
+                await db.audit_logs.insert_one({
+                    "user_id": str(current_user["_id"]),
+                    "action": "create",
+                    "resource_type": "teacher",
+                    "resource_id": str(result.inserted_id),
+                    "changes": {
+                        "name": f"{teacher_data.first_name} {teacher_data.last_name}",
+                        "invite_delivery_status": "pending",
+                    },
+                    "ip_address": request.client.host if request.client else None,
+                    "timestamp": now,
+                }, session=session)
 
         invite_delivery_status = "failed"
         invitation = None
@@ -104,17 +119,16 @@ async def create_teacher(
             invite_delivery_status = invitation.delivery_status
         except (OtpDeliveryError, OtpRateLimitError):
             await db.users.update_one(
-                {"_id": user_result.inserted_id},
+                {"_id": teacher_user["_id"]},
                 {"$set": {"invite_delivery_status": "failed", "updated_at": datetime.utcnow()}},
             )
-        
-        await create_audit_log(
-            str(current_user["_id"]),
-            "create",
-            "teacher",
-            str(result.inserted_id),
-            {"name": f"{teacher_data.first_name} {teacher_data.last_name}", "invite_delivery_status": invite_delivery_status},
-            request.client.host if request.client else None
+        await db.audit_logs.update_one(
+            {
+                "resource_type": "teacher",
+                "resource_id": str(result.inserted_id),
+                "action": "create",
+            },
+            {"$set": {"changes.invite_delivery_status": invite_delivery_status}},
         )
         
         teacher["id"] = str(result.inserted_id)
@@ -131,6 +145,10 @@ async def create_teacher(
         return response
     except (PhoneValidationError, DuplicateKeyError) as e:
         raise HTTPException(status_code=409 if isinstance(e, DuplicateKeyError) else 400, detail=str(e)) from e
+    except OperationFailure as error:
+        if error.code in {11000, 112, 251}:
+            raise HTTPException(status_code=409, detail="Teacher creation conflicted with another account") from error
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -158,13 +176,11 @@ async def get_teachers(
             query["branch_id"] = own_branch_id
         
         teachers = await db.teachers.find(query).skip(skip).limit(limit).to_list(limit)
+        teachers, canonical_users = await filter_canonical_profiles(db, teachers, "teacher")
         result = []
         for teacher in teachers:
             item = serialize_doc(teacher)
-            try:
-                user = await db.users.find_one({"_id": ObjectId(teacher["user_id"])})
-            except Exception:
-                user = None
+            user = canonical_users.get(str(teacher.get("user_id")))
             if user:
                 item.update({
                     "is_active": bool(user.get("is_active", False)),
@@ -219,6 +235,8 @@ async def get_teacher(
         })
         if not teacher:
             raise HTTPException(status_code=404, detail="Teacher not found")
+        if not await is_canonical_profile(db, teacher, "teacher"):
+            raise HTTPException(status_code=404, detail="Teacher account not found")
         role = current_user.get("role")
         if role == "manager":
             require_teacher_manager(current_user, teacher)
@@ -463,7 +481,7 @@ async def delete_teacher(
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    """Permanently remove a teacher's access while preserving history."""
+    """Permanently remove a teacher account and detach its assignments."""
     from server import db
 
     if current_user.get("role") != "super_admin":
@@ -481,23 +499,6 @@ async def delete_teacher(
     if not teacher:
         raise HTTPException(status_code=404, detail="Teacher not found")
 
-    active_group = await db.groups.find_one(
-        {
-            "teacher_id": teacher_id,
-            "status": {"$nin": ["completed", "archived", "cancelled", "inactive"]},
-        },
-        {"name": 1},
-    )
-    if active_group:
-        group_name = active_group.get("name") or "an active group"
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"Reassign or close {group_name} before permanently deleting this teacher. "
-                "You can deactivate the teacher without changing the group assignment."
-            ),
-        )
-
     user_id = teacher.get("user_id")
     if not user_id or not ObjectId.is_valid(user_id):
         raise HTTPException(status_code=409, detail="Teacher has no valid linked user account")
@@ -505,17 +506,12 @@ async def delete_teacher(
     if not user:
         raise HTTPException(status_code=404, detail="Teacher user account not found")
 
-    preserve_profile = bool(
-        await db.groups.find_one({"teacher_id": teacher_id}, {"_id": 1})
-        or await db.teacher_earnings.find_one({"teacher_id": teacher_id}, {"_id": 1})
-        or await db.teacher_payouts.find_one({"teacher_id": teacher_id}, {"_id": 1})
-    )
     snapshot = {
         "name": f"{teacher.get('first_name', '')} {teacher.get('last_name', '')}".strip(),
         "role": "teacher",
         "phone": user.get("phone_normalized") or user.get("phone"),
         "user_id": user_id,
-        "preserved_for_history": preserve_profile,
+        "assignments_detached": True,
     }
     result = await permanently_remove_worker(
         db,
@@ -528,7 +524,7 @@ async def delete_teacher(
         audit_ip=request.client.host if request.client else None,
         profile_collection="teachers",
         profile_id=teacher["_id"],
-        preserve_profile=preserve_profile,
+        preserve_profile=False,
     )
     return {"message": "Teacher permanently deleted", **result}
 

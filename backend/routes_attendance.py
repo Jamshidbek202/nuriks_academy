@@ -45,16 +45,12 @@ def _utc_naive(value: datetime) -> datetime:
 def attendance_window_state(occurrence: dict, now_utc: Optional[datetime] = None) -> str:
     """Return the server-authoritative write state for one lesson.
 
-    Attendance opens at the scheduled start and remains editable throughout
-    the lesson. It also remains available after the end while the occurrence
-    is unresolved so the assigned teacher can correct late arrivals. Financial
-    resolution or locking closes it permanently.
+    Attendance opens at the scheduled start and remains editable afterwards.
+    Finance resolution and ledger locking must never prevent the assigned
+    teacher from correcting an academic record. A superseded occurrence is not
+    an actual lesson and therefore has no editable register.
     """
-    if (
-        occurrence.get("superseded")
-        or occurrence.get("locked_at")
-        or occurrence.get("resolution_status") != "unresolved"
-    ):
+    if occurrence.get("superseded"):
         return "closed"
 
     starts_at = occurrence.get("starts_at")
@@ -220,7 +216,7 @@ async def mark_attendance(
         if not attendance_is_open(occurrence):
             raise HTTPException(
                 status_code=409,
-                detail="Attendance is closed because this lesson is completed or locked",
+                detail="Attendance is unavailable for this lesson occurrence",
             )
 
         student = await db.students.find_one({

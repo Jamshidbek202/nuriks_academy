@@ -293,7 +293,7 @@ export default function AttendanceScreen() {
           'Attendance is closed',
           selectedOccurrence.attendance_state === 'upcoming'
             ? `Attendance opens at ${new Date(selectedOccurrence.starts_at).toLocaleTimeString(getActiveLocale(), { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false })}.`
-            : 'This lesson is already completed or financially locked.',
+            : 'Attendance is unavailable for this lesson occurrence.',
         );
       }
       return false;
@@ -488,30 +488,30 @@ export default function AttendanceScreen() {
     switch (selectedOccurrence.attendance_state) {
       case 'upcoming':
         return {
-          icon: 'create-outline' as const,
-          title: 'Register is ready',
-          detail: `Class begins at ${occurrenceTime(selectedOccurrence.starts_at)}. You can prepare or update attendance now.`,
-          color: COLORS.success,
+          icon: 'time-outline' as const,
+          title: 'Attendance opens when class starts',
+          detail: `Class begins at ${occurrenceTime(selectedOccurrence.starts_at)}. The register is read-only until then.`,
+          color: COLORS.warning,
         };
       case 'in_progress':
         return {
           icon: 'radio-button-on' as const,
           title: 'Attendance is open',
-          detail: `Class ends at ${occurrenceTime(selectedOccurrence.ends_at)}. Late arrivals can be updated at any time before completion.`,
+          detail: `Class ends at ${occurrenceTime(selectedOccurrence.ends_at)}. The assigned teacher can update attendance now or later.`,
           color: COLORS.success,
         };
       case 'ended_unresolved':
         return {
           icon: 'alert-circle-outline' as const,
-          title: 'Lesson ended — finish the register',
-          detail: 'Recovery access remains open until every student is marked and the lesson is completed.',
+          title: 'Lesson ended — attendance stays open',
+          detail: 'The assigned teacher can still add or correct attendance at any time.',
           color: COLORS.warning,
         };
       default:
         return {
           icon: 'lock-closed-outline' as const,
           title: 'Attendance is closed',
-          detail: 'This lesson is completed or financially locked. Its attendance is now read-only.',
+          detail: 'This lesson occurrence is unavailable.',
           color: COLORS.textSecondary,
         };
     }

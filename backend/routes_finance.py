@@ -2448,12 +2448,14 @@ async def reception_student_payment_statuses(
     expenses, aggregate collections, cashbox balances, and raw ledger rows.
     """
     from server import db
+    from account_integrity import filter_canonical_profiles
 
     _require_role(current_user, {"reception"})
     students = await db.students.find({
         "branch_id": current_user.get("branch_id"),
         "status": {"$ne": "archived"},
     }).sort([("first_name", 1), ("last_name", 1)]).to_list(100_000)
+    students, _ = await filter_canonical_profiles(db, students, "student")
     student_ids = [str(student["_id"]) for student in students]
     if not student_ids:
         return []

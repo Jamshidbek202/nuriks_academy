@@ -223,10 +223,8 @@ async def run() -> None:
             200,
             "delete role correction account",
         )
-        delete_audit = await db.audit_logs.find_one({
-            "action": "delete_unactivated", "resource_id": disposable["id"],
-        })
-        check(bool(delete_audit), "Permanent deletion must retain an audit record")
+        delete_audit = await db.audit_logs.find_one({"resource_id": disposable["id"]})
+        check(delete_audit is None, "No-trace deletion must remove the account audit trail")
 
         manager_phone = "+998901111111"
         created = await json_ok(
@@ -547,21 +545,14 @@ async def run() -> None:
             "permanently delete activated manager",
         )
         check(
-            permanent_delete["deletion_mode"] == "history_tombstone",
-            "Activated staff must retain a non-login history tombstone",
+            permanent_delete["deletion_mode"] == "hard_delete",
+            "Activated staff must be physically removed",
         )
-        manager_tombstone = await db.users.find_one({"_id": activated_manager["_id"]})
-        check(manager_tombstone.get("is_deleted") is True, "Deleted manager must be hidden")
-        check(manager_tombstone.get("is_active") is False, "Deleted manager must stay inactive")
-        check(not manager_tombstone.get("phone_normalized"), "Permanent deletion must free the phone")
-        check(not manager_tombstone.get("password_hash"), "Permanent deletion must remove password access")
-        check(
-            manager_tombstone.get("login") == f"__deleted__:{created['id']}",
-            "Deleted login must be replaced with a unique non-login tombstone key",
-        )
+        deleted_manager = await db.users.find_one({"_id": activated_manager["_id"]})
+        check(deleted_manager is None, "Permanent deletion must remove the user document")
         await migrate_phone_auth_users(db)
-        manager_tombstone = await db.users.find_one({"_id": activated_manager["_id"]})
-        check(manager_tombstone.get("is_deleted") is True, "Startup migration must preserve tombstones")
+        deleted_manager = await db.users.find_one({"_id": activated_manager["_id"]})
+        check(deleted_manager is None, "Startup migration must not recreate deleted users")
         removed_login = await client.post(
             "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
         )
@@ -584,13 +575,9 @@ async def run() -> None:
         )
         check(reused_delete["deletion_mode"] == "hard_delete", "Unused replacement must hard-delete")
         delete_audit = await db.audit_logs.find_one({
-            "action": "delete", "resource_id": created["id"],
+            "resource_id": created["id"],
         })
-        check(bool(delete_audit), "Activated manager deletion must be audited")
-        check(
-            delete_audit.get("changes", {}).get("deletion_mode") == "history_tombstone",
-            "Deletion audit must record the preservation mode",
-        )
+        check(delete_audit is None, "No-trace deletion must remove activated account audits")
 
         forbidden_seed = await client.post(
             "/api/finance/configuration/seed-reception",

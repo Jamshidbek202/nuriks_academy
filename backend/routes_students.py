@@ -14,6 +14,9 @@ from phone_auth import (
     phone_required_user_document,
 )
 from pymongo import ReturnDocument
+from account_integrity import filter_canonical_profiles, is_canonical_profile
+from account_creation import create_student_account
+from pymongo.errors import DuplicateKeyError, OperationFailure
 from student_lifecycle import (
     StudentLifecycleConflict,
     archive_student_account,
@@ -117,142 +120,35 @@ async def create_student(
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     student_branch_id = require_branch_scope(current_user, student_data.branch_id)
-    
     try:
-        # Admin-created students should inherit the creator's branch unless an
-        # explicit branch was selected. Otherwise branch-scoped staff cannot
-        # see the new profile.
         student_branch_id = student_branch_id or current_user.get("branch_id")
-
-        # Generate student ID
-        student_id = await get_next_student_id(db)
-        
-        # Create parent if parent info provided
-        parent_id = None
-        parent_phone = None
-        invitation_users = []
         if student_data.parent_name and not student_data.parent_phone:
-            raise HTTPException(status_code=400, detail="Parent phone is required when parent information is provided")
+            raise HTTPException(
+                status_code=400,
+                detail="Parent phone is required when parent information is provided",
+            )
+        parent_phone = None
         if student_data.parent_phone:
             try:
                 parent_phone = normalize_phone(student_data.parent_phone)
             except PhoneValidationError as error:
                 raise HTTPException(status_code=400, detail=f"Parent phone: {error}") from error
-            # Check if parent already exists
-            existing_parent_user = await db.users.find_one({"phone_normalized": parent_phone})
-            existing_parent = None
-            if existing_parent_user:
-                if existing_parent_user.get("role") != "parent":
-                    raise HTTPException(status_code=409, detail="Parent phone is already used by another account")
-                existing_parent = await db.parents.find_one({"user_id": str(existing_parent_user["_id"])})
-            
-            if existing_parent:
-                parent_id = str(existing_parent["_id"])
-            else:
-                parent_names = student_data.parent_name.split() if student_data.parent_name else ["Parent", "User"]
-                if existing_parent_user:
-                    parent_user = existing_parent_user
-                    parent_user_id = existing_parent_user["_id"]
-                    if existing_parent_user.get("account_status") == "pending_invite":
-                        invitation_users.append(existing_parent_user)
-                else:
-                    parent_user = invited_user_document(
-                        phone=parent_phone,
-                        full_name=student_data.parent_name or "Parent",
-                        role="parent",
-                        email=None,
-                        branch_id=student_branch_id,
-                        language_preference=current_user.get("language_preference", "ru"),
-                        created_by=str(current_user["_id"]),
-                    )
-                    parent_user_result = await db.users.insert_one(parent_user)
-                    parent_user["_id"] = parent_user_result.inserted_id
-                    parent_user_id = parent_user_result.inserted_id
-                    invitation_users.append(parent_user)
-                
-                # Create parent profile
-                parent_profile = {
-                    "user_id": str(parent_user_id),
-                    "first_name": parent_names[0],
-                    "last_name": parent_names[-1] if len(parent_names) > 1 else "",
-                    "phone": parent_phone,
-                    "email": None,
-                    "student_ids": [],
-                    "created_at": datetime.utcnow()
-                }
-                parent_result = await db.parents.insert_one(parent_profile)
-                parent_id = str(parent_result.inserted_id)
-        
-        student_phone = None
         student_contact_phone = None
         if student_data.phone:
             try:
-                student_phone = normalize_phone(student_data.phone)
-                student_contact_phone = student_phone
+                student_contact_phone = normalize_phone(student_data.phone)
             except PhoneValidationError as error:
                 raise HTTPException(status_code=400, detail=f"Student phone: {error}") from error
-            duplicate_phone = await db.users.find_one({"phone_normalized": student_phone})
-            if duplicate_phone:
-                if duplicate_phone.get("role") == "parent" and student_phone == parent_phone:
-                    # A child may share the parent's contact number, but one
-                    # phone cannot authenticate two separate accounts.
-                    student_phone = None
-                else:
-                    raise HTTPException(status_code=409, detail="Student phone is already used by another account")
-        if student_phone:
-            student_user = invited_user_document(
-                phone=student_phone,
-                full_name=f"{student_data.first_name} {student_data.last_name}",
-                role="student",
-                email=student_data.email,
-                branch_id=student_branch_id,
-                language_preference=current_user.get("language_preference", "ru"),
-                created_by=str(current_user["_id"]),
-            )
-        else:
-            student_user = phone_required_user_document(
-                login=student_id.lower(),
-                full_name=f"{student_data.first_name} {student_data.last_name}",
-                role="student",
-                email=student_data.email,
-                branch_id=student_branch_id,
-                language_preference=current_user.get("language_preference", "ru"),
-                created_by=str(current_user["_id"]),
-            )
-        student_user_result = await db.users.insert_one(student_user)
-        student_user["_id"] = student_user_result.inserted_id
-        if student_phone:
-            invitation_users.append(student_user)
-        
-        # Create student profile
-        student = {
-            "student_id": student_id,
-            "user_id": str(student_user_result.inserted_id),
-            "parent_id": parent_id,
-            "first_name": student_data.first_name,
-            "last_name": student_data.last_name,
-            "date_of_birth": student_data.date_of_birth,
-            "phone": student_contact_phone,
-            "email": student_data.email,
-            "photo": student_data.photo,
-            "address": student_data.address,
-            "course_ids": student_data.courses if student_data.courses else [],
-            "group_ids": [],
-            "status": "active",
-            "enrollment_date": datetime.utcnow(),
-            "branch_id": student_branch_id,
-            "created_at": datetime.utcnow(),
-            "updated_at": datetime.utcnow()
-        }
-        result = await db.students.insert_one(student)
-        
-        # Update parent's student list
-        if parent_id:
-            await db.parents.update_one(
-                {"_id": ObjectId(parent_id)},
-                {"$push": {"student_ids": str(result.inserted_id)}}
-            )
 
+        student, invitation_users = await create_student_account(
+            db,
+            data=student_data,
+            branch_id=student_branch_id,
+            parent_phone=parent_phone,
+            student_contact_phone=student_contact_phone,
+            creator=current_user,
+            client_ip=request.client.host if request.client else None,
+        )
         invite_status = {}
         telegram_invites = {}
         for invited_user in invitation_users:
@@ -271,21 +167,19 @@ async def create_student(
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
         
-        # Create audit log
-        await create_audit_log(
-            str(current_user["_id"]),
-            "create",
-            "student",
-            str(result.inserted_id),
-            {"student_id": student_id, "invite_delivery_status": invite_status},
-            request.client.host if request.client else None
+        await db.audit_logs.update_one(
+            {"resource_type": "student", "resource_id": str(student["_id"]), "action": "create"},
+            {"$set": {"changes.invite_delivery_status": invite_status}},
         )
-
-        student["id"] = str(result.inserted_id)
         student["invite_delivery_status"] = invite_status
         student["telegram_invites"] = telegram_invites
         return serialize_doc(student)
-        
+    except DuplicateKeyError as error:
+        raise HTTPException(status_code=409, detail="An account with this phone or student identity already exists") from error
+    except OperationFailure as error:
+        if error.code in {11000, 112, 251}:
+            raise HTTPException(status_code=409, detail="Account creation conflicted with another request; retry once") from error
+        raise
     except HTTPException:
         raise
     except Exception as e:
@@ -375,6 +269,7 @@ async def get_students(
             query["_id"] = student["_id"]
         
         students = await db.students.find(query).skip(skip).limit(limit).to_list(limit)
+        students, _ = await filter_canonical_profiles(db, students, "student")
         return [serialize_doc(s) for s in students]
 
     except HTTPException:
@@ -397,6 +292,8 @@ async def get_student(
         })
         if not student:
             raise HTTPException(status_code=404, detail="Student not found")
+        if not await is_canonical_profile(db, student, "student"):
+            raise HTTPException(status_code=404, detail="Student account not found")
         
         await require_student_read_access(db, current_user, student)
         
@@ -617,8 +514,8 @@ async def permanently_delete_student(
     request: Request,
     current_user: dict = Depends(get_current_user_dep),
 ):
-    """Permanently delete an unused archived student (Super Admin only)."""
-    from server import db, create_audit_log
+    """Permanently delete a student and all student-owned data (Super Admin only)."""
+    from server import db
 
     if current_user.get("role") != "super_admin":
         raise HTTPException(status_code=403, detail="Only Super Admin can permanently delete students")
@@ -633,14 +530,6 @@ async def permanently_delete_student(
             raise HTTPException(status_code=400, detail="Type the exact student ID to confirm permanent deletion")
 
         lifecycle = await permanently_delete_student_account(db, student)
-        await create_audit_log(
-            str(current_user["_id"]),
-            "permanent_delete",
-            "student",
-            student_id,
-            {"student_id": student.get("student_id"), **lifecycle},
-            request.client.host if request.client else None,
-        )
         return {"message": "Student permanently deleted", **lifecycle}
 
     except StudentLifecycleConflict as exc:

@@ -98,6 +98,12 @@ logger.info("All route modules loaded and registered")
 
 # Start payment reminder scheduler
 from scheduler import start_scheduler
+from account_integrity import (
+    account_integrity_report,
+    backfill_converted_lead_links,
+    ensure_account_integrity_indexes,
+    reconcile_orphan_accounts,
+)
 from student_lifecycle import reconcile_archived_student_accounts
 scheduler = None
 
@@ -146,6 +152,14 @@ async def startup_event():
     await db.notifications.create_index([("user_id", 1), ("created_at", -1)])
     await db.notifications.create_index([("user_id", 1), ("is_read", 1)])
     await db.lesson_feedback.create_index([("entry_id", 1), ("student_id", 1)], unique=True)
+    lead_link_backfill = await backfill_converted_lead_links(db)
+    logger.info("Converted lead link backfill completed: %s", lead_link_backfill)
+    reconciliation = await reconcile_orphan_accounts(db)
+    logger.info("Canonical account reconciliation completed: %s", reconciliation)
+    integrity = await account_integrity_report(db)
+    if not integrity["healthy"]:
+        raise RuntimeError(f"Account integrity reconciliation failed: {integrity}")
+    await ensure_account_integrity_indexes(db)
     await ensure_finance_indexes(db)
     await ensure_finance_ledger_indexes(db)
     await ensure_accounting_indexes(db)

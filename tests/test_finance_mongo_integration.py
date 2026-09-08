@@ -48,6 +48,7 @@ from finance_models import (  # noqa: E402
     ScheduleSlot,
 )
 from finance_service import create_group_finance_version, record_lesson_resolution  # noqa: E402
+from account_integrity import account_integrity_report, reconcile_orphan_accounts  # noqa: E402
 from scripts.reset_shadow_database import reset_shadow_database  # noqa: E402
 from finance_qa.mongo_support import (  # noqa: E402
     QA_PASSWORD,
@@ -99,6 +100,95 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+    async def test_account_reconciliation_removes_only_provably_stale_records(self):
+        canonical_user = {
+            "_id": ObjectId(),
+            "login": f"canonical-{uuid4().hex}",
+            "role": "student",
+            "is_active": True,
+            "account_status": "active",
+        }
+        await self.db.users.insert_one(canonical_user)
+        canonical_student = {
+            "_id": ObjectId(),
+            "student_id": f"CANONICAL-{uuid4().hex[:8]}",
+            "user_id": str(canonical_user["_id"]),
+            "first_name": "Canonical",
+            "last_name": "Student",
+            "status": "active",
+            "group_ids": [],
+        }
+        await self.db.students.insert_one(canonical_student)
+        group = {
+            "_id": ObjectId(),
+            "name": "Orphan cleanup fixture",
+            "student_ids": [],
+        }
+        await self.db.groups.insert_one(group)
+
+        stale_student_id = ObjectId()
+        stale_user_id = ObjectId()
+        await self.db.students.insert_one({
+            "_id": stale_student_id,
+            "student_id": f"STALE-{uuid4().hex[:8]}",
+            "user_id": str(stale_user_id),
+            "first_name": "Stale",
+            "last_name": "Profile",
+            "status": "active",
+            "group_ids": [str(group["_id"])],
+        })
+        await self.db.groups.update_one(
+            {"_id": group["_id"]},
+            {"$addToSet": {"student_ids": str(stale_student_id)}},
+        )
+        await self.db.notifications.insert_one({
+            "student_id": str(stale_student_id),
+            "data": {"student_id": str(stale_student_id)},
+        })
+        await self.db.audit_logs.insert_one({
+            "resource_id": str(stale_student_id), "action": "legacy-create",
+        })
+
+        orphan_teacher_user = ObjectId()
+        await self.db.users.insert_one({
+            "_id": orphan_teacher_user,
+            "login": f"orphan-{uuid4().hex}",
+            "role": "teacher",
+            "is_active": True,
+        })
+        tombstone_id = ObjectId()
+        await self.db.users.insert_one({
+            "_id": tombstone_id,
+            "login": f"__deleted__:{tombstone_id}",
+            "role": "manager",
+            "is_deleted": True,
+            "account_status": "deleted",
+        })
+
+        result = await reconcile_orphan_accounts(self.db)
+        self.assertGreaterEqual(result["orphan_profiles_removed"].get("student", 0), 1)
+        self.assertGreaterEqual(result["orphan_users_removed"].get("teacher", 0), 1)
+        self.assertIsNone(await self.db.students.find_one({"_id": stale_student_id}))
+        self.assertIsNone(await self.db.users.find_one({"_id": orphan_teacher_user}))
+        self.assertIsNone(await self.db.users.find_one({"_id": tombstone_id}))
+        self.assertEqual(
+            await self.db.groups.count_documents({
+                "_id": group["_id"], "student_ids": str(stale_student_id),
+            }),
+            0,
+        )
+        self.assertEqual(
+            await self.db.notifications.count_documents({"student_id": str(stale_student_id)}),
+            0,
+        )
+        self.assertEqual(
+            await self.db.audit_logs.count_documents({"resource_id": str(stale_student_id)}),
+            0,
+        )
+        self.assertIsNotNone(await self.db.students.find_one({"_id": canonical_student["_id"]}))
+        self.assertIsNotNone(await self.db.users.find_one({"_id": canonical_user["_id"]}))
+        self.assertTrue((await account_integrity_report(self.db))["healthy"])
 
     async def test_shadow_reset_preserves_source_and_copies_only_super_admin(self):
         target_name = f"nurik_shadow_qa_{uuid4().hex[:10]}"
@@ -593,6 +683,7 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         }
         student = {
             "_id": ObjectId(),
+            "user_id": str(ObjectId()),
             "student_id": "QA-000001",
             "first_name": "QA",
             "last_name": "Student",
@@ -601,6 +692,15 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "status": "active",
             "created_at": datetime.utcnow(),
         }
+        await self.db.users.insert_one({
+            "_id": ObjectId(student["user_id"]),
+            "login": f"qa_finance_student_{student['_id']}",
+            "role": "student",
+            "full_name": "QA Student",
+            "is_active": True,
+            "account_status": "active",
+            "created_at": datetime.utcnow(),
+        })
         group = {
             "_id": ObjectId(),
             "name": "QA General Normal",
@@ -1032,13 +1132,17 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(completed.json()["rolling_accrual"]["status"], "updated")
         self.assertEqual(replay.status_code, 200, replay.text)
         self.assertTrue(replay.json()["idempotent_replay"])
-        closed_mark = await self.http.post(
+        corrected_after_completion = await self.http.post(
             "/api/attendance",
             json={**attendance_payload, "status": "late"},
             headers=teacher_headers,
         )
-        self.assertEqual(closed_mark.status_code, 409, closed_mark.text)
-        self.assertIn("closed", closed_mark.json()["detail"])
+        self.assertEqual(
+            corrected_after_completion.status_code,
+            200,
+            corrected_after_completion.text,
+        )
+        self.assertEqual(corrected_after_completion.json()["status"], "late")
         self.assertEqual(
             await self.db.lesson_resolution_events.count_documents({
                 "occurrence_id": occurrence_id,
