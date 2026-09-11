@@ -102,6 +102,7 @@ export default function DashboardLayout() {
 
   if (isLoading) return <View style={styles.loadingContainer}><ActivityIndicator size="large" color={COLORS.gold} /></View>;
   if (!user) return <Redirect href="/login" />;
+  if (user.must_change_password) return <Redirect href={'/change-password' as any} />;
 
   return (
     <View style={styles.appRoot}>

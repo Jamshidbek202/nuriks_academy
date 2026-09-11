@@ -117,9 +117,6 @@ def main() -> None:
         "DB_NAME": database_name,
         "MONGO_TLS": "false",
         "SECRET_KEY": "finance-qa-only-secret-not-for-production",
-        "TELEGRAM_DELIVERY_MODE": "mock",
-        "TELEGRAM_BOT_USERNAME": "nuriksacademy_bot",
-        "TELEGRAM_WEBHOOK_SECRET": "nuriks-finance-qa-webhook-secret",
         "PYTHONPATH": str(REPO_ROOT / "backend"),
         "FINANCE_QA_PYTHON": python,
         "EXPO_PUBLIC_BACKEND_URL": "http://127.0.0.1:8001",
@@ -176,7 +173,7 @@ def main() -> None:
         )
         run_stage(
             report,
-            "phone invitation, role provisioning, and password recovery suite",
+            "managed credentials, role provisioning, and password reset suite",
             [python, str(REPO_ROOT / "finance_qa/phone_auth_runner.py")],
             env,
             REPO_ROOT,

@@ -134,13 +134,11 @@ async def create_teacher(
         teacher["id"] = str(result.inserted_id)
         response = serialize_doc(teacher)
         response.update({
-            "account_status": "pending_invite",
-            "phone_verified": False,
-            "is_active": False,
+            "account_status": "active",
+            "phone_verified": True,
+            "is_active": True,
             "invite_delivery_status": invite_delivery_status,
-            "telegram_invite_url": invitation.telegram_invite_url if invitation else None,
-            "telegram_invite_qr": invitation.telegram_invite_qr if invitation else None,
-            "telegram_invite_expires_at": invitation.telegram_invite_expires_at if invitation else None,
+            "credentials": invitation.credentials if invitation else None,
         })
         return response
     except (PhoneValidationError, DuplicateKeyError) as e:
@@ -187,7 +185,6 @@ async def get_teachers(
                     "account_status": user.get("account_status", "active"),
                     "phone_verified": bool(user.get("phone_verified", False)),
                     "invite_delivery_status": user.get("invite_delivery_status"),
-                    "telegram_connected": user.get("telegram_link_status") == "linked",
                     "last_login": user.get("last_login"),
                 })
             result.append(item)
@@ -315,11 +312,11 @@ async def update_teacher(
         user_update: dict = {"$set": user_updates}
         if phone_changed:
             user_updates.update({
-                "password_hash": None,
-                "phone_verified": False,
-                "is_active": False,
-                "account_status": "pending_invite",
-                "invite_delivery_status": "pending",
+                "phone_verified": True,
+                "identity_verified_via": "managed_credentials",
+                "is_active": True,
+                "account_status": "active",
+                "invite_delivery_status": "credentials_ready",
             })
             user_update["$inc"] = {"token_version": 1}
         await db.users.update_one(
@@ -327,18 +324,6 @@ async def update_teacher(
             user_update,
         )
 
-        if phone_changed:
-            refreshed_user = await db.users.find_one({"_id": user["_id"]})
-            try:
-                await issue_invitation(
-                    db, refreshed_user, actor_id=str(current_user["_id"]),
-                    request_ip=request.client.host if request.client else None,
-                )
-            except (OtpDeliveryError, OtpRateLimitError):
-                await db.users.update_one(
-                    {"_id": user["_id"]}, {"$set": {"invite_delivery_status": "failed"}},
-                )
-        
         await create_audit_log(
             str(current_user["_id"]),
             "update",
@@ -422,15 +407,12 @@ async def reactivate_teacher(
         user = await db.users.find_one({"_id": ObjectId(teacher["user_id"])})
         if not user:
             raise HTTPException(status_code=404, detail="User account not found")
-        activated = bool(
-            user.get("password_hash")
-            and (user.get("telegram_verified") or user.get("phone_verified"))
-        )
+        activated = bool(user.get("password_hash"))
         await db.users.update_one(
             {"_id": user["_id"]},
             {"$set": {
                 "is_active": activated,
-                "account_status": "active" if activated else "pending_invite",
+                "account_status": "active" if activated else "credentials_required",
                 "updated_at": datetime.utcnow(),
             }},
         )
@@ -457,17 +439,13 @@ async def reactivate_teacher(
         )
         
         response = {
-            "message": "Teacher reactivated successfully" if activated else "Invitation sent for teacher activation",
-            "is_active": activated,
-            "account_status": "active" if activated else "pending_invite",
+            "message": "Teacher reactivated successfully" if activated else "Temporary credentials created",
+            "is_active": True,
+            "account_status": "active",
             "invite_delivery_status": delivery,
         }
-        if invitation and invitation.telegram_invite_url:
-            response.update({
-                "telegram_invite_url": invitation.telegram_invite_url,
-                "telegram_invite_qr": invitation.telegram_invite_qr,
-                "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
-            })
+        if invitation and invitation.credentials:
+            response["credentials"] = invitation.credentials
         return response
     except HTTPException:
         raise
@@ -576,17 +554,11 @@ async def reset_teacher_password(
         )
         
         return {
-            "message": (
-                "Telegram invitation link created"
-                if issued.delivery_status == "link_ready"
-                else ("Invitation code sent through Telegram" if purpose == "invite" else "Password reset code sent through Telegram")
-            ),
+            "message": "Temporary credentials created. Share them privately with the teacher.",
             "purpose": purpose,
             "delivery_status": issued.delivery_status,
             "retry_after_seconds": issued.retry_after_seconds,
-            "telegram_invite_url": issued.telegram_invite_url,
-            "telegram_invite_qr": issued.telegram_invite_qr,
-            "telegram_invite_expires_at": issued.telegram_invite_expires_at,
+            "credentials": issued.credentials,
         }
     except HTTPException:
         raise
@@ -622,7 +594,6 @@ async def get_teacher_status(
             "account_status": user.get("account_status", "active"),
             "phone_verified": user.get("phone_verified", False),
             "invite_delivery_status": user.get("invite_delivery_status"),
-            "telegram_connected": user.get("telegram_link_status") == "linked",
             "last_login": user.get("last_login")
         }
     except HTTPException:

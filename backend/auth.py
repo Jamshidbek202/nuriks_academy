@@ -88,7 +88,12 @@ def verify_2fa_token(secret: str, token: str) -> bool:
     totp = pyotp.TOTP(secret)
     return totp.verify(token, valid_window=1)
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db=None):
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db=None,
+    *,
+    allow_password_change: bool = False,
+):
     """Get the current authenticated user"""
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -117,6 +122,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is inactive",
+        )
+    if user.get("must_change_password") and not allow_password_change:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "PASSWORD_CHANGE_REQUIRED",
+                "message": "Change the temporary password before using the account.",
+            },
         )
     
     return user

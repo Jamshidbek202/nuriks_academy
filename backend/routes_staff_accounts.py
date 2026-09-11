@@ -21,7 +21,6 @@ from phone_auth import (
     issue_invitation,
     normalize_phone,
 )
-from telegram_auth import disconnect_telegram
 from worker_lifecycle import account_was_activated, permanently_remove_worker
 
 
@@ -76,9 +75,6 @@ def _public_account(user: dict) -> dict:
         "phone_verified": bool(user.get("phone_verified", False)),
         "is_active": bool(user.get("is_active", False)),
         "invite_delivery_status": user.get("invite_delivery_status"),
-        "telegram_connected": user.get("telegram_link_status") == "linked",
-        "telegram_link_status": user.get("telegram_link_status", "not_connected"),
-        "telegram_link_expires_at": user.get("telegram_link_expires_at"),
         "can_delete_permanently": True,
         "invite_sent_at": user.get("invite_sent_at"),
         "last_login": user.get("last_login"),
@@ -212,14 +208,10 @@ async def create_staff_account(
     created = await db.users.find_one({"_id": document["_id"]})
     response = _public_account(created)
     response["invite_delivery_status"] = delivery_status
-    if invitation and invitation.telegram_invite_url:
-        response.update({
-            "telegram_invite_url": invitation.telegram_invite_url,
-            "telegram_invite_qr": invitation.telegram_invite_qr,
-            "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
-        })
+    if invitation and invitation.credentials:
+        response["credentials"] = invitation.credentials
     if delivery_error:
-        response["invite_delivery_message"] = "Account created, but Telegram access could not be prepared. Check Telegram configuration and try again."
+        response["invite_delivery_message"] = "Account created, but credentials could not be prepared. Use Reset Password and try again."
     return response
 
 
@@ -365,17 +357,11 @@ async def send_staff_access_code(
         {"purpose": purpose}, _client_ip(request),
     )
     return {
-        "message": (
-            "Telegram invitation link created"
-            if issued.delivery_status == "link_ready"
-            else ("Invitation code sent through Telegram" if purpose == "invite" else "Password reset code sent through Telegram")
-        ),
+        "message": "Temporary credentials created. Share them privately with the user.",
         "purpose": purpose,
         "delivery_status": issued.delivery_status,
         "retry_after_seconds": issued.retry_after_seconds,
-        "telegram_invite_url": issued.telegram_invite_url,
-        "telegram_invite_qr": issued.telegram_invite_qr,
-        "telegram_invite_expires_at": issued.telegram_invite_expires_at,
+        "credentials": issued.credentials,
     }
 
 
@@ -390,11 +376,8 @@ async def deactivate_staff_account(
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
     now = datetime.utcnow()
-    # A deactivated account must not reserve a Telegram identity. This also
-    # revokes any unused pairing links before access is removed.
     async with await db.client.start_session() as session:
         async with session.start_transaction():
-            await disconnect_telegram(db, user, session=session)
             await db.users.update_one(
                 {"_id": user["_id"]},
                 {"$set": {"is_active": False, "account_status": "deactivated", "updated_at": now},
@@ -408,51 +391,13 @@ async def deactivate_staff_account(
             )
     await create_audit_log(
         str(current_user["_id"]), "deactivate", "staff_account", account_id,
-        {"role": user["role"], "telegram_released": True}, _client_ip(request),
+        {"role": user["role"], "sessions_revoked": True}, _client_ip(request),
     )
     return {
-        "message": "Account deactivated and Telegram released",
+        "message": "Account deactivated and all sessions revoked",
         "is_active": False,
         "account_status": "deactivated",
-        "telegram_connected": False,
     }
-
-
-@router.delete("/{account_id}/telegram")
-async def release_staff_telegram(
-    account_id: str,
-    request: Request,
-    current_user: dict = Depends(get_current_user_dep),
-):
-    """Release a staff Telegram identity without erasing the staff account."""
-    from server import create_audit_log, db
-
-    require_super_admin(current_user)
-    user = await _managed_user(db, account_id)
-    now = datetime.utcnow()
-    async with await db.client.start_session() as session:
-        async with session.start_transaction():
-            await disconnect_telegram(db, user, session=session)
-            await db.auth_challenges.update_many(
-                {"user_id": account_id, "consumed_at": None, "invalidated_at": None},
-                {"$set": {"invalidated_at": now, "invalidation_reason": "telegram_released_by_admin"}},
-                session=session,
-            )
-            # Force existing sessions to revalidate after a security-channel change.
-            await db.users.update_one(
-                {"_id": user["_id"]},
-                {"$inc": {"token_version": 1}, "$set": {"updated_at": now}},
-                session=session,
-            )
-    await create_audit_log(
-        str(current_user["_id"]),
-        "release_telegram",
-        "staff_account",
-        account_id,
-        {"role": user["role"]},
-        _client_ip(request),
-    )
-    return {"message": "Telegram released from this account", "telegram_connected": False}
 
 
 @router.delete("/{account_id}")
@@ -464,7 +409,7 @@ async def delete_staff_account(
     """Permanently remove a manager or reception account.
 
     The canonical user document and all private account artifacts are removed;
-    the phone and Telegram identity are released immediately.
+    the login identity is released immediately.
     """
     from server import db
 
@@ -475,7 +420,7 @@ async def delete_staff_account(
         "phone": user.get("phone_normalized") or user.get("phone"),
         "full_name": user.get("full_name", ""),
         "account_status": user.get("account_status"),
-        "telegram_released": True,
+        "login_identity_released": True,
     }
     was_activated = account_was_activated(user)
     result = await permanently_remove_worker(
@@ -505,11 +450,8 @@ async def reactivate_staff_account(
     require_super_admin(current_user)
     user = await _managed_user(db, account_id)
     now = datetime.utcnow()
-    already_activated = bool(
-        user.get("password_hash")
-        and (user.get("telegram_verified") or user.get("phone_verified"))
-    )
-    account_status = "active" if already_activated else "pending_invite"
+    already_activated = bool(user.get("password_hash"))
+    account_status = "active" if already_activated else "credentials_required"
     await db.users.update_one(
         {"_id": user["_id"]},
         {"$set": {
@@ -538,15 +480,11 @@ async def reactivate_staff_account(
         {"role": user["role"], "account_status": account_status}, _client_ip(request),
     )
     response = {
-        "message": "Account reactivated" if already_activated else "Account awaiting invitation activation",
-        "is_active": already_activated,
-        "account_status": account_status,
+        "message": "Account reactivated" if already_activated else "Temporary credentials created",
+        "is_active": True,
+        "account_status": "active",
         "invite_delivery_status": delivery_status,
     }
-    if invitation and invitation.telegram_invite_url:
-        response.update({
-            "telegram_invite_url": invitation.telegram_invite_url,
-            "telegram_invite_qr": invitation.telegram_invite_qr,
-            "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
-        })
+    if invitation and invitation.credentials:
+        response["credentials"] = invitation.credentials
     return response

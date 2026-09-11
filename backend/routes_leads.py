@@ -495,7 +495,7 @@ async def convert_lead_to_student(
                             )
                             inserted_parent_user = await db.users.insert_one(parent_user, session=session)
                             parent_user["_id"] = inserted_parent_user.inserted_id
-                        if parent_user.get("account_status") == "pending_invite":
+                        if parent_user.get("account_status") in {"pending_invite", "credentials_required"}:
                             invitation_users.append(parent_user)
                         parent_account_status = parent_user.get("account_status")
                         parent_profile = {
@@ -536,8 +536,7 @@ async def convert_lead_to_student(
                 )
                 student_user_result = await db.users.insert_one(student_user, session=session)
                 student_user["_id"] = student_user_result.inserted_id
-                if student_login_phone:
-                    invitation_users.append(student_user)
+                invitation_users.append(student_user)
 
                 now = datetime.utcnow()
                 student = {
@@ -598,7 +597,7 @@ async def convert_lead_to_student(
                 }, session=session)
 
         invite_status = {}
-        telegram_invites = {}
+        credentials = {}
         for invited_user in invitation_users:
             try:
                 invitation = await issue_invitation(
@@ -608,12 +607,8 @@ async def convert_lead_to_student(
                     request_ip=request.client.host if request.client else None,
                 )
                 invite_status[invited_user["role"]] = invitation.delivery_status
-                if invitation.telegram_invite_url:
-                    telegram_invites[invited_user["role"]] = {
-                        "telegram_invite_url": invitation.telegram_invite_url,
-                        "telegram_invite_qr": invitation.telegram_invite_qr,
-                        "telegram_invite_expires_at": invitation.telegram_invite_expires_at,
-                    }
+                if invitation.credentials:
+                    credentials[invited_user["role"]] = invitation.credentials
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
 
@@ -622,9 +617,9 @@ async def convert_lead_to_student(
             "student_id": student_id,
             "student_db_id": student_db_id,
             "invite_delivery_status": invite_status,
-            "telegram_invites": telegram_invites,
-            "student_account_status": student_user.get("account_status"),
-            "parent_account_status": parent_account_status,
+            "credentials": credentials,
+            "student_account_status": "active" if credentials.get("student") else student_user.get("account_status"),
+            "parent_account_status": "active" if credentials.get("parent") else parent_account_status,
             "account_access_mode": account_access_mode,
         }
 

@@ -11,8 +11,7 @@ export default function Index() {
   useEffect(() => {
     if (!isLoading) {
       if (user) {
-        // Route based on role
-        router.replace('/(dashboard)');
+        router.replace((user.must_change_password ? '/change-password' : '/(dashboard)') as any);
       } else {
         router.replace('/login');
       }

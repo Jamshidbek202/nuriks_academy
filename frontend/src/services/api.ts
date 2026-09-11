@@ -64,9 +64,7 @@ api.interceptors.response.use(
     const authorization = error?.config?.headers?.Authorization || error?.config?.headers?.authorization;
     const publicAuthRequest = [
       '/auth/login',
-      '/auth/invitations/',
-      '/auth/password-reset/',
-      '/telegram/webhook',
+      '/auth/password/change',
     ].some((path) => requestUrl.includes(path));
     const inactiveAccount = status === 403 && (
       detail === 'Account is inactive' || detail?.code === 'ACCOUNT_INACTIVE'

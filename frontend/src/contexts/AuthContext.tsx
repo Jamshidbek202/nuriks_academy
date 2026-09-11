@@ -27,6 +27,7 @@ interface User {
   is_active?: boolean;
   two_factor_enabled?: boolean;
   language_preference?: AppLanguage;
+  must_change_password?: boolean;
 }
 
 interface AuthContextType {
@@ -74,7 +75,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Register push token when user is authenticated
   useEffect(() => {
-    if (user && token) {
+    if (user && token && !user.must_change_password) {
       setupPushNotifications();
     }
   }, [user, token]);

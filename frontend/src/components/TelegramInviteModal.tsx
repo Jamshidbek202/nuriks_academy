@@ -1,8 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import {
   Alert,
-  Image,
-  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -20,34 +18,33 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 export interface TelegramInviteItem {
   label: string;
-  url: string;
-  qrDataUrl?: string | null;
-  expiresAt?: string | null;
+  login: string;
+  temporaryPassword: string;
 }
 
 interface Props {
   visible: boolean;
   invites: TelegramInviteItem[];
   onClose: () => void;
-  allowOpenInTelegram?: boolean;
 }
 
 export const telegramInviteFromResponse = (
   response: any,
   label: string,
 ): TelegramInviteItem | null => {
-  const url = response?.telegram_invite_url;
-  if (!url) return null;
+  const credentials = response?.credentials || response;
+  const login = credentials?.login;
+  const temporaryPassword = credentials?.temporary_password;
+  if (!login || !temporaryPassword) return null;
   return {
     label,
-    url,
-    qrDataUrl: response?.telegram_invite_qr,
-    expiresAt: response?.telegram_invite_expires_at,
+    login,
+    temporaryPassword,
   };
 };
 
-export default function TelegramInviteModal({ visible, invites, onClose, allowOpenInTelegram = false }: Props) {
-  const { locale, t } = useLanguage();
+export default function TelegramInviteModal({ visible, invites, onClose }: Props) {
+  const { t } = useLanguage();
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const notify = (title: string, message: string) => {
@@ -62,28 +59,21 @@ export default function TelegramInviteModal({ visible, invites, onClose, allowOp
   const selected = invites[selectedIndex];
   if (!selected) return null;
 
-  const copyLink = async () => {
-    await Clipboard.setStringAsync(selected.url);
-    notify('Link copied', 'Send this private, single-use link directly to the intended person.');
+  const credentialText = `${t('Login')}: ${selected.login}\n${t('Temporary password')}: ${selected.temporaryPassword}`;
+
+  const copyCredentials = async () => {
+    await Clipboard.setStringAsync(credentialText);
+    notify('Copied', 'Send these credentials privately to the intended person.');
   };
 
   const shareLink = async () => {
     if (Platform.OS === 'web') {
-      await copyLink();
+      await copyCredentials();
       return;
     }
     await Share.share({
-      message: `${t("Nurik's Academy account invitation for")} ${selected.label}: ${selected.url}`,
+      message: `${t("Nurik's Academy account for")} ${selected.label}\n${credentialText}`,
     });
-  };
-
-  const openTelegram = async () => {
-    const supported = await Linking.canOpenURL(selected.url);
-    if (!supported) {
-      notify('Telegram unavailable', 'Copy the link and send it through Telegram manually.');
-      return;
-    }
-    await Linking.openURL(selected.url);
   };
 
   return (
@@ -92,10 +82,10 @@ export default function TelegramInviteModal({ visible, invites, onClose, allowOp
         <View style={styles.modal}>
           <View style={styles.header}>
             <View style={styles.headerText}>
-              <Text style={styles.title}>Telegram invitation</Text>
+              <Text style={styles.title}>Account credentials</Text>
               <Text style={styles.subtitle}>For {selected.label}</Text>
             </View>
-            <TouchableOpacity testID="telegram-invite-close" onPress={onClose} accessibilityLabel={t('Close Telegram invitation')}>
+            <TouchableOpacity testID="credentials-close" onPress={onClose} accessibilityLabel={t('Close account credentials')}>
               <Ionicons name="close" size={26} color={COLORS.textPrimary} />
             </TouchableOpacity>
           </View>
@@ -118,33 +108,21 @@ export default function TelegramInviteModal({ visible, invites, onClose, allowOp
             <View style={styles.notice}>
               <Ionicons name="shield-checkmark" size={23} color={COLORS.gold} />
               <Text style={styles.noticeText}>
-                Send this link only to the intended person. They must open it and press Start. The bot will then send their six-digit code.
+                This temporary password is shown only now. Send it privately. The user will be required to choose a new password after signing in.
               </Text>
             </View>
-
-            {!!selected.qrDataUrl && (
-              <View style={styles.qrFrame}>
-                <Image testID="telegram-invite-qr" source={{ uri: selected.qrDataUrl }} style={styles.qr} />
-              </View>
-            )}
-
-            <Text selectable style={styles.url}>{selected.url}</Text>
-            {!!selected.expiresAt && (
-              <Text style={styles.expiry}>Link expires: {new Date(selected.expiresAt).toLocaleString(locale, { timeZone: 'Asia/Tashkent' })}</Text>
-            )}
-
-            {allowOpenInTelegram && (
-              <TouchableOpacity testID="telegram-invite-open" style={styles.primary} onPress={openTelegram}>
-                <Ionicons name="paper-plane" size={20} color={COLORS.marbleDark} />
-                <Text style={styles.primaryText}>Open in Telegram</Text>
-              </TouchableOpacity>
-            )}
+            <View style={styles.credentialBox}>
+              <Text style={styles.credentialLabel}>Login</Text>
+              <Text selectable style={styles.credentialValue}>{selected.login}</Text>
+              <Text style={styles.credentialLabel}>Temporary password</Text>
+              <Text selectable style={styles.credentialValue}>{selected.temporaryPassword}</Text>
+            </View>
             <View style={styles.secondaryRow}>
-              <TouchableOpacity testID="telegram-invite-copy" style={styles.secondary} onPress={copyLink}>
+              <TouchableOpacity testID="credentials-copy" style={styles.secondary} onPress={copyCredentials}>
                 <Ionicons name="copy-outline" size={19} color={COLORS.gold} />
-                <Text style={styles.secondaryText}>Copy link</Text>
+                <Text style={styles.secondaryText}>Copy</Text>
               </TouchableOpacity>
-              <TouchableOpacity testID="telegram-invite-share" style={styles.secondary} onPress={shareLink}>
+              <TouchableOpacity testID="credentials-share" style={styles.secondary} onPress={shareLink}>
                 <Ionicons name="share-outline" size={19} color={COLORS.gold} />
                 <Text style={styles.secondaryText}>Share</Text>
               </TouchableOpacity>
@@ -171,12 +149,9 @@ const styles = StyleSheet.create({
   content: { padding: SIZES.lg },
   notice: { flexDirection: 'row', gap: SIZES.sm, padding: SIZES.md, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.gold + '14', borderWidth: 1, borderColor: COLORS.gold + '55' },
   noticeText: { flex: 1, color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 20 },
-  qrFrame: { alignSelf: 'center', backgroundColor: '#FFFFFF', borderRadius: SIZES.radiusMd, padding: SIZES.sm, marginTop: SIZES.lg },
-  qr: { width: 210, height: 210 },
-  url: { color: COLORS.textPrimary, backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginTop: SIZES.lg, fontSize: 13 },
-  expiry: { color: COLORS.textTertiary, fontSize: 12, marginTop: SIZES.xs, textAlign: 'center' },
-  primary: { minHeight: SIZES.touchTarget, borderRadius: SIZES.radiusMd, backgroundColor: COLORS.gold, marginTop: SIZES.lg, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: SIZES.sm },
-  primaryText: { color: COLORS.marbleDark, fontWeight: '800' },
+  credentialBox: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginTop: SIZES.lg, gap: 5 },
+  credentialLabel: { color: COLORS.textTertiary, fontSize: 12, marginTop: SIZES.xs },
+  credentialValue: { color: COLORS.textPrimary, fontSize: SIZES.fontLg, fontWeight: '700' },
   secondaryRow: { flexDirection: 'row', gap: SIZES.sm, marginTop: SIZES.sm },
   secondary: { flex: 1, minHeight: SIZES.touchTarget, borderRadius: SIZES.radiusMd, borderWidth: 1, borderColor: COLORS.gold, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: SIZES.xs },
   secondaryText: { color: COLORS.gold, fontWeight: '700' },

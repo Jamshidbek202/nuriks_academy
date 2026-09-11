@@ -61,10 +61,9 @@ interface Teacher {
   group_ids: string[];
   branch_id?: string;
   is_active?: boolean;
-  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'deleted';
+  account_status?: 'pending_invite' | 'credentials_required' | 'active' | 'deactivated' | 'deleted';
   phone_verified?: boolean;
   invite_delivery_status?: string;
-  telegram_connected?: boolean;
 }
 
 interface Course {
@@ -155,12 +154,7 @@ export default function TeachersScreen() {
       await loadTeachers();
       const invite = telegramInviteFromResponse(response.data, teacherName);
       if (invite) setTelegramInvites([invite]);
-      else showAlert(
-        'Teacher account created',
-        ['sent', 'mock'].includes(response.data?.invite_delivery_status)
-          ? 'An invitation code was sent through Telegram. The teacher will create their own password.'
-          : 'The account is pending activation. Create a Telegram invitation link from the teacher details.',
-      );
+      else showAlert('Teacher account created', 'Use Reset Password to create new temporary credentials.');
     } catch (error: any) {
       showAlert('Error', apiErrorMessage(error, 'Failed to create teacher'));
     } finally {
@@ -232,7 +226,7 @@ export default function TeachersScreen() {
   const handleDeleteTeacher = (teacher: Teacher) => {
     showConfirm(
       'Permanently Delete Teacher',
-      `Delete ${teacher.first_name} ${teacher.last_name} permanently?\n\nThis cannot be undone. Their login and profile will be deleted, their phone and Telegram connection released, and existing groups will become unassigned.`,
+      `Delete ${teacher.first_name} ${teacher.last_name} permanently?\n\nThis cannot be undone. Their login and profile will be deleted, their phone released, and existing groups will become unassigned.`,
       async () => {
         setActionLoading(true);
         try {
@@ -253,7 +247,7 @@ export default function TeachersScreen() {
   const handleResetPassword = (teacher: Teacher) => {
     showConfirm(
       'Reset Password',
-      `${teacher.account_status === 'pending_invite' ? 'Send another invitation code' : 'Send a password reset code'} to ${teacher.first_name} ${teacher.last_name}?`,
+      `Create a new temporary password for ${teacher.first_name} ${teacher.last_name}? Their current sessions will end.`,
       async () => {
         setActionLoading(true);
         try {
@@ -261,7 +255,7 @@ export default function TeachersScreen() {
           setDetailModalVisible(false);
           const invite = telegramInviteFromResponse(response.data, `${teacher.first_name} ${teacher.last_name}`);
           if (invite) setTelegramInvites([invite]);
-          else showAlert('Telegram code sent', response.data?.message || 'The access code was sent through Telegram.');
+          else showAlert('Credentials created', response.data?.message || 'Temporary credentials were created.');
         } catch (error: any) {
           showAlert('Error', apiErrorMessage(error, 'Failed to send access code'));
         } finally {
@@ -544,7 +538,7 @@ export default function TeachersScreen() {
                   >
                     <Ionicons name="key" size={24} color={COLORS.warning} />
                     <Text style={[styles.actionButtonText, { color: COLORS.warning }]}>
-                      {selectedTeacher.account_status === 'pending_invite' ? 'Send Invitation' : 'Reset Password'}
+                      {selectedTeacher.account_status === 'pending_invite' || selectedTeacher.account_status === 'credentials_required' ? 'Create Login' : 'Reset Password'}
                     </Text>
                   </TouchableOpacity>
 

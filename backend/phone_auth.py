@@ -66,9 +66,22 @@ class AccessIssueResult:
     delivery_status: str
     retry_after_seconds: int
     expires_in_seconds: int
+    login: Optional[str] = None
+    temporary_password: Optional[str] = None
+    must_change_password: bool = True
     telegram_invite_url: Optional[str] = None
     telegram_invite_qr: Optional[str] = None
     telegram_invite_expires_at: Optional[datetime] = None
+
+    @property
+    def credentials(self) -> Optional[dict]:
+        if not self.login or not self.temporary_password:
+            return None
+        return {
+            "login": self.login,
+            "temporary_password": self.temporary_password,
+            "must_change_password": self.must_change_password,
+        }
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
@@ -361,12 +374,10 @@ def invited_user_document(
         "phone": normalized,
         "phone_normalized": normalized,
         "phone_verified": False,
-        "telegram_verified": False,
-        "telegram_link_status": "not_connected",
         "full_name": full_name.strip(),
         "role": role,
         "is_active": False,
-        "account_status": "pending_invite",
+        "account_status": "credentials_required",
         "two_factor_enabled": False,
         "language_preference": language_preference,
         "token_version": 0,
@@ -387,7 +398,7 @@ def phone_required_user_document(
     language_preference: str,
     created_by: str,
 ) -> dict:
-    """Create a non-login account placeholder until a unique phone is supplied."""
+    """Create an account that will use its generated login instead of a phone."""
     now = datetime.utcnow()
     return {
         "login": login,
@@ -399,7 +410,7 @@ def phone_required_user_document(
         "full_name": full_name.strip(),
         "role": role,
         "is_active": False,
-        "account_status": "phone_required",
+        "account_status": "credentials_required",
         "two_factor_enabled": False,
         "language_preference": language_preference,
         "token_version": 0,
@@ -418,37 +429,76 @@ async def issue_access_code(
     actor_id: str,
     request_ip: Optional[str],
 ) -> AccessIssueResult:
+    """Issue one-time managed credentials.
+
+    The temporary password is returned once to the authorized staff member and
+    is never stored in plaintext. Issuing new credentials revokes every active
+    session and deliberately removes the retired Telegram identity binding.
+    """
     if purpose not in OTP_PURPOSES:
         raise ValueError("Unsupported access-code purpose")
-    if user.get("telegram_chat_id") and user.get("telegram_link_status") == "linked":
-        issued = await issue_otp(
-            db,
-            user=user,
-            purpose=purpose,
-            requested_by=actor_id,
-            request_ip=request_ip,
-        )
-        return AccessIssueResult(
-            issued.delivery_status,
-            issued.retry_after_seconds,
-            issued.expires_in_seconds,
-        )
-    from telegram_auth import create_telegram_link
+    from auth import get_password_hash
 
-    link = await create_telegram_link(
-        db,
-        user=user,
-        purpose=purpose,
-        actor_id=actor_id,
-        request_ip=request_ip,
+    login = (user.get("phone_normalized") or user.get("login") or "").strip()
+    if not login:
+        raise PhoneValidationError("A phone number or account login is required")
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%"
+    while True:
+        temporary_password = "".join(secrets.choice(alphabet) for _ in range(14))
+        try:
+            validate_password(temporary_password)
+            break
+        except PasswordPolicyError:
+            continue
+    now = datetime.utcnow()
+    updated = await db.users.update_one(
+        {"_id": user["_id"], "account_status": {"$ne": "deactivated"}},
+        {
+            "$set": {
+                "login": login,
+                "password_hash": get_password_hash(temporary_password),
+                "phone_verified": bool(user.get("phone_normalized") or user.get("phone")),
+                "identity_verified_via": "managed_credentials",
+                "is_active": True,
+                "account_status": "active",
+                "must_change_password": True,
+                "credentials_issued_at": now,
+                "credentials_issued_by": actor_id,
+                "updated_at": now,
+                "failed_login_attempts": 0,
+            },
+            "$inc": {"token_version": 1},
+            "$unset": {
+                "locked_until": "",
+                "telegram_user_id": "",
+                "telegram_chat_id": "",
+                "telegram_username": "",
+                "telegram_first_name": "",
+                "telegram_last_name": "",
+                "telegram_linked_at": "",
+                "telegram_link_expires_at": "",
+                "telegram_verified": "",
+                "telegram_link_status": "",
+            },
+        },
+    )
+    if updated.modified_count != 1:
+        raise RuntimeError("Account changed while credentials were being issued; retry")
+    await db.auth_challenges.update_many(
+        {"user_id": str(user["_id"]), "consumed_at": None, "invalidated_at": None},
+        {"$set": {"invalidated_at": now, "invalidation_reason": "managed_credentials_issued"}},
+    )
+    await db.telegram_links.update_many(
+        {"user_id": str(user["_id"]), "used_at": None, "invalidated_at": None},
+        {"$set": {"invalidated_at": now, "invalidation_reason": "managed_credentials_issued"}},
     )
     return AccessIssueResult(
-        "link_ready",
+        "credentials_ready",
         0,
-        max(0, int((link.expires_at - datetime.utcnow()).total_seconds())),
-        link.url,
-        link.qr_data_url,
-        link.expires_at,
+        0,
+        login,
+        temporary_password,
+        True,
     )
 
 
@@ -490,7 +540,7 @@ async def ensure_phone_auth_indexes(db) -> None:
 
 
 async def migrate_phone_auth_users(db) -> dict:
-    """Idempotently migrate legacy users without inventing missing phone numbers."""
+    """Idempotently retire Telegram auth while preserving working passwords."""
     production_style = not legacy_login_allowed()
     migrated = 0
     phone_required = 0
@@ -511,11 +561,8 @@ async def migrate_phone_auth_users(db) -> dict:
             if production_style:
                 updates["login"] = normalized
             existing_status = user.get("account_status")
-            if existing_status == "pending_invite":
-                # Pending invitations are deliberately inactive. Preserve that
-                # state across deploys so an issued invitation survives a
-                # backend restart and is not mistaken for a deactivation.
-                updates.update({"account_status": "pending_invite", "phone_verified": False})
+            if existing_status in {"pending_invite", "credentials_required"} and not user.get("password_hash"):
+                updates.update({"account_status": "credentials_required", "phone_verified": False, "is_active": False})
             elif existing_status == "deactivated" or (
                 existing_status is None and not user.get("is_active", True)
             ):
@@ -524,28 +571,50 @@ async def migrate_phone_auth_users(db) -> dict:
                     "phone_verified": bool(user.get("phone_verified", False)),
                 })
             elif user.get("password_hash"):
-                updates["account_status"] = "active"
-                if user.get("identity_verified_via") == "telegram":
-                    updates.update({
-                        "phone_verified": bool(user.get("phone_verified", False)),
-                        "telegram_verified": bool(user.get("telegram_verified", True)),
-                    })
-                else:
-                    updates["phone_verified"] = True
+                updates.update({
+                    "account_status": "active",
+                    "is_active": True,
+                    "phone_verified": True,
+                    "identity_verified_via": "managed_credentials",
+                    "must_change_password": bool(user.get("must_change_password", False)),
+                })
             else:
-                updates.update({"account_status": "pending_invite", "phone_verified": False})
+                updates.update({"account_status": "credentials_required", "phone_verified": False, "is_active": False})
         else:
-            if legacy_login_allowed() and user.get("qa_fixture") and user.get("password_hash"):
-                # Disposable QA aliases intentionally exercise the rest of the
-                # application without external delivery. Production never enters
-                # this compatibility branch.
-                updates.update({"account_status": "active", "phone_verified": True})
+            existing_status = user.get("account_status")
+            if existing_status == "deactivated" or (
+                existing_status is None and not user.get("is_active", True)
+            ):
+                updates.update({"account_status": "deactivated", "phone_verified": False})
+            elif user.get("login") and user.get("password_hash"):
+                updates.update({
+                    "account_status": "active",
+                    "is_active": True,
+                    "phone_verified": False,
+                    "identity_verified_via": "managed_credentials",
+                    "must_change_password": bool(user.get("must_change_password", False)),
+                })
+            elif user.get("login"):
+                updates.update({
+                    "account_status": "credentials_required",
+                    "is_active": False,
+                    "phone_verified": False,
+                })
             else:
-                updates.update({"account_status": "phone_required", "phone_verified": False})
+                updates.update({"account_status": "credentials_required", "is_active": False, "phone_verified": False})
                 phone_required += 1
         await db.users.update_one(
             {"_id": user["_id"]},
-            {"$set": {**updates, "updated_at": user.get("updated_at", datetime.utcnow())}},
+            {
+                "$set": {**updates, "updated_at": user.get("updated_at", datetime.utcnow())},
+                "$unset": {
+                    "telegram_user_id": "", "telegram_chat_id": "", "telegram_username": "",
+                    "telegram_first_name": "", "telegram_last_name": "", "telegram_linked_at": "",
+                    "telegram_link_expires_at": "", "telegram_verified": "", "telegram_link_status": "",
+                },
+            },
         )
         migrated += 1
+    await db.telegram_links.delete_many({})
+    await db.auth_challenges.delete_many({"delivery_channel": "telegram"})
     return {"migrated": migrated, "phone_required": phone_required}

@@ -149,7 +149,7 @@ class Student(StudentBase):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     invite_delivery_status: Optional[dict] = None
-    telegram_invites: Optional[dict] = None
+    credentials: Optional[dict] = None
 
 class ParentBase(BaseModel):
     first_name: str

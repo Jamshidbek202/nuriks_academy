@@ -196,7 +196,7 @@ export default function LoginScreen() {
 
   useEffect(() => {
     if (!authIsLoading && user) {
-      router.replace('/(dashboard)');
+      router.replace((user.must_change_password ? '/change-password' : '/(dashboard)') as any);
     }
   }, [authIsLoading, router, user]);
 
@@ -246,22 +246,22 @@ export default function LoginScreen() {
   }, [formContentEntrance, formEntrance, logoSheen, motionReady, panelSheen, reduceMotion, sceneEntrance, sheen]);
 
   const handleLogin = async () => {
-    const normalizedPhone = normalizeUzbekPhone(phone);
-    setPhone(formatUzbekPhoneInput(phone));
+    const isStudentId = /^NA-\d+$/i.test(phone.trim());
+    const identity = isStudentId ? phone.trim().toLowerCase() : normalizeUzbekPhone(phone);
+    if (!isStudentId) setPhone(formatUzbekPhoneInput(phone));
     setErrorMessage('');
     clearSessionNotice();
 
-    if (!isCompleteUzbekPhone(phone) || !password) {
-      setErrorMessage(!isCompleteUzbekPhone(phone)
-        ? t('Enter a complete phone number')
-        : t('Please enter phone number and password'));
+    if ((!isStudentId && !isCompleteUzbekPhone(phone)) || !password) {
+      setErrorMessage((!isStudentId && !isCompleteUzbekPhone(phone))
+        ? t('Enter a complete phone number or student ID')
+        : t('Please enter login and password'));
       return;
     }
 
     setLoading(true);
     try {
-      await authLogin(normalizedPhone, password);
-      router.replace('/(dashboard)');
+      await authLogin(identity, password);
     } catch (error: any) {
       setErrorMessage(error.message || t('Invalid login or password'));
     } finally {
@@ -472,7 +472,7 @@ export default function LoginScreen() {
                 )}
 
                 <View style={[styles.inputContainer, isCompact && styles.inputContainerCompact]}>
-                  <Text style={[styles.label, phoneFocused && styles.labelActive]}>{t('Phone number')}</Text>
+                  <Text style={[styles.label, phoneFocused && styles.labelActive]}>{t('Phone number or student ID')}</Text>
                   <FieldShell active={phoneFocused} icon="call-outline">
                     <TextInput
                       testID={LOGIN.phoneInput}
@@ -480,12 +480,12 @@ export default function LoginScreen() {
                       placeholder="+998 90 123 45 67"
                       placeholderTextColor={COLORS.textTertiary}
                       value={phone}
-                      onChangeText={(value) => setPhone(formatUzbekPhoneInput(value))}
+                      onChangeText={(value) => setPhone(/[A-Za-z-]/.test(value) ? value : formatUzbekPhoneInput(value))}
                       onFocus={() => setPhoneFocused(true)}
                       onBlur={() => setPhoneFocused(false)}
-                      keyboardType="phone-pad"
-                      textContentType="telephoneNumber"
-                      autoComplete="tel"
+                      keyboardType="default"
+                      textContentType="username"
+                      autoComplete="username"
                       autoCapitalize="none"
                       autoCorrect={false}
                       returnKeyType="next"
@@ -568,17 +568,9 @@ export default function LoginScreen() {
                   <TouchableOpacity
                     testID={LOGIN.forgotPasswordLink}
                     style={styles.linkButton}
-                    onPress={() => router.push('/forgot-password' as any)}
+                    onPress={() => setErrorMessage(t('Ask an administrator or manager to reset your password.'))}
                   >
                     <Text style={styles.secondaryLink}>{t('Forgot your password?')}</Text>
-                  </TouchableOpacity>
-                  <View style={styles.linkDivider} />
-                  <TouchableOpacity
-                    testID={LOGIN.activateLink}
-                    style={styles.linkButton}
-                    onPress={() => router.push('/activate-account' as any)}
-                  >
-                    <Text style={styles.primaryLink}>{t('I have an invitation code')}</Text>
                   </TouchableOpacity>
                 </View>
 

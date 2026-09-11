@@ -9,7 +9,6 @@ from phone_auth import (
     normalize_phone,
     validate_password,
 )
-from telegram_service import TelegramConfigurationError, validate_telegram_configuration
 
 
 class PhoneAuthValidationTests(unittest.TestCase):
@@ -38,11 +37,6 @@ class PhoneAuthValidationTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(PasswordPolicyError):
                 validate_password(value)
 
-    def test_mock_telegram_cannot_be_enabled_in_production(self):
-        with patch.dict(os.environ, {"APP_ENV": "production", "TELEGRAM_DELIVERY_MODE": "mock"}, clear=False):
-            with self.assertRaises(TelegramConfigurationError):
-                validate_telegram_configuration()
-
     def test_legacy_login_cannot_be_enabled_in_production(self):
         with patch.dict(
             os.environ,
@@ -50,18 +44,6 @@ class PhoneAuthValidationTests(unittest.TestCase):
             clear=False,
         ):
             self.assertFalse(legacy_login_allowed())
-
-    def test_live_telegram_requires_bot_token(self):
-        clean = {
-            "APP_ENV": "production",
-            "TELEGRAM_DELIVERY_MODE": "live",
-            "TELEGRAM_BOT_TOKEN": "",
-            "TELEGRAM_BOT_USERNAME": "nuriksacademy_bot",
-        }
-        with patch.dict(os.environ, clean, clear=False):
-            with self.assertRaises(TelegramConfigurationError):
-                validate_telegram_configuration()
-
 
 if __name__ == "__main__":
     unittest.main()

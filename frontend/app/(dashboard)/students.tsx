@@ -22,6 +22,7 @@ import { Input } from '../../src/components/Input';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
 import { MotionListItem, MotionTouchableOpacity } from '../../src/components/Motion';
+import TelegramInviteModal, { TelegramInviteItem, telegramInviteFromResponse } from '../../src/components/TelegramInviteModal';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
@@ -34,6 +35,7 @@ export default function StudentsScreen() {
   const [selectedStudent, setSelectedStudent] = useState<any | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('current');
+  const [accountCredentials, setAccountCredentials] = useState<TelegramInviteItem[]>([]);
   const isReception = user?.role === 'reception';
   
   const [formData, setFormData] = useState({
@@ -78,6 +80,34 @@ export default function StudentsScreen() {
       loadStudents();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to update student');
+    }
+  };
+
+  const resetStudentPassword = async () => {
+    if (!selectedStudent?.user_id) return;
+    try {
+      const response = await api.post(`/auth/managed-credentials/${selectedStudent.user_id}`);
+      const credentials = telegramInviteFromResponse(
+        response.data,
+        `${selectedStudent.first_name} ${selectedStudent.last_name}`,
+      );
+      if (credentials) setAccountCredentials([credentials]);
+    } catch (error: any) {
+      Alert.alert('Could not reset password', error.response?.data?.detail || 'Please try again.');
+    }
+  };
+
+  const resetParentPassword = async () => {
+    if (!selectedStudent?.id || !selectedStudent?.parent_id) return;
+    try {
+      const response = await api.post(`/students/${selectedStudent.id}/parent/managed-credentials`);
+      const credentials = telegramInviteFromResponse(
+        response.data,
+        `Parent of ${selectedStudent.first_name} ${selectedStudent.last_name}`,
+      );
+      if (credentials) setAccountCredentials([credentials]);
+    } catch (error: any) {
+      Alert.alert('Could not reset parent password', error.response?.data?.detail || 'Please try again.');
     }
   };
 
@@ -512,10 +542,29 @@ export default function StudentsScreen() {
                 onPress={handleUpdateStudent}
                 style={{ marginTop: SIZES.md }}
               />
+              {selectedStudent?.user_id && ['super_admin', 'manager'].includes(user?.role || '') && (
+                <Button
+                  title="Create temporary password"
+                  onPress={resetStudentPassword}
+                  style={{ marginTop: SIZES.sm }}
+                />
+              )}
+              {selectedStudent?.parent_id && ['super_admin', 'manager'].includes(user?.role || '') && (
+                <Button
+                  title="Create parent temporary password"
+                  onPress={resetParentPassword}
+                  style={{ marginTop: SIZES.sm }}
+                />
+              )}
             </ScrollView>
           </View>
         </View>
       </Modal>
+      <TelegramInviteModal
+        visible={accountCredentials.length > 0}
+        invites={accountCredentials}
+        onClose={() => setAccountCredentials([])}
+      />
     </View>
   );
 }

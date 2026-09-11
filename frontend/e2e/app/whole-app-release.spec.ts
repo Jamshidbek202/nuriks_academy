@@ -5,26 +5,7 @@ import { MongoClient, ObjectId } from 'mongodb';
 
 const API_URL = process.env.APP_E2E_API_URL || 'http://127.0.0.1:8002/api';
 const PASSWORD = 'FinanceQA@2026';
-const TELEGRAM_WEBHOOK_SECRET = 'nuriks-finance-qa-webhook-secret';
 const REMOTE_LIVE_AUDIT = process.env.REMOTE_LIVE_AUDIT === '1';
-
-async function latestMockCode(phone: string, purpose: 'invite' | 'password_reset') {
-  const mongoUrl = process.env.MONGO_URL;
-  const databaseName = process.env.DB_NAME;
-  if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
-  const client = new MongoClient(mongoUrl);
-  try {
-    await client.connect();
-    const challenge = await client.db(databaseName).collection('auth_challenges').findOne(
-      { phone_normalized: phone, purpose, invalidated_at: null },
-      { sort: { created_at: -1 } },
-    );
-    if (!challenge?.test_code) throw new Error(`Missing mock ${purpose} code for ${phone}`);
-    return String(challenge.test_code);
-  } finally {
-    await client.close();
-  }
-}
 
 async function rawMongoRecord(collection: string, id: string) {
   const mongoUrl = process.env.MONGO_URL;
@@ -80,48 +61,33 @@ async function openQaAttendanceWindow(groupId: string, localDateValue: string) {
   }
 }
 
-async function connectMockTelegram(request: APIRequestContext, phone: string) {
+async function activateInvitedAccount(request: APIRequestContext, phone: string, password: string) {
   const mongoUrl = process.env.MONGO_URL;
   const databaseName = process.env.DB_NAME;
   if (!mongoUrl || !databaseName) throw new Error('Disposable MongoDB environment is required');
   const client = new MongoClient(mongoUrl);
-  let testToken: string | undefined;
+  let userId: string | undefined;
   try {
     await client.connect();
     const database = client.db(databaseName);
     const user = await database.collection('users').findOne({ phone_normalized: phone });
-    if (!user) throw new Error(`Missing Telegram invitation user for ${phone}`);
-    const link = await database.collection('telegram_links').findOne(
-      { user_id: String(user._id), used_at: null, revoked_at: null },
-      { sort: { created_at: -1 } },
-    );
-    testToken = link?.test_token;
+    if (!user) throw new Error(`Missing invited account for ${phone}`);
+    userId = String(user._id);
   } finally {
     await client.close();
   }
-  if (!testToken) throw new Error(`Missing mock Telegram link for ${phone}`);
-  const telegramId = Number(phone.replace(/\D/g, '').slice(-12));
-  const response = await request.post(`${API_URL}/telegram/webhook`, {
-    headers: { 'X-Telegram-Bot-Api-Secret-Token': TELEGRAM_WEBHOOK_SECRET },
-    data: {
-      update_id: telegramId,
-      message: {
-        message_id: telegramId,
-        text: `/start connect_${testToken}`,
-        from: { id: telegramId, first_name: 'QA', username: `qa_${telegramId}` },
-        chat: { id: telegramId, type: 'private' },
-      },
-    },
-  });
-  expect(response.ok(), `connect mock Telegram for ${phone}: ${await response.text()}`).toBeTruthy();
-}
-
-async function activateInvitedAccount(request: APIRequestContext, phone: string, password: string) {
-  await connectMockTelegram(request, phone);
-  const code = await latestMockCode(phone, 'invite');
-  await expectApiOk(await request.post(`${API_URL}/auth/invitations/accept`, {
-    data: { phone, code, password },
-  }), `activate ${phone}`);
+  const adminToken = await apiLogin(request, 'super_admin');
+  const issued = await expectApiOk(await request.post(`${API_URL}/auth/managed-credentials/${userId}`, {
+    headers: { Authorization: `Bearer ${adminToken}` },
+  }), `issue credentials for ${phone}`);
+  const temporaryPassword = issued.credentials.temporary_password;
+  const login = await expectApiOk(await request.post(`${API_URL}/auth/login`, {
+    data: { phone, login: phone, password: temporaryPassword },
+  }), `temporary login for ${phone}`);
+  await expectApiOk(await request.post(`${API_URL}/auth/password/change`, {
+    headers: { Authorization: `Bearer ${login.access_token}` },
+    data: { current_password: temporaryPassword, new_password: password },
+  }), `choose password for ${phone}`);
 }
 
 type RoleKey = 'super_admin' | 'manager' | 'reception' | 'teacher' | 'student' | 'parent' | 'support';
@@ -701,8 +667,8 @@ test('every worker supports reversible deactivation and complete permanent delet
     const createdTeacher = await teacherCreateResponse;
     expect(createdTeacher.ok(), `create teacher: ${await createdTeacher.text()}`).toBeTruthy();
     const createdTeacherBody = await createdTeacher.json();
-    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
-    await session.page.getByTestId('telegram-invite-close').click();
+    await expect(session.page.getByTestId('credentials-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('credentials-close').click();
     await expect(session.page.getByTestId(`teacher-card-${createdTeacherBody.id}`)).toBeVisible({ timeout: 8_000 });
     const teachers = await expectApiOk(await apiCall(request, superToken, 'get', '/teachers'), 'load UI-created teacher');
     const teacher = teachers.find((row: any) => row.last_name === `Teacher${suffix}`);
@@ -724,8 +690,9 @@ test('every worker supports reversible deactivation and complete permanent delet
     ));
     await session.page.getByTestId('teacher-reset-password-button').click();
     const teacherReset = await teacherResetResponse;
-    expect(teacherReset.ok(), `send teacher reset: ${await teacherReset.text()}`).toBeTruthy();
-    expect(await latestMockCode(`+99895${suffix}`, 'password_reset')).toMatch(/^\d{6}$/);
+    const teacherResetBody = await teacherReset.json();
+    expect(teacherReset.ok(), `create teacher reset: ${JSON.stringify(teacherResetBody)}`).toBeTruthy();
+    expect(teacherResetBody.credentials?.temporary_password).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z\d]).{10,}$/);
     await session.page.getByTestId(`teacher-card-${teacher.id}`).click();
     await session.page.getByTestId('teacher-deactivate-button').click();
     await expect(session.page.getByTestId(`teacher-card-${teacher.id}`).getByText('Deactivated', { exact: true })).toBeVisible({ timeout: 8_000 });
@@ -777,8 +744,8 @@ test('every worker supports reversible deactivation and complete permanent delet
     const createdManager = await managerCreateResponse;
     expect(createdManager.ok(), `create manager: ${await createdManager.text()}`).toBeTruthy();
     const createdManagerBody = await createdManager.json();
-    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
-    await session.page.getByTestId('telegram-invite-close').click();
+    await expect(session.page.getByTestId('credentials-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('credentials-close').click();
     await expect(session.page.getByTestId(`staff-account-card-${createdManagerBody.id}`)).toBeVisible({ timeout: 8_000 });
     const staffAccounts = await expectApiOk(await apiCall(request, superToken, 'get', '/staff-accounts'), 'load UI-created manager');
     const managerAccount = staffAccounts.find((row: any) => row.full_name === `UI Manager${suffix}`);
@@ -868,8 +835,8 @@ test('every worker supports reversible deactivation and complete permanent delet
     const createdSupport = await supportCreateResponse;
     expect(createdSupport.ok(), `create support staff: ${await createdSupport.text()}`).toBeTruthy();
     const createdSupportBody = await createdSupport.json();
-    await expect(session.page.getByTestId('telegram-invite-close')).toBeVisible({ timeout: 8_000 });
-    await session.page.getByTestId('telegram-invite-close').click();
+    await expect(session.page.getByTestId('credentials-close')).toBeVisible({ timeout: 8_000 });
+    await session.page.getByTestId('credentials-close').click();
     await expect(session.page.getByTestId(`support-staff-card-${createdSupportBody.id}`)).toBeVisible({ timeout: 8_000 });
     const supportRows = await expectApiOk(
       await apiCall(request, superToken, 'get', '/support-staff?include_inactive=true'),
@@ -888,8 +855,9 @@ test('every worker supports reversible deactivation and complete permanent delet
     ));
     await session.page.getByTestId('support-staff-reset-password-button').click();
     const supportReset = await supportResetResponse;
-    expect(supportReset.ok(), `send support reset: ${await supportReset.text()}`).toBeTruthy();
-    expect(await latestMockCode(`+99896${suffix}`, 'password_reset')).toMatch(/^\d{6}$/);
+    const supportResetBody = await supportReset.json();
+    expect(supportReset.ok(), `create support reset: ${JSON.stringify(supportResetBody)}`).toBeTruthy();
+    expect(supportResetBody.credentials?.temporary_password).toMatch(/^(?=.*[A-Z])(?=.*[a-z])(?=.*\d)(?=.*[^A-Za-z\d]).{10,}$/);
     await session.page.getByTestId(`support-staff-card-${support.id}`).click();
     await session.page.getByTestId('support-staff-deactivate-button').click();
     await expect(session.page.getByTestId(`support-staff-card-${support.id}`).getByText('Deactivated', { exact: true })).toBeVisible({ timeout: 8_000 });
@@ -998,7 +966,7 @@ test('student creation has one canonical identity and permanent deletion leaves 
   expect(await rawMongoCount('users', { phone_normalized: phone })).toBe(0);
 });
 
-test('invited manager creates and recovers a password through the phone-auth UI', async ({ browser, request }) => {
+test('managed manager credentials require a private password and support administrator reset', async ({ browser, request }) => {
   test.setTimeout(60_000);
   const superToken = await apiLogin(request, 'super_admin');
   const suffix = Date.now().toString().slice(-7);
@@ -1012,82 +980,66 @@ test('invited manager creates and recovers a password through the phone-auth UI'
       role: 'manager',
       language_preference: 'en',
     }),
-    'create invited manager for phone UI',
+    'create manager with managed credentials',
   );
-  expect(created.account_status).toBe('pending_invite');
-  expect(created.invite_delivery_status).toBe('link_ready');
-  expect(created.telegram_invite_url).toContain('https://t.me/nuriksacademy_bot?start=connect_');
-  await connectMockTelegram(request, phone);
-  const inviteCode = await latestMockCode(phone, 'invite');
+  expect(created.account_status).toBe('active');
+  expect(created.invite_delivery_status).toBe('credentials_ready');
+  expect(created.credentials.login).toBe(phone);
+  expect(created.credentials.temporary_password).toBeTruthy();
 
   const activationContext = await browser.newContext();
   const activationPage = await activationContext.newPage();
   const activationObserved = { consoleErrors: [] as string[], pageErrors: [] as string[], serverErrors: [] as string[], dialogs: [] as string[] };
   monitor(activationPage, activationObserved);
   try {
-    await activationPage.goto('/activate-account');
-    await activationPage.getByTestId('activate-phone-input').fill(phone);
-    await activationPage.getByTestId('activate-code-input').fill(inviteCode);
-    await activationPage.getByTestId('activate-password-input').fill(firstPassword);
-    await activationPage.getByTestId('activate-password-confirm-input').fill(firstPassword);
-    const activationResponse = activationPage.waitForResponse((response) => (
-      response.url() === `${API_URL}/auth/invitations/accept`
-      && response.request().method() === 'POST'
-    ));
-    await activationPage.getByTestId('activate-submit-button').click();
-    expect((await activationResponse).ok()).toBeTruthy();
+    await activationPage.goto('/');
+    await activationPage.getByTestId('login-email-input').fill(phone);
+    await activationPage.getByTestId('login-password-input').fill(created.credentials.temporary_password);
+    await activationPage.getByTestId('login-submit-button').click();
+    await expect(activationPage).toHaveURL(/\/change-password/);
+    await activationPage.getByTestId('managed-current-password').fill(created.credentials.temporary_password);
+    await activationPage.getByTestId('managed-new-password').fill(firstPassword);
+    await activationPage.getByTestId('managed-confirm-password').fill(firstPassword);
+    await activationPage.getByTestId('managed-password-submit').click();
     await expect(activationPage).toHaveURL(/\/login/);
     await activationPage.getByTestId('login-email-input').fill(phone);
     await activationPage.getByTestId('login-password-input').fill(firstPassword);
     await activationPage.getByTestId('login-submit-button').click();
     await expect(activationPage.getByRole('tab', { name: 'Home' }).first()).toBeVisible({ timeout: 15_000 });
-    expect(activationObserved.pageErrors).toEqual([]);
-    expect(activationObserved.serverErrors).toEqual([]);
-  } finally {
-    await activationContext.close();
-  }
 
-  const recoveryContext = await browser.newContext();
-  const recoveryPage = await recoveryContext.newPage();
-  const recoveryObserved = { consoleErrors: [] as string[], pageErrors: [] as string[], serverErrors: [] as string[], dialogs: [] as string[] };
-  monitor(recoveryPage, recoveryObserved);
-  try {
-    await recoveryPage.goto('/forgot-password');
-    await recoveryPage.getByTestId('password-reset-phone-input').fill(phone);
-    const requestResponse = recoveryPage.waitForResponse((response) => (
-      response.url() === `${API_URL}/auth/password-reset/request`
-      && response.request().method() === 'POST'
-    ));
-    await recoveryPage.getByTestId('password-reset-request-button').click();
-    expect((await requestResponse).ok()).toBeTruthy();
-    const resetCode = await latestMockCode(phone, 'password_reset');
-    await recoveryPage.getByTestId('password-reset-code-input').fill(resetCode);
-    await recoveryPage.getByTestId('password-reset-password-input').fill(resetPassword);
-    await recoveryPage.getByTestId('password-reset-password-confirm-input').fill(resetPassword);
-    const confirmResponse = recoveryPage.waitForResponse((response) => (
-      response.url() === `${API_URL}/auth/password-reset/confirm`
-      && response.request().method() === 'POST'
-    ));
-    await recoveryPage.getByTestId('password-reset-confirm-button').click();
-    expect((await confirmResponse).ok()).toBeTruthy();
-    await expect(recoveryPage).toHaveURL(/\/login/);
-    await recoveryPage.getByTestId('login-email-input').fill(phone);
-    await recoveryPage.getByTestId('login-password-input').fill(resetPassword);
-    await recoveryPage.getByTestId('login-submit-button').click();
-    await expect(recoveryPage.getByRole('tab', { name: 'Home' }).first()).toBeVisible({ timeout: 15_000 });
+    const reset = await expectApiOk(
+      await apiCall(request, superToken, 'post', `/auth/managed-credentials/${created.id}`),
+      'administrator resets manager credentials',
+    );
+    const leadsBeforeReset = activationPage.getByRole('tab', { name: 'Leads' }).first();
+    if (await leadsBeforeReset.isVisible()) await leadsBeforeReset.click();
+    await expect(activationPage).toHaveURL(/\/login/, { timeout: 10_000 });
+    await activationPage.getByTestId('login-email-input').fill(phone);
+    await activationPage.getByTestId('login-password-input').fill(reset.credentials.temporary_password);
+    await activationPage.getByTestId('login-submit-button').click();
+    await expect(activationPage).toHaveURL(/\/change-password/);
+    await activationPage.getByTestId('managed-current-password').fill(reset.credentials.temporary_password);
+    await activationPage.getByTestId('managed-new-password').fill(resetPassword);
+    await activationPage.getByTestId('managed-confirm-password').fill(resetPassword);
+    await activationPage.getByTestId('managed-password-submit').click();
+    await expect(activationPage).toHaveURL(/\/login/);
+    await activationPage.getByTestId('login-email-input').fill(phone);
+    await activationPage.getByTestId('login-password-input').fill(resetPassword);
+    await activationPage.getByTestId('login-submit-button').click();
+    await expect(activationPage.getByRole('tab', { name: 'Home' }).first()).toBeVisible({ timeout: 15_000 });
 
     await expectApiOk(
       await apiCall(request, superToken, 'patch', `/staff-accounts/${created.id}/deactivate`),
       'deactivate signed-in manager',
     );
-    const leadsTab = recoveryPage.getByRole('tab', { name: 'Leads' }).first();
+    const leadsTab = activationPage.getByRole('tab', { name: 'Leads' }).first();
     if (await leadsTab.isVisible()) await leadsTab.click();
-    await expect(recoveryPage).toHaveURL(/\/login/, { timeout: 10_000 });
-    await expect(recoveryPage.getByTestId('session-ended-notice')).toContainText('access has ended');
-    expect(recoveryObserved.pageErrors).toEqual([]);
-    expect(recoveryObserved.serverErrors).toEqual([]);
+    await expect(activationPage).toHaveURL(/\/login/, { timeout: 10_000 });
+    await expect(activationPage.getByTestId('session-ended-notice')).toContainText('access has ended');
+    expect(activationObserved.pageErrors).toEqual([]);
+    expect(activationObserved.serverErrors).toEqual([]);
   } finally {
-    await recoveryContext.close();
+    await activationContext.close();
   }
 
   const oldPasswordLogin = await request.post(`${API_URL}/auth/login`, {
@@ -1537,9 +1489,10 @@ test('lead detail, status, conversion, and student list synchronize across activ
     const conversionResponse = await conversionResponsePromise;
     const conversion = await conversionResponse.json();
     expect(conversion.account_access_mode).toBe('parent_only');
-    expect(conversion.student_account_status).toBe('phone_required');
-    expect(conversion.telegram_invites.parent?.telegram_invite_url).toBeTruthy();
-    expect(conversion.telegram_invites.student).toBeUndefined();
+    expect(conversion.student_account_status).toBe('active');
+    expect(conversion.parent_account_status).toBe('active');
+    expect(conversion.credentials.parent?.temporary_password).toBeTruthy();
+    expect(conversion.credentials.student?.temporary_password).toBeTruthy();
     await expect(reception.page.getByText('Lead Converted Successfully!', { exact: true })).toBeVisible({ timeout: 8_000 });
     await reception.page.getByTestId('lead-conversion-done').click();
     await manager.page.getByRole('tab', { name: 'Students' }).first().click();
@@ -1594,10 +1547,10 @@ test('student and parent access creates distinct accounts and rejects a shared l
     'convert separate-access lead',
   );
   expect(conversion.account_access_mode).toBe('separate');
-  expect(conversion.student_account_status).toBe('pending_invite');
-  expect(conversion.parent_account_status).toBe('pending_invite');
-  expect(conversion.telegram_invites.student?.telegram_invite_url).toBeTruthy();
-  expect(conversion.telegram_invites.parent?.telegram_invite_url).toBeTruthy();
+  expect(conversion.student_account_status).toBe('active');
+  expect(conversion.parent_account_status).toBe('active');
+  expect(conversion.credentials.student?.temporary_password).toBeTruthy();
+  expect(conversion.credentials.parent?.temporary_password).toBeTruthy();
 
   const student = await rawMongoRecord('students', conversion.student_db_id);
   const parent = await rawMongoRecord('parents', student!.parent_id);

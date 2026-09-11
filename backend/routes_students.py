@@ -10,7 +10,7 @@ from models import Student, StudentCreate, StudentStatus
 from auth import get_current_user, require_role, generate_student_id
 from phone_auth import (
     OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
-    invited_user_document, issue_invitation, normalize_phone,
+    invited_user_document, issue_access_code, issue_invitation, normalize_phone,
     phone_required_user_document,
 )
 from pymongo import ReturnDocument
@@ -150,7 +150,7 @@ async def create_student(
             client_ip=request.client.host if request.client else None,
         )
         invite_status = {}
-        telegram_invites = {}
+        credentials = {}
         for invited_user in invitation_users:
             try:
                 delivery = await issue_invitation(
@@ -158,12 +158,8 @@ async def create_student(
                     request_ip=request.client.host if request.client else None,
                 )
                 invite_status[invited_user["role"]] = delivery.delivery_status
-                if delivery.telegram_invite_url:
-                    telegram_invites[invited_user["role"]] = {
-                        "telegram_invite_url": delivery.telegram_invite_url,
-                        "telegram_invite_qr": delivery.telegram_invite_qr,
-                        "telegram_invite_expires_at": delivery.telegram_invite_expires_at,
-                    }
+                if delivery.credentials:
+                    credentials[invited_user["role"]] = delivery.credentials
             except (OtpDeliveryError, OtpRateLimitError):
                 invite_status[invited_user["role"]] = "failed"
         
@@ -172,7 +168,7 @@ async def create_student(
             {"$set": {"changes.invite_delivery_status": invite_status}},
         )
         student["invite_delivery_status"] = invite_status
-        student["telegram_invites"] = telegram_invites
+        student["credentials"] = credentials
         return serialize_doc(student)
     except DuplicateKeyError as error:
         raise HTTPException(status_code=409, detail="An account with this phone or student identity already exists") from error
@@ -372,31 +368,29 @@ async def update_student(
         }
         user_update: dict = {"$set": user_updates}
         if phone_changed:
-            user_updates.update({
-                "login": auth_phone or existing["student_id"].lower(),
-                "password_hash": None,
-                "phone_verified": False,
-                "is_active": False,
-                "account_status": "pending_invite" if auth_phone else "phone_required",
-                "invite_delivery_status": "pending" if auth_phone else None,
-            })
+            if auth_phone:
+                user_updates.update({
+                    "login": auth_phone,
+                    "phone_verified": True,
+                    "identity_verified_via": "managed_credentials",
+                    "is_active": True,
+                    "account_status": "active",
+                    "invite_delivery_status": "credentials_ready",
+                })
+            else:
+                user_updates.update({
+                    "login": existing["student_id"].lower(),
+                    "phone_verified": False,
+                    "identity_verified_via": "managed_credentials",
+                    "is_active": True,
+                    "account_status": "active",
+                    "invite_delivery_status": "credentials_ready",
+                })
             user_update["$inc"] = {"token_version": 1}
         await db.users.update_one(
             {"_id": ObjectId(existing["user_id"])},
             user_update,
         )
-        if phone_changed and auth_phone:
-            refreshed = await db.users.find_one({"_id": user["_id"]})
-            try:
-                await issue_invitation(
-                    db, refreshed, actor_id=str(current_user["_id"]),
-                    request_ip=request.client.host if request.client else None,
-                )
-            except (OtpDeliveryError, OtpRateLimitError):
-                await db.users.update_one(
-                    {"_id": user["_id"]}, {"$set": {"invite_delivery_status": "failed"}},
-                )
-        
         await create_audit_log(
             str(current_user["_id"]),
             "update",
@@ -423,6 +417,56 @@ def require_student_manager(current_user: dict, student: dict):
         and student.get("branch_id") != current_user.get("branch_id")
     ):
         raise HTTPException(status_code=403, detail="Student belongs to another branch")
+
+
+@router.post("/{student_id}/parent/managed-credentials")
+async def reset_parent_credentials(
+    student_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Create a one-time password for the parent linked to this student."""
+    from server import db, create_audit_log
+
+    if not ObjectId.is_valid(student_id):
+        raise HTTPException(status_code=404, detail="Student not found")
+    student = await db.students.find_one({
+        "_id": ObjectId(student_id),
+        "status": {"$ne": StudentStatus.ARCHIVED},
+    })
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+    require_student_manager(current_user, student)
+
+    parent_id = student.get("parent_id")
+    if not parent_id or not ObjectId.is_valid(str(parent_id)):
+        raise HTTPException(status_code=404, detail="This student has no parent account")
+    parent = await db.parents.find_one({"_id": ObjectId(str(parent_id))})
+    if not parent or not ObjectId.is_valid(str(parent.get("user_id", ""))):
+        raise HTTPException(status_code=404, detail="Parent account not found")
+    parent_user = await db.users.find_one({"_id": ObjectId(str(parent["user_id"]))})
+    if not parent_user or parent_user.get("role") != "parent":
+        raise HTTPException(status_code=404, detail="Parent login account not found")
+
+    result = await issue_access_code(
+        db,
+        parent_user,
+        purpose="password_reset",
+        actor_id=str(current_user["_id"]),
+        request_ip=request.client.host if request.client else None,
+    )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "reset_credentials",
+        "parent",
+        str(parent["_id"]),
+        {"student_id": student_id},
+        request.client.host if request.client else None,
+    )
+    return {
+        "message": "Temporary parent credentials created",
+        "credentials": result.credentials,
+    }
 
 
 @router.delete("/{student_id}")

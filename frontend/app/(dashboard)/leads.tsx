@@ -187,12 +187,11 @@ export default function LeadsScreen() {
       const response = await api.post(`/leads/${leadToConvert.id}/convert`);
       setConfirmModalVisible(false);
       setConversionResult(response.data);
-      const preparedInvites = Object.entries(response.data?.telegram_invites || {}).flatMap(
-        ([role, value]: [string, any]) => value?.telegram_invite_url ? [{
+      const preparedInvites = Object.entries(response.data?.credentials || {}).flatMap(
+        ([role, value]: [string, any]) => value?.login && value?.temporary_password ? [{
           label: role === 'parent' ? `${leadToConvert.parent_name || 'Parent'}` : `${leadToConvert.first_name} ${leadToConvert.last_name}`,
-          url: value.telegram_invite_url,
-          qrDataUrl: value.telegram_invite_qr,
-          expiresAt: value.telegram_invite_expires_at,
+          login: value.login,
+          temporaryPassword: value.temporary_password,
         }] : [],
       );
       setTelegramInvites(preparedInvites);
@@ -688,38 +687,32 @@ export default function LeadsScreen() {
             
             {conversionResult && (
               <View style={styles.credentialsContainer}>
-                <Text style={styles.credentialsLabel}>Account activation</Text>
+                <Text style={styles.credentialsLabel}>Account access</Text>
                 <View style={styles.credentialRow}>
                   <Text style={styles.credentialKey}>Student ID:</Text>
                   <Text style={styles.credentialValue}>{conversionResult.student_id}</Text>
                 </View>
                 <Text style={styles.credentialValue}>
-                  {conversionResult.invite_delivery_status?.parent === 'link_ready'
-                    ? 'A private Telegram invitation link is ready for the parent.'
-                    : conversionResult.invite_delivery_status?.student === 'link_ready'
-                      ? 'A private Telegram invitation link is ready for the student.'
-                      : conversionResult.invite_delivery_status?.parent === 'sent' || conversionResult.invite_delivery_status?.parent === 'mock'
-                        ? 'The parent invitation code was sent through Telegram.'
-                        : conversionResult.invite_delivery_status?.student === 'sent' || conversionResult.invite_delivery_status?.student === 'mock'
-                          ? 'The student invitation code was sent through Telegram.'
-                          : 'The student record was created. Add a unique phone number before enabling student login.'}
+                  {telegramInvites.length > 0
+                    ? 'Temporary login details are ready. Share them privately with the account owner.'
+                    : 'The student record was created. Add a unique phone number before enabling login.'}
                 </Text>
                 <Text style={[styles.credentialValue, { marginTop: SIZES.sm }]}>
-                  The account owner creates their own password. Staff cannot see or set it.
+                  The account owner must replace the temporary password after the first sign in.
                 </Text>
               </View>
             )}
 
             {telegramInvites.length > 0 && (
               <TouchableOpacity
-                testID="lead-telegram-invitation-button"
+                testID="lead-account-credentials-button"
                 style={[styles.successButton, { backgroundColor: COLORS.gold, marginBottom: SIZES.sm }]}
                 onPress={() => {
                   setSuccessModalVisible(false);
                   setTelegramInviteOpen(true);
                 }}
               >
-                <Text style={[styles.successButtonText, { color: COLORS.marbleDark }]}>Open Telegram invitation</Text>
+                <Text style={[styles.successButtonText, { color: COLORS.marbleDark }]}>View login details</Text>
               </TouchableOpacity>
             )}
             

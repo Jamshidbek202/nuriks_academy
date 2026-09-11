@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
-"""Disposable end-to-end QA for phone invitations and password recovery."""
+"""Disposable end-to-end QA for administrator-managed account credentials."""
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta
 import os
 from pathlib import Path
 import sys
@@ -18,23 +16,18 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 os.environ.setdefault("APP_ENV", "finance_qa")
-os.environ.setdefault("TELEGRAM_DELIVERY_MODE", "mock")
-os.environ.setdefault("TELEGRAM_BOT_USERNAME", "nuriksacademy_bot")
-os.environ.setdefault("TELEGRAM_WEBHOOK_SECRET", "nuriks-finance-qa-webhook-secret")
 os.environ.setdefault("DISABLE_SCHEDULER", "1")
-os.environ.setdefault("SECRET_KEY", "phone-auth-qa-secret-key-only")
-os.environ.setdefault("OTP_RESEND_COOLDOWN_SECONDS", "15")
+os.environ.setdefault("SECRET_KEY", "managed-credentials-qa-secret-key-only")
 
-from auth import create_access_token, get_password_hash  # noqa: E402
+from auth import create_access_token, get_password_hash, verify_password  # noqa: E402
 from database import assert_disposable_database_name  # noqa: E402
 from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users  # noqa: E402
-from telegram_auth import ensure_telegram_indexes  # noqa: E402
 from server import app, db  # noqa: E402
 
 
 ADMIN_PHONE = "+998908488787"
 ADMIN_PASSWORD = "AdminPhone@2026"
-NEW_PASSWORD = "ManagerNew@2026!"
+MANAGER_PASSWORD = "ManagerPrivate@2026!"
 
 
 def check(condition: bool, message: str) -> None:
@@ -50,52 +43,47 @@ async def json_ok(response: httpx.Response, expected: int, label: str) -> dict:
     return response.json()
 
 
-async def latest_code(phone: str, purpose: str) -> str:
-    challenge = await db.auth_challenges.find_one(
-        {"phone_normalized": phone, "purpose": purpose, "invalidated_at": None},
-        sort=[("created_at", -1)],
+async def login(client: httpx.AsyncClient, identity: str, password: str, label: str) -> dict:
+    return await json_ok(
+        await client.post(
+            "/api/auth/login",
+            json={"phone": identity, "login": identity, "password": password},
+        ),
+        200,
+        label,
     )
-    check(bool(challenge and challenge.get("test_code")), f"Missing mock {purpose} code for {phone}")
-    return challenge["test_code"]
 
 
-async def connect_mock_telegram(client: httpx.AsyncClient, phone: str, telegram_id: int) -> str:
-    user = await db.users.find_one({"phone_normalized": phone})
-    check(bool(user), f"Missing user for Telegram connection: {phone}")
-    link = await db.telegram_links.find_one(
-        {"user_id": str(user["_id"]), "used_at": None, "revoked_at": None},
-        sort=[("created_at", -1)],
+async def choose_password(
+    client: httpx.AsyncClient,
+    token: str,
+    temporary_password: str,
+    new_password: str,
+    label: str,
+) -> None:
+    await json_ok(
+        await client.post(
+            "/api/auth/password/change",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"current_password": temporary_password, "new_password": new_password},
+        ),
+        200,
+        label,
     )
-    check(bool(link and link.get("test_token")), f"Missing mock Telegram link for {phone}")
-    response = await client.post(
-        "/api/telegram/webhook",
-        headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
-        json={
-            "update_id": telegram_id,
-            "message": {
-                "message_id": telegram_id,
-                "text": f"/start connect_{link['test_token']}",
-                "from": {"id": telegram_id, "first_name": "QA", "username": f"qa_{telegram_id}"},
-                "chat": {"id": telegram_id, "type": "private"},
-            },
-        },
-    )
-    check(response.status_code == 200, f"Telegram webhook failed for {phone}: {response.text}")
-    return link["test_token"]
 
 
 async def run() -> None:
     assert_disposable_database_name(db.name)
     await db.client.drop_database(db.name)
     await ensure_phone_auth_indexes(db)
-    await ensure_telegram_indexes(db)
+
     admin = {
         "login": ADMIN_PHONE,
         "phone": ADMIN_PHONE,
         "phone_normalized": ADMIN_PHONE,
         "phone_verified": True,
         "password_hash": get_password_hash(ADMIN_PASSWORD),
-        "full_name": "Phone QA Super Admin",
+        "full_name": "Managed Credentials QA Super Admin",
         "role": "super_admin",
         "is_active": True,
         "account_status": "active",
@@ -103,128 +91,19 @@ async def run() -> None:
         "token_version": 0,
         "qa_fixture": True,
     }
-    admin_result = await db.users.insert_one(admin)
-    admin["_id"] = admin_result.inserted_id
+    inserted_admin = await db.users.insert_one(admin)
+    admin["_id"] = inserted_admin.inserted_id
     admin_token = create_access_token({
         "sub": str(admin["_id"]), "role": "super_admin", "token_version": 0,
     })
     admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://phone-auth-qa") as client:
-        invalid_webhook = await client.post(
-            "/api/telegram/webhook",
-            headers={"X-Telegram-Bot-Api-Secret-Token": "wrong-secret"},
-            json={"update_id": 1},
-        )
-        check(invalid_webhook.status_code == 403, "Telegram webhook must reject an invalid secret")
-        provider_health = await json_ok(
-            await client.get("/api/auth/telegram/provider-health", headers=admin_headers),
-            200,
-            "Telegram provider health",
-        )
-        check(provider_health["healthy"] is True, "Mock Telegram provider must report healthy")
-
-        # A never-activated test account may be removed completely. Its
-        # Telegram identity and phone number must immediately become reusable.
-        disposable_phone = "+998909999991"
-        disposable = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "Disposable Manager", "phone": disposable_phone, "role": "manager"},
-            ),
-            201,
-            "create disposable manager",
-        )
-        await connect_mock_telegram(client, disposable_phone, 90099999991)
-        await json_ok(
-            await client.delete(f"/api/staff-accounts/{disposable['id']}", headers=admin_headers),
-            200,
-            "delete disposable manager",
-        )
-        check(
-            await db.users.find_one({"phone_normalized": disposable_phone}) is None,
-            "Deleted manager phone must be released",
-        )
-
-        telegram_reuse_phone = "+998909999992"
-        telegram_reuse = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "Telegram Reuse", "phone": telegram_reuse_phone, "role": "reception"},
-            ),
-            201,
-            "create Telegram reuse account",
-        )
-        await connect_mock_telegram(client, telegram_reuse_phone, 90099999991)
-        await json_ok(
-            await client.delete(f"/api/staff-accounts/{telegram_reuse['id']}", headers=admin_headers),
-            200,
-            "delete Telegram reuse account",
-        )
-
-        phone_reuse = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "Phone Reuse", "phone": disposable_phone, "role": "manager"},
-            ),
-            201,
-            "reuse deleted manager phone",
-        )
-        await json_ok(
-            await client.delete(f"/api/staff-accounts/{phone_reuse['id']}", headers=admin_headers),
-            200,
-            "delete phone reuse account",
-        )
-
-        role_phone = "+998909999993"
-        role_account = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "Wrong Role Example", "phone": role_phone, "role": "manager"},
-            ),
-            201,
-            "create account for role correction",
-        )
-        support_role = await json_ok(
-            await client.patch(
-                f"/api/staff-accounts/{role_account['id']}/role",
-                headers=admin_headers,
-                json={"role": "support", "reason": "Created under the wrong operational role"},
-            ),
-            200,
-            "correct manager to support",
-        )
-        check(support_role["account"]["role"] == "support", "Role must change to support")
-        check(
-            await db.support_staff.count_documents({"user_id": role_account["id"]}) == 1,
-            "Support role correction must create exactly one support profile",
-        )
-        reception_role = await json_ok(
-            await client.patch(
-                f"/api/staff-accounts/{role_account['id']}/role",
-                headers=admin_headers,
-                json={"role": "reception", "reason": "Correct final reception assignment"},
-            ),
-            200,
-            "correct support to reception",
-        )
-        check(reception_role["account"]["role"] == "reception", "Role must change to reception")
-        check(
-            await db.support_staff.count_documents({"user_id": role_account["id"]}) == 0,
-            "Unused support profile must be removed after role correction",
-        )
-        await json_ok(
-            await client.delete(f"/api/staff-accounts/{role_account['id']}", headers=admin_headers),
-            200,
-            "delete role correction account",
-        )
-        delete_audit = await db.audit_logs.find_one({"resource_id": disposable["id"]})
-        check(delete_audit is None, "No-trace deletion must remove the account audit trail")
+    async with httpx.AsyncClient(transport=transport, base_url="http://managed-auth-qa") as client:
+        retired = await client.post("/api/auth/password-reset/request", json={"phone": ADMIN_PHONE})
+        check(retired.status_code == 410, "Public OTP password recovery must stay retired")
+        webhook = await client.post("/api/telegram/webhook", json={"update_id": 1})
+        check(webhook.status_code == 404, "Telegram webhook must not be mounted")
 
         manager_phone = "+998901111111"
         created = await json_ok(
@@ -233,7 +112,7 @@ async def run() -> None:
                 headers=admin_headers,
                 json={
                     "full_name": "QA Manager",
-                    "phone": "90 111 11 11",
+                    "phone": manager_phone,
                     "role": "manager",
                     "language_preference": "ru",
                 },
@@ -241,20 +120,36 @@ async def run() -> None:
             201,
             "create manager",
         )
-        check(created["account_status"] == "pending_invite", "Manager must start pending")
-        check(created["is_active"] is False, "Pending manager must not be active")
-        check(created["invite_delivery_status"] == "link_ready", "QA must create a Telegram link")
-        check(bool(created.get("telegram_invite_url")), "Telegram invitation URL must be returned")
+        credentials = created.get("credentials") or {}
+        temporary_password = credentials.get("temporary_password")
+        check(created["account_status"] == "active", "Manager must be active after credentials are issued")
+        check(created["invite_delivery_status"] == "credentials_ready", "Credentials must be ready immediately")
+        check(credentials.get("login") == manager_phone, "Manager login must use normalized phone")
+        check(bool(temporary_password), "Temporary password must be returned exactly once")
+        stored_manager = await db.users.find_one({"phone_normalized": manager_phone})
+        check(bool(stored_manager), "Created manager must exist")
+        check(temporary_password not in repr(stored_manager), "Plain temporary password must never be stored")
+        check(verify_password(temporary_password, stored_manager["password_hash"]), "Stored hash must accept temporary password")
 
-        # Render can restart between account creation and activation. The
-        # idempotent startup migration must preserve the pending invitation.
-        await migrate_phone_auth_users(db)
-        pending_after_restart = await db.users.find_one({"phone_normalized": manager_phone})
-        check(
-            pending_after_restart["account_status"] == "pending_invite",
-            "Startup migration must preserve pending invitations",
+        temporary_login = await login(client, manager_phone, temporary_password, "temporary manager login")
+        temporary_headers = {"Authorization": f"Bearer {temporary_login['access_token']}"}
+        me = await json_ok(await client.get("/api/auth/me", headers=temporary_headers), 200, "temporary identity")
+        check(me["must_change_password"] is True, "Temporary login must require password change")
+        blocked = await client.get("/api/staff-accounts", headers=temporary_headers)
+        check(blocked.status_code == 403, "Temporary password must not grant application access")
+        check(blocked.json()["detail"]["code"] == "PASSWORD_CHANGE_REQUIRED", "Forced-change code must be stable")
+
+        await choose_password(
+            client,
+            temporary_login["access_token"],
+            temporary_password,
+            MANAGER_PASSWORD,
+            "manager chooses private password",
         )
-        check(pending_after_restart["is_active"] is False, "Pending account must remain inactive")
+        check((await client.get("/api/auth/me", headers=temporary_headers)).status_code == 401, "Password change must revoke old session")
+        check((await client.post("/api/auth/login", json={"phone": manager_phone, "password": temporary_password})).status_code == 401, "Temporary password must stop working")
+        manager_login = await login(client, manager_phone, MANAGER_PASSWORD, "manager private login")
+        manager_headers = {"Authorization": f"Bearer {manager_login['access_token']}"}
 
         duplicate = await client.post(
             "/api/staff-accounts",
@@ -262,72 +157,12 @@ async def run() -> None:
             json={"full_name": "Duplicate", "phone": "+998 90 111 11 11", "role": "reception"},
         )
         check(duplicate.status_code == 409, "Normalized duplicate phone must be rejected")
-
-        pending_login = await client.post(
-            "/api/auth/login", json={"phone": manager_phone, "password": NEW_PASSWORD},
-        )
-        check(pending_login.status_code in {401, 403}, "Pending account must not log in")
-
-        manager_link_token = await connect_mock_telegram(client, manager_phone, 90011111111)
-        invite_count_before_replay = await db.auth_challenges.count_documents({
-            "phone_normalized": manager_phone, "purpose": "invite",
-        })
-        replayed_link = await client.post(
-            "/api/telegram/webhook",
-            headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
-            json={
-                "update_id": 90011111112,
-                "message": {
-                    "message_id": 90011111112,
-                    "text": f"/start connect_{manager_link_token}",
-                    "from": {"id": 90011111112, "first_name": "Forwarded"},
-                    "chat": {"id": 90011111112, "type": "private"},
-                },
-            },
-        )
-        check(replayed_link.status_code == 200, "Telegram must acknowledge a replay safely")
-        linked_manager = await db.users.find_one({"phone_normalized": manager_phone})
-        check(linked_manager.get("telegram_user_id") == 90011111111, "A used link must not transfer accounts")
-        check(
-            await db.auth_challenges.count_documents({
-                "phone_normalized": manager_phone, "purpose": "invite",
-            }) == invite_count_before_replay,
-            "A replayed Telegram link must not issue another code",
-        )
-        invite_code = await latest_code(manager_phone, "invite")
-        await json_ok(
-            await client.post(
-                "/api/auth/invitations/accept",
-                json={"phone": manager_phone, "code": invite_code, "password": NEW_PASSWORD},
-            ),
-            200,
-            "accept manager invitation",
-        )
-        activated_manager = await db.users.find_one({"phone_normalized": manager_phone})
-        check(activated_manager.get("identity_verified_via") == "telegram", "Activation channel must be Telegram")
-        check(activated_manager.get("phone_verified") is False, "Telegram must not falsely mark the phone as SMS-verified")
-        replay = await client.post(
-            "/api/auth/invitations/accept",
-            json={"phone": manager_phone, "code": invite_code, "password": NEW_PASSWORD},
-        )
-        check(replay.status_code == 400, "Invitation code replay must fail")
-
-        manager_login = await json_ok(
-            await client.post(
-                "/api/auth/login", json={"phone": manager_phone, "password": NEW_PASSWORD},
-            ),
-            200,
-            "manager login",
-        )
-        manager_token = manager_login["access_token"]
-        manager_headers = {"Authorization": f"Bearer {manager_token}"}
-
-        forbidden_manager = await client.post(
+        forbidden = await client.post(
             "/api/staff-accounts",
             headers=manager_headers,
             json={"full_name": "Forbidden Manager", "phone": "+998901111112", "role": "manager"},
         )
-        check(forbidden_manager.status_code == 403, "Manager must not create another manager")
+        check(forbidden.status_code == 403, "Manager must not create another manager")
 
         teacher_phone = "+998902222222"
         teacher = await json_ok(
@@ -345,56 +180,21 @@ async def run() -> None:
             200,
             "manager creates teacher",
         )
-        check(teacher["account_status"] == "pending_invite", "Teacher must start pending")
-        await connect_mock_telegram(client, teacher_phone, 90022222222)
-        teacher_code = await latest_code(teacher_phone, "invite")
-        await json_ok(
+        check(teacher["account_status"] == "active", "Teacher credentials must activate account")
+        check(bool(teacher.get("credentials", {}).get("temporary_password")), "Teacher credentials must be returned")
+
+        teacher_user = await db.users.find_one({"phone_normalized": teacher_phone})
+        teacher_reset = await json_ok(
             await client.post(
-                "/api/auth/invitations/accept",
-                json={"phone": teacher_phone, "code": teacher_code, "password": "TeacherQA@2026!"},
+                f"/api/auth/managed-credentials/{teacher_user['_id']}",
+                headers=manager_headers,
             ),
             200,
-            "accept teacher invitation",
+            "manager resets teacher password",
         )
+        check(bool(teacher_reset["credentials"]["temporary_password"]), "Manager must receive reset credentials")
 
-        reception_phone = "+998903333333"
-        reception = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "QA Reception", "phone": reception_phone, "role": "reception"},
-            ),
-            201,
-            "create reception",
-        )
-        check(reception["role"] == "reception", "Reception role must be retained")
-        reception_user = await db.users.find_one({"phone_normalized": reception_phone})
-        reception_link = await db.telegram_links.find_one({
-            "user_id": str(reception_user["_id"]), "used_at": None, "revoked_at": None,
-        })
-        check(bool(reception_link and reception_link.get("test_token")), "Reception link must exist")
-        await db.telegram_links.update_one(
-            {"_id": reception_link["_id"]},
-            {"$set": {"expires_at": datetime.utcnow() - timedelta(seconds=1)}},
-        )
-        expired_attempt = await client.post(
-            "/api/telegram/webhook",
-            headers={"X-Telegram-Bot-Api-Secret-Token": "nuriks-finance-qa-webhook-secret"},
-            json={
-                "update_id": 90033333333,
-                "message": {
-                    "message_id": 90033333333,
-                    "text": f"/start connect_{reception_link['test_token']}",
-                    "from": {"id": 90033333333, "first_name": "Expired"},
-                    "chat": {"id": 90033333333, "type": "private"},
-                },
-            },
-        )
-        check(expired_attempt.status_code == 200, "Expired Telegram links must be safely acknowledged")
-        reception_user = await db.users.find_one({"_id": reception_user["_id"]})
-        check(not reception_user.get("telegram_user_id"), "Expired links must not connect an account")
-
-        parent_phone = "+998904444444"
+        lead_phone = "+998904444444"
         lead = await json_ok(
             await client.post(
                 "/api/leads",
@@ -402,9 +202,9 @@ async def run() -> None:
                 json={
                     "first_name": "ParentManaged",
                     "last_name": "Student",
-                    "phone": parent_phone,
+                    "phone": lead_phone,
                     "parent_name": "QA Parent",
-                    "parent_phone": parent_phone,
+                    "parent_phone": lead_phone,
                     "account_access_mode": "parent_only",
                     "source": "walk_in",
                 },
@@ -413,181 +213,80 @@ async def run() -> None:
             "create parent-managed lead",
         )
         conversion = await json_ok(
-            await client.post(
-                f"/api/leads/{lead['id']}/convert", headers=admin_headers,
-            ),
+            await client.post(f"/api/leads/{lead['id']}/convert", headers=admin_headers),
             200,
             "convert parent-managed lead",
         )
-        check(conversion["account_access_mode"] == "parent_only", "Parent ownership must be retained")
-        check(conversion["student_account_status"] == "phone_required", "Child must not share the parent login")
-        check(bool(conversion["telegram_invites"].get("parent")), "Parent Telegram link must be returned")
-        await connect_mock_telegram(client, parent_phone, 90044444444)
-        parent_code = await latest_code(parent_phone, "invite")
-        await json_ok(
+        check(conversion["student_account_status"] == "active", "Student-ID account must not require phone")
+        check(conversion["parent_account_status"] == "active", "Parent credentials must be active")
+        check(bool(conversion["credentials"]["student"]["temporary_password"]), "Student credentials must be returned")
+        check(bool(conversion["credentials"]["parent"]["temporary_password"]), "Parent credentials must be returned")
+        student_login = await login(
+            client,
+            conversion["credentials"]["student"]["login"],
+            conversion["credentials"]["student"]["temporary_password"],
+            "student-ID temporary login",
+        )
+        check(student_login["user"]["role"] == "student", "Student-ID login must resolve student only")
+        parent_login = await login(
+            client,
+            conversion["credentials"]["parent"]["login"],
+            conversion["credentials"]["parent"]["temporary_password"],
+            "parent temporary login",
+        )
+        check(parent_login["user"]["role"] == "parent", "Parent login must resolve parent only")
+        parent_reset = await json_ok(
             await client.post(
-                "/api/auth/invitations/accept",
-                json={
-                    "phone": parent_phone,
-                    "code": parent_code,
-                    "password": "ParentAccess@2026!",
-                },
+                f"/api/students/{conversion['student_db_id']}/parent/managed-credentials",
+                headers=manager_headers,
             ),
             200,
-            "activate parent account through Telegram",
+            "manager resets parent from student record",
         )
-        parent_login = await json_ok(
-            await client.post(
-                "/api/auth/login",
-                json={"phone": parent_phone, "password": "ParentAccess@2026!"},
-            ),
-            200,
-            "parent login after Telegram code",
-        )
-        check(parent_login["user"]["role"] == "parent", "Activated parent must retain parent role")
-
-        # Wait out no cooldown by using the original invite only; password
-        # reset runs on the already activated manager and has a separate purpose.
-        await json_ok(
-            await client.post(
-                "/api/auth/password-reset/request", json={"phone": manager_phone},
-            ),
-            202,
-            "request password reset",
-        )
-        reset_code = await latest_code(manager_phone, "password_reset")
-        reset_password = "ManagerReset@2027!"
-        await json_ok(
-            await client.post(
-                "/api/auth/password-reset/confirm",
-                json={"phone": manager_phone, "code": reset_code, "password": reset_password},
-            ),
-            200,
-            "confirm password reset",
-        )
-        revoked = await client.get("/api/auth/me", headers=manager_headers)
-        check(revoked.status_code == 401, "Password reset must revoke old sessions")
-        old_password = await client.post(
-            "/api/auth/login", json={"phone": manager_phone, "password": NEW_PASSWORD},
-        )
-        check(old_password.status_code == 401, "Old password must stop working")
-        new_login = await json_ok(
-            await client.post(
-                "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
-            ),
-            200,
-            "login after reset",
-        )
-
-        disconnected = await json_ok(
-            await client.delete(
-                "/api/auth/telegram/link",
-                headers={"Authorization": f"Bearer {new_login['access_token']}"},
-            ),
-            200,
-            "disconnect Telegram",
-        )
-        check(disconnected["connected"] is False, "Telegram must report disconnected")
-        manager_after_disconnect = await db.users.find_one({"phone_normalized": manager_phone})
-        check(not manager_after_disconnect.get("telegram_chat_id"), "Telegram chat ID must be removed")
+        check(bool(parent_reset["credentials"]["temporary_password"]), "Manager must receive parent reset credentials")
         check(
-            manager_after_disconnect.get("telegram_verified") is True,
-            "Disconnecting code delivery must not erase completed account activation",
-        )
-        await json_ok(
-            await client.post(
-                "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
-            ),
-            200,
-            "phone-and-password login after Telegram disconnect",
+            (await client.get("/api/auth/me", headers={"Authorization": f"Bearer {parent_login['access_token']}"})).status_code == 401,
+            "Parent credential reset must revoke the existing parent session",
         )
 
-        reconnect_login = await json_ok(
-            await client.post(
-                "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
-            ),
-            200,
-            "login before Telegram reconnect",
+        await db.users.update_one(
+            {"_id": stored_manager["_id"]},
+            {"$set": {
+                "telegram_chat_id": 12345,
+                "telegram_user_id": 12345,
+                "telegram_link_status": "linked",
+                "identity_verified_via": "telegram",
+            }},
         )
-        await json_ok(
-            await client.post(
-                "/api/auth/telegram/link",
-                headers={"Authorization": f"Bearer {reconnect_login['access_token']}"},
-            ),
-            200,
-            "create reconnect link",
-        )
-        await connect_mock_telegram(client, manager_phone, 90011111111)
-        manager_before_deactivate = await db.users.find_one({"phone_normalized": manager_phone})
-        check(manager_before_deactivate.get("telegram_chat_id") == 90011111111, "Manager must reconnect")
+        await migrate_phone_auth_users(db)
+        migrated_manager = await db.users.find_one({"_id": stored_manager["_id"]})
+        check("telegram_chat_id" not in migrated_manager, "Migration must remove obsolete Telegram identity")
+        check(verify_password(MANAGER_PASSWORD, migrated_manager["password_hash"]), "Migration must preserve existing password")
+        check(migrated_manager["must_change_password"] is False, "Existing user must not be forced to reset")
 
-        deactivate = await json_ok(
-            await client.patch(
-                f"/api/staff-accounts/{created['id']}/deactivate", headers=admin_headers,
-            ),
+        reset = await json_ok(
+            await client.post(f"/api/auth/managed-credentials/{created['id']}", headers=admin_headers),
+            200,
+            "administrator resets manager",
+        )
+        check(bool(reset["credentials"]["temporary_password"]), "Administrator reset must return credentials")
+        check((await client.get("/api/auth/me", headers=manager_headers)).status_code == 401, "Reset must revoke manager session")
+
+        await json_ok(
+            await client.patch(f"/api/staff-accounts/{created['id']}/deactivate", headers=admin_headers),
             200,
             "deactivate manager",
         )
-        check(deactivate["account_status"] == "deactivated", "Account must be deactivated")
-        check(deactivate["telegram_connected"] is False, "Deactivation must report Telegram released")
-        manager_after_deactivate = await db.users.find_one({"phone_normalized": manager_phone})
-        check(not manager_after_deactivate.get("telegram_user_id"), "Deactivation must free Telegram identity")
-        deactivated_session = await client.get(
-            "/api/auth/me", headers={"Authorization": f"Bearer {new_login['access_token']}"},
+        deactivated_login = await client.post(
+            "/api/auth/login",
+            json={"phone": manager_phone, "password": reset["credentials"]["temporary_password"]},
         )
-        check(deactivated_session.status_code in {401, 403}, "Deactivation must revoke access")
+        check(deactivated_login.status_code == 403, "Deactivated manager must not log in")
 
-        permanent_delete = await json_ok(
-            await client.delete(
-                f"/api/staff-accounts/{created['id']}", headers=admin_headers,
-            ),
-            200,
-            "permanently delete activated manager",
-        )
-        check(
-            permanent_delete["deletion_mode"] == "hard_delete",
-            "Activated staff must be physically removed",
-        )
-        deleted_manager = await db.users.find_one({"_id": activated_manager["_id"]})
-        check(deleted_manager is None, "Permanent deletion must remove the user document")
-        await migrate_phone_auth_users(db)
-        deleted_manager = await db.users.find_one({"_id": activated_manager["_id"]})
-        check(deleted_manager is None, "Startup migration must not recreate deleted users")
-        removed_login = await client.post(
-            "/api/auth/login", json={"phone": manager_phone, "password": reset_password},
-        )
-        check(removed_login.status_code == 401, "Permanently deleted staff must not log in")
-        reused_manager = await json_ok(
-            await client.post(
-                "/api/staff-accounts",
-                headers=admin_headers,
-                json={"full_name": "Reused Manager Phone", "phone": manager_phone, "role": "manager"},
-            ),
-            201,
-            "reuse permanently deleted manager phone",
-        )
-        reused_delete = await json_ok(
-            await client.delete(
-                f"/api/staff-accounts/{reused_manager['id']}", headers=admin_headers,
-            ),
-            200,
-            "delete replacement unactivated manager",
-        )
-        check(reused_delete["deletion_mode"] == "hard_delete", "Unused replacement must hard-delete")
-        delete_audit = await db.audit_logs.find_one({
-            "resource_id": created["id"],
-        })
-        check(delete_audit is None, "No-trace deletion must remove activated account audits")
-
-        forbidden_seed = await client.post(
-            "/api/finance/configuration/seed-reception",
-            headers=admin_headers,
-            json={},
-        )
-        check(forbidden_seed.status_code == 410, "Temporary reception password endpoint must stay retired")
-
-    print("PHONE_AUTH_QA_PASS Telegram pairing, expiry, replay, roles, activation, reset, and revocation")
+    print("Managed credential QA passed: no Telegram dependency, forced private passwords, resets, roles, student IDs, migration, and revocation verified.")
 
 
 if __name__ == "__main__":
+    import asyncio
+
     asyncio.run(run())

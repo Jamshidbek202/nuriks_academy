@@ -40,8 +40,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-# Telegram Bot API credentials are part of the request path. Keep the HTTP
-# client's request logging above INFO so provider URLs never reach app logs.
+# Keep dependency request logs concise and free of provider-level details.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -66,7 +65,6 @@ from routes_notifications import router as notifications_router
 from routes_finance import router as finance_router
 from routes_auth import router as auth_router
 from routes_staff_accounts import router as staff_accounts_router
-from routes_telegram import router as telegram_router
 from routes_courses import router as courses_router
 from routes_calendar import router as calendar_router
 
@@ -90,7 +88,6 @@ api_router.include_router(notifications_router)
 api_router.include_router(finance_router)
 api_router.include_router(auth_router)
 api_router.include_router(staff_accounts_router)
-api_router.include_router(telegram_router)
 api_router.include_router(courses_router)
 api_router.include_router(calendar_router)
 
@@ -120,27 +117,11 @@ async def startup_event():
     from finance_live import ensure_finance_live_indexes
     from finance_card_payments import ensure_card_payment_indexes
     from phone_auth import ensure_phone_auth_indexes, migrate_phone_auth_users
-    from telegram_auth import ensure_telegram_indexes
     from routes_courses import ensure_course_indexes
-    from telegram_service import (
-        TelegramDeliveryError,
-        configure_telegram_webhook,
-        validate_telegram_configuration,
-    )
-
-    validate_telegram_configuration()
     phone_migration = await migrate_phone_auth_users(db)
     logger.info("Phone-auth user migration completed: %s", phone_migration)
     await ensure_phone_auth_indexes(db)
-    await ensure_telegram_indexes(db)
     await ensure_course_indexes(db)
-    try:
-        await configure_telegram_webhook()
-    except TelegramDeliveryError:
-        # A temporary Telegram outage must not make the academy application
-        # unavailable. Delivery remains visibly unavailable until the next
-        # successful deploy/restart registers the webhook.
-        logger.exception("Telegram webhook configuration failed")
 
     # Sparse keeps legacy tests valid; uniqueness makes repeated create
     # requests with the same client key atomic.
@@ -203,8 +184,12 @@ async def get_current_user_dependency(credentials: HTTPAuthorizationCredentials 
     """Dependency to get current user"""
     return await get_current_user(credentials, db)
 
+
+async def get_current_user_for_password_gate(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    return await get_current_user(credentials, db, allow_password_change=True)
+
 @api_router.get("/auth/me")
-async def get_me(current_user: dict = Depends(get_current_user_dependency)):
+async def get_me(current_user: dict = Depends(get_current_user_for_password_gate)):
     """Get current user info"""
     user_data = serialize_doc(current_user.copy())
     for secret_field in (
@@ -214,7 +199,6 @@ async def get_me(current_user: dict = Depends(get_current_user_dependency)):
         "telegram_last_name",
     ):
         user_data.pop(secret_field, None)
-    user_data["telegram_connected"] = current_user.get("telegram_link_status") == "linked"
     return user_data
 
 @api_router.put("/auth/preferences/language")

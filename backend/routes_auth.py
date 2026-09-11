@@ -5,29 +5,18 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional
 
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, model_validator
 
 from auth import create_access_token, get_current_user, get_password_hash, verify_password
 from phone_auth import (
-    OtpCodeError,
-    OtpDeliveryError,
-    OtpRateLimitError,
     PasswordPolicyError,
     PhoneValidationError,
-    consume_otp,
-    get_user_by_phone,
-    issue_otp,
-    legacy_login_allowed,
+    issue_access_code,
     normalize_phone,
     validate_password,
-)
-from telegram_auth import create_telegram_link, disconnect_telegram
-from telegram_service import (
-    TelegramDeliveryError,
-    bot_username,
-    telegram_provider_health,
 )
 
 
@@ -39,15 +28,14 @@ LOGIN_LOCK_MINUTES = 15
 
 class PhonePasswordLogin(BaseModel):
     phone: Optional[str] = None
-    # Kept as a request alias for disposable QA fixtures only. Production
-    # accounts are always resolved by normalized phone number.
+    # Students without their own phone use their generated student ID here.
     login: Optional[str] = None
     password: str = Field(..., min_length=1, max_length=128)
 
     @model_validator(mode="after")
     def require_identity(self):
         if not (self.phone or self.login):
-            raise ValueError("Phone number is required")
+            raise ValueError("Phone number or account login is required")
         return self
 
 
@@ -71,8 +59,105 @@ async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depen
     return await get_current_user(credentials, db)
 
 
+async def get_password_change_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    from server import db
+    return await get_current_user(credentials, db, allow_password_change=True)
+
+
 def _client_ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
+
+
+@router.post("/managed-credentials/{user_id}")
+async def reset_managed_credentials(
+    user_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Create a one-time password for an account within the actor's authority."""
+    from server import create_audit_log, db
+
+    if current_user.get("role") not in {"super_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Administrator or manager access required")
+    try:
+        target = await db.users.find_one({"_id": ObjectId(user_id), "is_deleted": {"$ne": True}})
+    except Exception as error:
+        raise HTTPException(status_code=400, detail="Invalid user id") from error
+    if not target:
+        raise HTTPException(status_code=404, detail="Account not found")
+    if target.get("account_status") == "deactivated":
+        raise HTTPException(status_code=409, detail="Reactivate the account before resetting its password")
+    if current_user.get("role") == "manager":
+        if target.get("role") in {"super_admin", "manager"}:
+            raise HTTPException(status_code=403, detail="Managers cannot reset leadership accounts")
+        if target.get("branch_id") != current_user.get("branch_id"):
+            raise HTTPException(status_code=403, detail="Cannot reset an account from another branch")
+
+    issued = await issue_access_code(
+        db,
+        target,
+        purpose="password_reset" if target.get("password_hash") else "invite",
+        actor_id=str(current_user["_id"]),
+        request_ip=_client_ip(request),
+    )
+    await create_audit_log(
+        str(current_user["_id"]),
+        "issue_managed_credentials",
+        "user",
+        user_id,
+        {"role": target.get("role"), "sessions_revoked": True},
+        _client_ip(request),
+    )
+    return {
+        "message": "Temporary credentials created. They are shown only once.",
+        "credentials": issued.credentials,
+    }
+
+
+@router.post("/managed-credentials/pending/issue")
+async def issue_pending_managed_credentials(
+    request: Request,
+    current_user: dict = Depends(get_current_user_dep),
+):
+    """Issue credentials for accounts that never completed activation."""
+    from server import create_audit_log, db
+
+    if current_user.get("role") not in {"super_admin", "manager"}:
+        raise HTTPException(status_code=403, detail="Administrator or manager access required")
+    query: dict = {
+        "account_status": {"$in": ["pending_invite", "credentials_required"]},
+        "is_deleted": {"$ne": True},
+    }
+    if current_user.get("role") == "manager":
+        query.update({
+            "branch_id": current_user.get("branch_id"),
+            "role": {"$nin": ["super_admin", "manager"]},
+        })
+    pending = await db.users.find(query).sort("full_name", 1).to_list(500)
+    prepared = []
+    for target in pending:
+        issued = await issue_access_code(
+            db,
+            target,
+            purpose="invite",
+            actor_id=str(current_user["_id"]),
+            request_ip=_client_ip(request),
+        )
+        prepared.append({
+            "user_id": str(target["_id"]),
+            "label": target.get("full_name") or target.get("login"),
+            "role": target.get("role"),
+            **(issued.credentials or {}),
+        })
+    await create_audit_log(
+        str(current_user["_id"]),
+        "issue_pending_managed_credentials",
+        "user",
+        "bulk",
+        {"count": len(prepared)},
+        _client_ip(request),
+    )
+    return {"message": f"Prepared {len(prepared)} account(s)", "credentials": prepared}
 
 
 def _public_user(user: dict) -> dict:
@@ -92,12 +177,7 @@ def _public_user(user: dict) -> dict:
         "telegram_last_name",
     ):
         result.pop(key, None)
-    result["telegram_connected"] = user.get("telegram_link_status") == "linked"
     return result
-
-
-def _otp_error(error: OtpCodeError) -> HTTPException:
-    return HTTPException(status_code=400, detail={"code": error.code, "message": str(error)})
 
 
 def _password_error(error: PasswordPolicyError) -> HTTPException:
@@ -109,9 +189,10 @@ async def _find_login_user(db, credentials: PhonePasswordLogin) -> Optional[dict
     try:
         normalized = normalize_phone(identity)
     except PhoneValidationError:
-        if legacy_login_allowed() and credentials.login:
-            return await db.users.find_one({"login": credentials.login.strip()})
-        return None
+        login = (credentials.login or identity).strip()
+        if not login:
+            return None
+        return await db.users.find_one({"login": login})
     return await db.users.find_one({"phone_normalized": normalized})
 
 
@@ -140,19 +221,15 @@ async def phone_password_login(credentials: PhonePasswordLogin, request: Request
             if attempts >= MAX_LOGIN_ATTEMPTS:
                 update["locked_until"] = now + timedelta(minutes=LOGIN_LOCK_MINUTES)
             await db.users.update_one({"_id": user["_id"]}, {"$set": update})
-        raise HTTPException(status_code=401, detail="Invalid phone number or password")
+        raise HTTPException(status_code=401, detail="Invalid login or password")
 
     account_status = user.get("account_status", "active")
-    if user.get("identity_verified_via") == "telegram":
-        identity_verified = bool(user.get("telegram_verified"))
-    else:
-        identity_verified = bool(user.get("phone_verified", True))
-    if account_status == "pending_invite" or not identity_verified:
+    if account_status in {"pending_invite", "credentials_required", "phone_required"} or not user.get("password_hash"):
         raise HTTPException(
             status_code=403,
             detail={
                 "code": "ACCOUNT_ACTIVATION_REQUIRED",
-                "message": "Activate this account using the code from the Nurik's Academy Telegram bot before signing in.",
+                "message": "Ask an administrator or manager to issue your account credentials.",
             },
         )
     if not user.get("is_active", True) or account_status == "deactivated":
@@ -182,195 +259,22 @@ async def phone_password_login(credentials: PhonePasswordLogin, request: Request
     }
 
 
-async def _request_code(
-    db,
-    *,
-    phone: str,
-    purpose: str,
-    request: Request,
-) -> dict:
-    generic = {
-        "message": "If the account is eligible and Telegram is connected, a verification code has been sent.",
-        "retry_after_seconds": 60,
-    }
-    try:
-        user = await get_user_by_phone(db, phone)
-    except PhoneValidationError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    if not user:
-        return generic
-    if purpose == "invite" and user.get("account_status") != "pending_invite":
-        return generic
-    if purpose == "password_reset" and (
-        not user.get("is_active", False) or user.get("account_status") != "active"
-    ):
-        return generic
-    try:
-        result = await issue_otp(
-            db,
-            user=user,
-            purpose=purpose,
-            requested_by=str(user["_id"]),
-            request_ip=_client_ip(request),
-        )
-        generic["retry_after_seconds"] = result.retry_after_seconds
-    except OtpRateLimitError as error:
-        generic["retry_after_seconds"] = error.retry_after_seconds
-    except OtpDeliveryError as error:
-        # Do not tell a real account holder that a code was sent when the
-        # provider rejected it. Failed challenges contain no usable plaintext
-        # code and remain visible to administrators for diagnosis.
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": error.code,
-                "message": (
-                    "Telegram could not send the verification code. "
-                    "Open @nuriksacademy_bot, make sure it is not blocked, and try again. "
-                    "If it still fails, ask an administrator to check Telegram delivery."
-                ),
-            },
-        ) from error
-    return generic
-
-
-@router.post("/invitations/resend", status_code=status.HTTP_202_ACCEPTED)
-async def resend_invitation(payload: PhoneRequest, request: Request):
-    from server import db
-
-    return await _request_code(db, phone=payload.phone, purpose="invite", request=request)
-
-
-@router.post("/invitations/accept")
-async def accept_invitation(payload: CodeAndPassword, request: Request):
-    from server import create_audit_log, db
-
-    try:
-        normalized = normalize_phone(payload.phone)
-        validate_password(payload.password)
-    except PhoneValidationError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except PasswordPolicyError as error:
-        raise _password_error(error) from error
-
-    try:
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                user = await db.users.find_one(
-                    {"phone_normalized": normalized, "account_status": "pending_invite"},
-                    session=session,
-                )
-                if not user:
-                    raise OtpCodeError("INVITATION_NOT_FOUND", "No pending invitation was found")
-                await consume_otp(
-                    db,
-                    phone=normalized,
-                    purpose="invite",
-                    code=payload.code,
-                    session=session,
-                )
-                activated_at = datetime.utcnow()
-                result = await db.users.update_one(
-                    {"_id": user["_id"], "account_status": "pending_invite"},
-                    {"$set": {
-                        "password_hash": get_password_hash(payload.password),
-                        "telegram_verified": True,
-                        "identity_verified_via": "telegram",
-                        "is_active": True,
-                        "account_status": "active",
-                        "invitation_accepted_at": activated_at,
-                        "updated_at": activated_at,
-                        "failed_login_attempts": 0,
-                    }, "$unset": {"locked_until": ""}},
-                    session=session,
-                )
-                if result.modified_count != 1:
-                    raise OtpCodeError("INVITATION_ALREADY_USED", "Invitation has already been accepted")
-    except OtpCodeError as error:
-        raise _otp_error(error) from error
-
-    await create_audit_log(
-        str(user["_id"]),
-        "accept_invitation",
-        "user",
-        str(user["_id"]),
-        {"identity_verified_via": "telegram"},
-        _client_ip(request),
+@router.post("/invitations/resend", status_code=status.HTTP_410_GONE)
+@router.post("/invitations/accept", status_code=status.HTTP_410_GONE)
+@router.post("/password-reset/request", status_code=status.HTTP_410_GONE)
+@router.post("/password-reset/confirm", status_code=status.HTTP_410_GONE)
+async def retired_telegram_otp():
+    raise HTTPException(
+        status_code=410,
+        detail="Telegram verification was retired. Ask an administrator or manager for new credentials.",
     )
-    return {"message": "Account activated. You can now sign in."}
-
-
-@router.post("/password-reset/request", status_code=status.HTTP_202_ACCEPTED)
-async def request_password_reset(payload: PhoneRequest, request: Request):
-    from server import db
-
-    return await _request_code(db, phone=payload.phone, purpose="password_reset", request=request)
-
-
-@router.post("/password-reset/confirm")
-async def confirm_password_reset(payload: CodeAndPassword, request: Request):
-    from server import create_audit_log, db
-
-    try:
-        normalized = normalize_phone(payload.phone)
-        validate_password(payload.password)
-    except PhoneValidationError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-    except PasswordPolicyError as error:
-        raise _password_error(error) from error
-
-    try:
-        async with await db.client.start_session() as session:
-            async with session.start_transaction():
-                user = await db.users.find_one(
-                    {
-                        "phone_normalized": normalized,
-                        "account_status": "active",
-                        "is_active": True,
-                    },
-                    session=session,
-                )
-                if not user:
-                    raise OtpCodeError("RESET_NOT_FOUND", "Password reset request was not found")
-                await consume_otp(
-                    db,
-                    phone=normalized,
-                    purpose="password_reset",
-                    code=payload.code,
-                    session=session,
-                )
-                if user.get("password_hash") and verify_password(payload.password, user["password_hash"]):
-                    raise OtpCodeError("PASSWORD_REUSED", "Choose a password you have not just used")
-                changed_at = datetime.utcnow()
-                await db.users.update_one(
-                    {"_id": user["_id"]},
-                    {"$set": {
-                        "password_hash": get_password_hash(payload.password),
-                        "password_changed_at": changed_at,
-                        "updated_at": changed_at,
-                        "failed_login_attempts": 0,
-                    }, "$inc": {"token_version": 1}, "$unset": {"locked_until": ""}},
-                    session=session,
-                )
-    except OtpCodeError as error:
-        raise _otp_error(error) from error
-
-    await create_audit_log(
-        str(user["_id"]),
-        "password_reset",
-        "user",
-        str(user["_id"]),
-        {"sessions_revoked": True},
-        _client_ip(request),
-    )
-    return {"message": "Password changed. Sign in with the new password."}
 
 
 @router.post("/password/change")
 async def change_password(
     payload: PasswordChange,
     request: Request,
-    current_user: dict = Depends(get_current_user_dep),
+    current_user: dict = Depends(get_password_change_user_dep),
 ):
     from server import create_audit_log, db
 
@@ -391,6 +295,7 @@ async def change_password(
             "password_hash": get_password_hash(payload.new_password),
             "password_changed_at": changed_at,
             "updated_at": changed_at,
+            "must_change_password": False,
         }, "$inc": {"token_version": 1}},
     )
     await create_audit_log(
@@ -402,74 +307,3 @@ async def change_password(
         _client_ip(request),
     )
     return {"message": "Password changed. Please sign in again."}
-
-
-@router.get("/telegram/status")
-async def telegram_connection_status(current_user: dict = Depends(get_current_user_dep)):
-    return {
-        "connected": current_user.get("telegram_link_status") == "linked",
-        "bot_username": bot_username(),
-        "telegram_username": current_user.get("telegram_username"),
-        "linked_at": current_user.get("telegram_linked_at"),
-    }
-
-
-@router.get("/telegram/provider-health")
-async def telegram_delivery_health(current_user: dict = Depends(get_current_user_dep)):
-    if current_user.get("role") != "super_admin":
-        raise HTTPException(status_code=403, detail="Super Admin access required")
-    try:
-        return await telegram_provider_health()
-    except TelegramDeliveryError as error:
-        raise HTTPException(status_code=503, detail=str(error)) from error
-
-
-@router.post("/telegram/link")
-async def create_my_telegram_link(
-    request: Request,
-    current_user: dict = Depends(get_current_user_dep),
-):
-    from server import create_audit_log, db
-
-    if not current_user.get("is_active", True) or current_user.get("account_status") != "active":
-        raise HTTPException(status_code=409, detail="Only an active account can connect Telegram")
-    link = await create_telegram_link(
-        db,
-        user=current_user,
-        purpose="connect",
-        actor_id=str(current_user["_id"]),
-        request_ip=_client_ip(request),
-    )
-    await create_audit_log(
-        str(current_user["_id"]),
-        "create_telegram_connection_link",
-        "user",
-        str(current_user["_id"]),
-        {"expires_at": link.expires_at.isoformat()},
-        _client_ip(request),
-    )
-    return {
-        "telegram_invite_url": link.url,
-        "telegram_invite_qr": link.qr_data_url,
-        "telegram_invite_expires_at": link.expires_at,
-        "bot_username": bot_username(),
-    }
-
-
-@router.delete("/telegram/link")
-async def disconnect_my_telegram(
-    request: Request,
-    current_user: dict = Depends(get_current_user_dep),
-):
-    from server import create_audit_log, db
-
-    await disconnect_telegram(db, current_user)
-    await create_audit_log(
-        str(current_user["_id"]),
-        "telegram_disconnected",
-        "user",
-        str(current_user["_id"]),
-        {},
-        _client_ip(request),
-    )
-    return {"message": "Telegram disconnected", "connected": False}

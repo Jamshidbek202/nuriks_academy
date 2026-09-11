@@ -68,7 +68,7 @@ async def create_student_account(
                         )
                         inserted = await db.users.insert_one(parent_user, session=session)
                         parent_user["_id"] = inserted.inserted_id
-                    if parent_user.get("account_status") == "pending_invite":
+                    if parent_user.get("account_status") in {"pending_invite", "credentials_required"}:
                         invitation_users.append(parent_user)
                     names = (data.parent_name or "Parent").split()
                     parent_profile = {
@@ -123,8 +123,7 @@ async def create_student_account(
             )
             inserted_user = await db.users.insert_one(user, session=session)
             user["_id"] = inserted_user.inserted_id
-            if auth_phone:
-                invitation_users.append(user)
+            invitation_users.append(user)
 
             now = datetime.utcnow()
             student = {

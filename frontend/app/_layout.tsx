@@ -29,6 +29,7 @@ function RootNavigator() {
         <Stack.Screen name="login" />
         <Stack.Screen name="activate-account" />
         <Stack.Screen name="forgot-password" />
+        <Stack.Screen name="change-password" />
         <Stack.Screen name="(dashboard)" options={{ headerShown: false }} />
       </Stack>
     </NotificationProvider>

@@ -36,12 +36,9 @@ interface StaffRecord {
   email?: string;
   role?: AccountRole;
   is_active?: boolean;
-  account_status?: 'pending_invite' | 'active' | 'deactivated' | 'phone_required' | 'deleted';
+  account_status?: 'pending_invite' | 'credentials_required' | 'active' | 'deactivated' | 'phone_required' | 'deleted';
   phone_verified?: boolean;
   invite_delivery_status?: string;
-  telegram_connected?: boolean;
-  telegram_link_status?: 'linked' | 'awaiting_connection' | 'not_connected';
-  telegram_link_expires_at?: string;
   can_delete_permanently?: boolean;
   last_login?: string;
 }
@@ -66,7 +63,7 @@ const displayName = (staff: StaffRecord) =>
   staff.full_name || `${staff.first_name || ''} ${staff.last_name || ''}`.trim();
 
 const statusLabel = (staff: StaffRecord) => {
-  if (staff.account_status === 'pending_invite') return 'Invitation pending';
+  if (staff.account_status === 'pending_invite' || staff.account_status === 'credentials_required') return 'Credentials required';
   if (staff.account_status === 'phone_required') return 'Phone required';
   if (staff.account_status === 'deactivated' || staff.is_active === false) return 'Deactivated';
   return 'Active';
@@ -132,16 +129,20 @@ export default function StaffManagementScreen() {
     setRoleChangeReason('');
   };
 
-  const checkTelegramHealth = async () => {
+  const preparePendingAccounts = async () => {
     setActionLoading(true);
     try {
-      const { data } = await api.get('/auth/telegram/provider-health');
-      showAlert(
-        data.healthy ? 'Telegram delivery is ready' : 'Telegram delivery needs attention',
-        `${data.message}${data.issue_code ? `\n\nIssue: ${data.issue_code}` : ''}\n\nBot: @${data.provider_bot_username || data.bot_username}\nWebhook matches: ${data.webhook_matches ? 'yes' : 'no'}\nPending updates: ${data.pending_update_count || 0}${data.last_error_message ? `\nLast provider error: ${data.last_error_message}` : ''}`,
-      );
+      const response = await api.post('/auth/managed-credentials/pending/issue');
+      const prepared: TelegramInviteItem[] = (response.data?.credentials || []).map((item: any) => ({
+        label: `${item.label || item.login}${item.role ? ` · ${item.role}` : ''}`,
+        login: item.login,
+        temporaryPassword: item.temporary_password,
+      }));
+      if (prepared.length) setTelegramInvites(prepared);
+      else showAlert('Everything is ready', 'There are no unfinished accounts that need credentials.');
+      await loadStaff();
     } catch (error) {
-      showAlert('Telegram health check failed', apiErrorMessage(error, 'The backend could not reach Telegram.'));
+      showAlert('Could not prepare pending accounts', apiErrorMessage(error));
     } finally {
       setActionLoading(false);
     }
@@ -192,15 +193,9 @@ export default function StaffManagementScreen() {
           });
       setCreateOpen(false);
       await loadStaff();
-      const delivery = response.data?.invite_delivery_status;
       const invite = telegramInviteFromResponse(response.data, `${form.first_name.trim()} ${form.last_name.trim()}`);
       if (invite) setTelegramInvites([invite]);
-      else showAlert(
-        'Account created',
-        delivery === 'sent' || delivery === 'mock'
-          ? 'The invitation code was sent through Telegram. The user must create their own password.'
-          : 'The account is pending activation. Create a Telegram invitation link from the account details.',
-      );
+      else showAlert('Account created', 'Use Reset Password to create new temporary credentials.');
     } catch (error: any) {
       showAlert('Could not create account', apiErrorMessage(error));
     } finally {
@@ -220,11 +215,11 @@ export default function StaffManagementScreen() {
       const response = await api.post(endpoint);
       const invite = telegramInviteFromResponse(response.data, displayName(staff));
       if (invite) setTelegramInvites([invite]);
-      else showAlert('Telegram code sent', response.data?.message || 'The access code was sent through Telegram.');
+      else showAlert('Credentials created', response.data?.message || 'Temporary credentials were created.');
       setSelected(null);
       await loadStaff();
     } catch (error: any) {
-      showAlert('Could not prepare Telegram access', apiErrorMessage(error));
+      showAlert('Could not prepare account access', apiErrorMessage(error));
     } finally {
       setActionLoading(false);
     }
@@ -236,8 +231,8 @@ export default function StaffManagementScreen() {
     showConfirm(
       deactivated ? 'Reactivate account' : 'Deactivate account',
       deactivated
-        ? `Reactivate ${displayName(staff)}? If activation was never completed, a new invitation will be sent.`
-        : `${displayName(staff)} will immediately lose access on every signed-in device. Their Telegram account will also be released so it can be linked to another app account.`,
+        ? `Reactivate ${displayName(staff)}? If the account has no password yet, new temporary credentials will be created.`
+        : `${displayName(staff)} will immediately lose access on every signed-in device. Their account data and history will remain.`,
       async () => {
         setActionLoading(true);
         try {
@@ -255,30 +250,10 @@ export default function StaffManagementScreen() {
     );
   };
 
-  const releaseTelegram = (staff: StaffRecord) => {
-    showConfirm(
-      'Release Telegram account',
-      `Disconnect Telegram from ${displayName(staff)}? Existing sessions will end, but the staff account and all history will remain.`,
-      async () => {
-        setActionLoading(true);
-        try {
-          await api.delete(`/staff-accounts/${staff.id}/telegram`);
-          setSelected(null);
-          await loadStaff();
-          showAlert('Telegram released', 'This Telegram account can now be connected to another Nurik\'s Academy account.');
-        } catch (error: any) {
-          showAlert('Could not release Telegram', apiErrorMessage(error));
-        } finally {
-          setActionLoading(false);
-        }
-      },
-    );
-  };
-
   const deleteWorker = (staff: StaffRecord) => {
     showConfirm(
       'Permanently Delete Worker',
-      `Delete ${displayName(staff)} permanently?\n\nThis cannot be undone. Their login, profile, phone, Telegram connection, and personal data will be removed. Support bookings will also be deleted. Use Deactivate if the worker may return.`,
+      `Delete ${displayName(staff)} permanently?\n\nThis cannot be undone. Their login, profile, phone, and personal data will be removed. Support bookings will also be deleted. Use Deactivate if the worker may return.`,
       async () => {
         setActionLoading(true);
         try {
@@ -318,14 +293,12 @@ export default function StaffManagementScreen() {
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Staff Management</Text>
-          <Text style={styles.subtitle}>Telegram invitations and account access</Text>
+          <Text style={styles.subtitle}>Roles, access, and temporary passwords</Text>
         </View>
         <View style={styles.headerActions}>
-          {isSuperAdmin && (
-            <TouchableOpacity testID="telegram-health-button" accessibilityLabel="Check Telegram delivery" style={styles.healthButton} disabled={actionLoading} onPress={() => void checkTelegramHealth()}>
-              <Ionicons name="pulse" size={22} color={COLORS.gold} />
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity testID="prepare-pending-accounts" accessibilityLabel="Prepare pending account credentials" style={styles.healthButton} disabled={actionLoading} onPress={() => void preparePendingAccounts()}>
+            <Ionicons name="key-outline" size={22} color={COLORS.gold} />
+          </TouchableOpacity>
           <TouchableOpacity testID={tab === 'support' ? 'support-staff-add-button' : 'staff-account-add-button'} style={styles.addButton} onPress={openCreate}>
             <Ionicons name="add" size={24} color={COLORS.marbleDark} />
           </TouchableOpacity>
@@ -371,7 +344,7 @@ export default function StaffManagementScreen() {
           ) : filtered.map((staff) => {
             const state = statusLabel(staff);
             const active = state === 'Active';
-            const pending = state === 'Invitation pending';
+            const pending = state === 'Credentials required';
             return (
               <TouchableOpacity
                 key={staff.id}
@@ -441,14 +414,14 @@ export default function StaffManagementScreen() {
                   </View>
                 </>
               )}
-              <Text style={styles.inviteNote}>The app will create a private Telegram link. Send it directly to the user; after they press Start, the bot sends their six-digit code. No temporary password is stored or shown.</Text>
+              <Text style={styles.inviteNote}>A unique temporary password will be shown once after creation. Send it privately to the intended user.</Text>
               <TouchableOpacity
                 testID={tab === 'support' ? 'support-staff-save-button' : 'staff-account-save-button'}
                 style={[styles.primary, actionLoading && styles.disabled]}
                 onPress={createStaff}
                 disabled={actionLoading}
               >
-                {actionLoading ? <ActivityIndicator color={COLORS.marbleDark} /> : <Text style={styles.primaryText}>Create and send invitation</Text>}
+                {actionLoading ? <ActivityIndicator color={COLORS.marbleDark} /> : <Text style={styles.primaryText}>Create account</Text>}
               </TouchableOpacity>
             </ScrollView>
           </View>
@@ -468,8 +441,6 @@ export default function StaffManagementScreen() {
                 <Text style={styles.detail}>{selected.phone}</Text>
                 {!!selected.email && <Text style={styles.detail}>{selected.email}</Text>}
                 <Text style={styles.detail}>Status: {statusLabel(selected)}</Text>
-                <Text style={styles.detail}>Telegram: {selected.telegram_connected ? 'Connected' : selected.telegram_link_status === 'awaiting_connection' ? 'Waiting for user to open the private link' : 'Not connected'}</Text>
-                {selected.telegram_link_status === 'awaiting_connection' && <Text style={styles.telegramHelp}>A code cannot arrive until this person opens their personal t.me link and presses Start. Use the button below to create a fresh link if needed.</Text>}
                 {!!selected.last_login && <Text style={styles.detail}>Last sign in: {new Date(selected.last_login).toLocaleString()}</Text>}
 
                 {isSuperAdmin && (
@@ -500,8 +471,8 @@ export default function StaffManagementScreen() {
                     onPress={() => sendAccessCode(selected)}
                     disabled={actionLoading}
                   >
-                    <Ionicons name="chatbubble-ellipses" size={20} color={COLORS.warning} />
-                    <Text style={styles.actionText}>{selected.telegram_connected ? (selected.account_status === 'pending_invite' ? 'Send invitation code' : 'Send password reset code') : 'Create and share a new Telegram link'}</Text>
+                    <Ionicons name="key-outline" size={20} color={COLORS.warning} />
+                    <Text style={styles.actionText}>Create temporary password</Text>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -515,17 +486,6 @@ export default function StaffManagementScreen() {
                   <Ionicons name={selected.account_status === 'deactivated' ? 'checkmark-circle' : 'close-circle'} size={20} color={selected.account_status === 'deactivated' ? COLORS.success : COLORS.error} />
                   <Text style={styles.actionText}>{selected.account_status === 'deactivated' ? 'Reactivate' : 'Deactivate'}</Text>
                 </TouchableOpacity>
-                {tab === 'leadership' && selected.telegram_connected && (
-                  <TouchableOpacity
-                    testID="staff-release-telegram-button"
-                    style={styles.action}
-                    onPress={() => releaseTelegram(selected)}
-                    disabled={actionLoading}
-                  >
-                    <Ionicons name="unlink" size={20} color={COLORS.warning} />
-                    <Text style={styles.actionText}>Release Telegram</Text>
-                  </TouchableOpacity>
-                )}
                 {isSuperAdmin && (
                   <TouchableOpacity
                     testID={tab === 'support' ? 'support-staff-delete-button' : 'staff-delete-button'}
