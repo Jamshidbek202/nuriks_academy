@@ -12,7 +12,7 @@ import {
   Linking,
   Alert,
 } from 'react-native';
-import { Text } from '../../src/components/LocalizedText';
+import { Text, TextInput } from '../../src/components/LocalizedText';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -109,6 +109,13 @@ export default function ProfileScreen() {
   const [showNotificationModal, setShowNotificationModal] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showPasswordFields, setShowPasswordFields] = useState(false);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
   const [languageSaving, setLanguageSaving] = useState<AppLanguage | null>(null);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [helpChatLoading, setHelpChatLoading] = useState(false);
@@ -298,6 +305,43 @@ export default function ProfileScreen() {
     }
   };
 
+  const closePasswordModal = () => {
+    if (passwordSaving) return;
+    setShowPasswordModal(false);
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setPasswordError('');
+    setShowPasswordFields(false);
+  };
+
+  const changePassword = async () => {
+    setPasswordError('');
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      setPasswordError('Enter your current password and the new password twice.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError('The new passwords do not match.');
+      return;
+    }
+    setPasswordSaving(true);
+    try {
+      await api.post('/auth/password/change', {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      setShowPasswordModal(false);
+      await logout();
+      Alert.alert('Password changed', 'Your other sessions were signed out. Sign in with the new password.');
+      router.replace('/login');
+    } catch (error: any) {
+      setPasswordError(apiErrorMessage(error, 'Could not change password'));
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <View testID="profile-screen" style={styles.container}>
       <ConcourseAtmosphere />
@@ -360,6 +404,20 @@ export default function ProfileScreen() {
               <View style={styles.menuTextContent}>
                 <Text style={[styles.menuText, styles.menuTextNested]}>App language</Text>
                 <Text style={styles.menuSubtitle}>{LANGUAGE_LABELS[language]}</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
+            </MotionPressableCard>
+            <MotionPressableCard
+              testID="profile-change-password-button"
+              accessibilityRole="button"
+              accessibilityLabel="Change password"
+              style={styles.menuItem}
+              onPress={() => setShowPasswordModal(true)}
+            >
+              <Ionicons name="key-outline" size={24} color={COLORS.gold} />
+              <View style={styles.menuTextContent}>
+                <Text style={[styles.menuText, styles.menuTextNested]}>Change password</Text>
+                <Text style={styles.menuSubtitle}>Use your current password—no Telegram code needed</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={COLORS.textTertiary} />
             </MotionPressableCard>
@@ -441,6 +499,47 @@ export default function ProfileScreen() {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      <Modal
+        visible={showPasswordModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closePasswordModal}
+      >
+        <Pressable style={styles.modalOverlay} onPress={closePasswordModal}>
+          <Pressable style={styles.passwordModalContent} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.notificationModalHeader}>
+              <View style={styles.languageTitleContent}>
+                <Text style={styles.modalTitle}>Change password</Text>
+                <Text style={styles.notificationModalSubtitle}>All existing sessions will be signed out</Text>
+              </View>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close password form" onPress={closePasswordModal} style={styles.closeButton}>
+                <Ionicons name="close" size={22} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            {!!passwordError && <Text style={styles.passwordError}>{passwordError}</Text>}
+            <Text style={styles.passwordLabel}>Current password</Text>
+            <View style={styles.passwordInputShell}>
+              <TextInput value={currentPassword} onChangeText={setCurrentPassword} secureTextEntry={!showPasswordFields} autoCapitalize="none" autoComplete="current-password" style={styles.passwordInput} placeholder="Current password" />
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={showPasswordFields ? 'Hide passwords' : 'Show passwords'} style={styles.passwordEye} onPress={() => setShowPasswordFields((value) => !value)}>
+                <Ionicons name={showPasswordFields ? 'eye-off-outline' : 'eye-outline'} size={21} color={COLORS.textSecondary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.passwordLabel}>New password</Text>
+            <View style={styles.passwordInputShell}>
+              <TextInput value={newPassword} onChangeText={setNewPassword} secureTextEntry={!showPasswordFields} autoCapitalize="none" autoComplete="new-password" style={styles.passwordInput} placeholder="New password" />
+            </View>
+            <Text style={styles.passwordHint}>10+ characters with uppercase, lowercase, number, and symbol. No spaces.</Text>
+            <Text style={styles.passwordLabel}>Confirm new password</Text>
+            <View style={styles.passwordInputShell}>
+              <TextInput value={confirmPassword} onChangeText={setConfirmPassword} secureTextEntry={!showPasswordFields} autoCapitalize="none" autoComplete="new-password" style={styles.passwordInput} placeholder="Repeat new password" />
+            </View>
+            <TouchableOpacity testID="profile-change-password-save" accessibilityRole="button" accessibilityLabel="Save new password" style={styles.passwordSaveButton} onPress={() => void changePassword()} disabled={passwordSaving}>
+              {passwordSaving ? <ActivityIndicator color={COLORS.marbleDark} /> : <Text style={styles.passwordSaveText}>Change password</Text>}
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       <Modal
         visible={showLanguageModal}
@@ -1017,6 +1116,73 @@ const styles = StyleSheet.create({
     maxWidth: 520,
     maxHeight: '82%',
     ...SHADOWS.large,
+  },
+  passwordModalContent: {
+    backgroundColor: COLORS.backgroundElevated,
+    borderRadius: SIZES.radiusLg,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    padding: SIZES.lg,
+    width: '100%',
+    maxWidth: 480,
+    ...SHADOWS.large,
+  },
+  passwordError: {
+    color: COLORS.error,
+    backgroundColor: COLORS.error + '18',
+    borderWidth: 1,
+    borderColor: COLORS.error + '66',
+    borderRadius: SIZES.radiusMd,
+    padding: SIZES.md,
+    marginBottom: SIZES.sm,
+  },
+  passwordLabel: {
+    color: COLORS.textSecondary,
+    fontSize: SIZES.fontSm,
+    fontWeight: '700',
+    marginTop: SIZES.sm,
+    marginBottom: SIZES.xs,
+  },
+  passwordInputShell: {
+    minHeight: SIZES.inputHeight,
+    backgroundColor: COLORS.backgroundLight,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: SIZES.radiusMd,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  passwordInput: {
+    flex: 1,
+    minHeight: SIZES.inputHeight,
+    color: COLORS.textPrimary,
+    fontSize: SIZES.fontMd,
+    paddingHorizontal: SIZES.md,
+  },
+  passwordEye: {
+    width: SIZES.touchTarget,
+    height: SIZES.touchTarget,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  passwordHint: {
+    color: COLORS.textTertiary,
+    fontSize: SIZES.fontXs,
+    lineHeight: 18,
+    marginTop: SIZES.xs,
+  },
+  passwordSaveButton: {
+    minHeight: SIZES.touchTarget,
+    marginTop: SIZES.lg,
+    backgroundColor: COLORS.gold,
+    borderRadius: SIZES.radiusMd,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  passwordSaveText: {
+    color: COLORS.marbleDark,
+    fontSize: SIZES.fontMd,
+    fontWeight: '800',
   },
   helpModalContent: {
     backgroundColor: COLORS.backgroundElevated,

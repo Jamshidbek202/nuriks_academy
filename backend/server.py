@@ -451,7 +451,11 @@ async def toggle_feature(
 async def health_check():
     """Readiness probe used by local/CI test servers."""
     await db.command("ping")
-    return {"status": "ok"}
+    release = os.environ.get("RENDER_GIT_COMMIT", "local").strip() or "local"
+    return {
+        "status": "ok",
+        "release": release[:12],
+    }
 
 @api_router.get("/dashboard")
 async def get_dashboard_stats(

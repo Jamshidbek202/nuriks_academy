@@ -138,7 +138,7 @@ export default function StaffManagementScreen() {
       const { data } = await api.get('/auth/telegram/provider-health');
       showAlert(
         data.healthy ? 'Telegram delivery is ready' : 'Telegram delivery needs attention',
-        `${data.message}\n\nBot: @${data.provider_bot_username || data.bot_username}\nWebhook matches: ${data.webhook_matches ? 'yes' : 'no'}\nPending updates: ${data.pending_update_count || 0}${data.last_error_message ? `\nLast provider error: ${data.last_error_message}` : ''}`,
+        `${data.message}${data.issue_code ? `\n\nIssue: ${data.issue_code}` : ''}\n\nBot: @${data.provider_bot_username || data.bot_username}\nWebhook matches: ${data.webhook_matches ? 'yes' : 'no'}\nPending updates: ${data.pending_update_count || 0}${data.last_error_message ? `\nLast provider error: ${data.last_error_message}` : ''}`,
       );
     } catch (error) {
       showAlert('Telegram health check failed', apiErrorMessage(error, 'The backend could not reach Telegram.'));

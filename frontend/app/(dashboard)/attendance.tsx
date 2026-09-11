@@ -111,6 +111,7 @@ export default function AttendanceScreen() {
   const [isBulkMarking, setIsBulkMarking] = useState(false);
   const [occurrences, setOccurrences] = useState<LessonOccurrence[]>([]);
   const [selectedOccurrence, setSelectedOccurrence] = useState<LessonOccurrence | null>(null);
+  const [occurrenceError, setOccurrenceError] = useState('');
   const [completingLesson, setCompletingLesson] = useState(false);
   const markingStudentIdsRef = useRef<Set<string>>(new Set());
   const attendanceContextRef = useRef('');
@@ -120,11 +121,17 @@ export default function AttendanceScreen() {
     if (!selectedGroupId || !canViewLessonOccurrences) {
       setOccurrences([]);
       setSelectedOccurrence(null);
+      setOccurrenceError('');
       return;
     }
     try {
+      setOccurrenceError('');
       const response = await api.get('/finance/lesson-occurrences', {
-        params: { group_id: selectedGroupId, month: selectedDate.slice(0, 7) },
+        params: {
+          group_id: selectedGroupId,
+          month: selectedDate.slice(0, 7),
+          local_date: selectedDate,
+        },
       });
       const rows = (response.data || []).filter((row: LessonOccurrence) => (
         row.local_date === selectedDate && row.counts_as_scheduled
@@ -137,10 +144,16 @@ export default function AttendanceScreen() {
         || rows[0]
         || null
       ));
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading scheduled lesson occurrences:', error);
       setOccurrences([]);
       setSelectedOccurrence(null);
+      const detail = error.response?.data?.detail;
+      setOccurrenceError(
+        typeof detail === 'string'
+          ? detail
+          : 'The lesson calendar could not be loaded. Pull down or tap retry.',
+      );
     }
   }, [canViewLessonOccurrences, selectedDate, selectedGroupId]);
 
@@ -612,6 +625,25 @@ export default function AttendanceScreen() {
             ))}
         </View>
       )}
+
+      {selectedGroup && occurrenceError ? (
+        <View style={styles.windowStatus}>
+          <Ionicons name="warning-outline" size={22} color={COLORS.error} />
+          <View style={styles.windowStatusCopy}>
+            <Text style={[styles.windowStatusTitle, { color: COLORS.error }]}>Lesson calendar unavailable</Text>
+            <Text style={styles.windowStatusDetail}>{occurrenceError}</Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Retry lesson calendar"
+              onPress={() => void loadOccurrences()}
+              style={styles.occurrenceRetry}
+            >
+              <Ionicons name="refresh" size={17} color={COLORS.marbleDark} />
+              <Text style={styles.occurrenceRetryText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       {selectedGroup && hasClassToday && attendanceWindowCopy && (
         <View
@@ -1176,6 +1208,23 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     fontSize: SIZES.fontSm,
     lineHeight: 19,
+  },
+  occurrenceRetry: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    marginTop: SIZES.sm,
+    paddingHorizontal: SIZES.md,
+    borderRadius: SIZES.radiusFull,
+    backgroundColor: COLORS.gold,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: SIZES.xs,
+  },
+  occurrenceRetryText: {
+    color: COLORS.marbleDark,
+    fontSize: SIZES.fontSm,
+    fontWeight: '800',
   },
   todayBadge: {
     backgroundColor: COLORS.gold,

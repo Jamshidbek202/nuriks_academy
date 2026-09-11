@@ -1025,6 +1025,30 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "immutable_history": True,
         })
 
+        # Reproduce a legacy/deployment gap where the group schedule exists but
+        # the derived row needed by the teacher register is missing. Opening
+        # that exact date must repair the row instead of disabling attendance.
+        await self.db.lesson_occurrences.delete_many({
+            "group_id": str(group["_id"]),
+            "generation_month": service_month,
+            "local_date": academy_today.isoformat(),
+            "resolution_status": "unresolved",
+        })
+        repaired_list = await self.http.get(
+            "/api/finance/lesson-occurrences",
+            params={
+                "group_id": str(group["_id"]),
+                "month": service_month,
+                "local_date": academy_today.isoformat(),
+            },
+            headers=teacher_headers,
+        )
+        self.assertEqual(repaired_list.status_code, 200, repaired_list.text)
+        self.assertTrue(
+            any(row["local_date"] == academy_today.isoformat() for row in repaired_list.json()),
+            repaired_list.text,
+        )
+
         occurrences = await self.db.lesson_occurrences.find({
             "group_id": str(group["_id"]),
             "generation_month": service_month,

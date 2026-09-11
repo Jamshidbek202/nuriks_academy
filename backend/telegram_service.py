@@ -23,7 +23,43 @@ class TelegramConfigurationError(RuntimeError):
 
 
 class TelegramDeliveryError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "TELEGRAM_PROVIDER_ERROR"):
+        super().__init__(message)
+        self.code = code
+
+
+def _delivery_error(exc: Exception, operation: str) -> TelegramDeliveryError:
+    """Translate provider exceptions without ever echoing a bot-token URL."""
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 401:
+            return TelegramDeliveryError(
+                "Telegram rejected the bot token. Generate a new token in BotFather and update Render.",
+                "BOT_TOKEN_REJECTED",
+            )
+        if status == 403:
+            return TelegramDeliveryError(
+                "Telegram refused access. The user may have blocked the bot.",
+                "BOT_ACCESS_FORBIDDEN",
+            )
+        if status == 429:
+            return TelegramDeliveryError(
+                "Telegram is temporarily rate limiting the bot. Try again shortly.",
+                "BOT_RATE_LIMITED",
+            )
+        return TelegramDeliveryError(
+            f"Telegram returned an error while {operation}.",
+            "TELEGRAM_HTTP_ERROR",
+        )
+    if isinstance(exc, httpx.RequestError):
+        return TelegramDeliveryError(
+            "Telegram could not be reached. Check the network and try again.",
+            "TELEGRAM_NETWORK_ERROR",
+        )
+    return TelegramDeliveryError(
+        f"Telegram returned an invalid response while {operation}.",
+        "TELEGRAM_INVALID_RESPONSE",
+    )
 
 
 @dataclass(frozen=True)
@@ -96,7 +132,7 @@ def _webhook_url() -> Optional[str]:
 
 
 async def configure_telegram_webhook() -> bool:
-    """Idempotently point Telegram at this deployment when a public URL is available."""
+    """Idempotently configure the webhook and the bot's command menu."""
     validate_telegram_configuration()
     if delivery_mode() != "live":
         return False
@@ -123,9 +159,26 @@ async def configure_telegram_webhook() -> bool:
             payload = response.json()
             if not isinstance(payload, dict) or payload.get("ok") is not True:
                 raise TelegramDeliveryError("Telegram rejected webhook configuration")
+            commands_response = await client.post(
+                f"{BOT_API_BASE}/bot{token}/setMyCommands",
+                json={"commands": [
+                    {"command": "code", "description": "Send my access or password-reset code"},
+                    {"command": "status", "description": "Check whether my account is connected"},
+                    {"command": "help", "description": "How Nurik's Academy codes work"},
+                ]},
+            )
+            commands_response.raise_for_status()
+            commands_payload = commands_response.json()
+            if not isinstance(commands_payload, dict) or commands_payload.get("ok") is not True:
+                raise TelegramDeliveryError(
+                    "Telegram rejected the bot command menu",
+                    "BOT_COMMANDS_REJECTED",
+                )
+    except TelegramDeliveryError:
+        raise
     except (httpx.HTTPError, ValueError) as exc:
-        raise TelegramDeliveryError("Telegram webhook configuration failed") from exc
-    logger.info("Telegram webhook configured successfully")
+        raise _delivery_error(exc, "configuring the bot") from exc
+    logger.info("Telegram webhook and commands configured successfully")
     return True
 
 
@@ -155,7 +208,13 @@ async def telegram_provider_health() -> dict:
             identity_payload = identity_response.json()
             webhook_payload = webhook_response.json()
     except (httpx.HTTPError, ValueError) as exc:
-        raise TelegramDeliveryError("Telegram health check failed") from exc
+        error = _delivery_error(exc, "checking bot health")
+        return {
+            **base,
+            "healthy": False,
+            "issue_code": error.code,
+            "message": str(error),
+        }
     identity = identity_payload.get("result", {}) if isinstance(identity_payload, dict) else {}
     webhook = webhook_payload.get("result", {}) if isinstance(webhook_payload, dict) else {}
     expected_url = _webhook_url()
@@ -213,6 +272,8 @@ async def send_telegram_message(chat_id: int, message: str) -> TelegramDelivery:
             message_id = result.get("message_id") if isinstance(result, dict) else None
             if not isinstance(payload, dict) or payload.get("ok") is not True:
                 raise TelegramDeliveryError("Telegram rejected the message")
+    except TelegramDeliveryError:
+        raise
     except (httpx.HTTPError, ValueError, TypeError) as exc:
-        raise TelegramDeliveryError("Telegram message delivery failed") from exc
+        raise _delivery_error(exc, "sending a message") from exc
     return TelegramDelivery("sent", str(message_id) if message_id is not None else None)

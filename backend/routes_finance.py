@@ -113,7 +113,7 @@ from finance_card_payments import (
     serialize_payment_destination,
     update_payment_destination,
 )
-from routes_attendance import attendance_is_open, attendance_window_state
+from routes_attendance import attendance_is_open, attendance_window_state, group_has_class_on_day
 
 
 router = APIRouter(prefix="/finance", tags=["Finance"])
@@ -681,6 +681,7 @@ async def generate_group_lessons(
 async def list_lesson_occurrences(
     group_id: str,
     month: str = Query(pattern=r"^\d{4}-(?:0[1-9]|1[0-2])$"),
+    local_date: Optional[str] = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
     current_user: dict = Depends(get_current_user_dep),
 ):
     from server import db
@@ -700,6 +701,37 @@ async def list_lesson_occurrences(
         "generation_month": month,
         "superseded": {"$ne": True},
     }).sort("starts_at", 1).to_list(10_000)
+    requested_day_missing = False
+    if local_date:
+        try:
+            requested_day = datetime.fromisoformat(local_date)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail="Invalid local lesson date") from error
+        requested_day_missing = (
+            group_has_class_on_day(group, requested_day)
+            and not any(row.get("local_date") == local_date for row in rows)
+        )
+    if not rows or requested_day_missing:
+        # Attendance must not become unusable merely because a prior deploy or
+        # migration missed the idempotent occurrence-generation step. Reading
+        # an assigned group's register repairs that missing derived data once.
+        try:
+            await generate_lesson_occurrences(
+                db, group, month, str(current_user["_id"])
+            )
+        except ValueError as error:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This group's lesson calendar is not ready. Ask a manager "
+                    "to finish the group's course, format, price, and schedule setup."
+                ),
+            ) from error
+        rows = await db.lesson_occurrences.find({
+            "group_id": group_id,
+            "generation_month": month,
+            "superseded": {"$ne": True},
+        }).sort("starts_at", 1).to_list(10_000)
     memberships = await db.group_memberships.find({
         "group_id": group_id,
     }).to_list(10_000)

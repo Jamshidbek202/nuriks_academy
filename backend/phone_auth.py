@@ -48,7 +48,9 @@ class OtpCodeError(ValueError):
 
 
 class OtpDeliveryError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "TELEGRAM_DELIVERY_UNAVAILABLE"):
+        super().__init__(message)
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -253,7 +255,27 @@ async def issue_otp(
             {"challenge_id": challenge_id},
             {"$set": {"delivery_status": "failed", "delivery_failed_at": datetime.utcnow()}},
         )
-        raise OtpDeliveryError("The verification code could not be delivered through Telegram") from exc
+        provider_code = getattr(exc, "code", None)
+        if isinstance(exc, TelegramConfigurationError):
+            provider_code = "TELEGRAM_NOT_CONNECTED"
+        delivery_message = "The verification code could not be delivered through Telegram"
+        if provider_code == "BOT_TOKEN_REJECTED":
+            delivery_message = (
+                "Telegram rejected the bot token. Generate a new token in BotFather "
+                "and update TELEGRAM_BOT_TOKEN on the backend."
+            )
+        elif provider_code == "TELEGRAM_NOT_CONNECTED":
+            delivery_message = (
+                "This account is not connected to Telegram. Create and open a new personal link first."
+            )
+        elif provider_code == "BOT_ACCESS_FORBIDDEN":
+            delivery_message = (
+                "Telegram cannot message this account. Ask the user to unblock and start the bot."
+            )
+        raise OtpDeliveryError(
+            delivery_message,
+            provider_code or "TELEGRAM_DELIVERY_UNAVAILABLE",
+        ) from exc
     await db.auth_challenges.update_one(
         {"challenge_id": challenge_id},
         {"$set": {

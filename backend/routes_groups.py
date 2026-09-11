@@ -231,7 +231,14 @@ async def get_groups(
         if current_user["role"] == "teacher":
             teacher = await db.teachers.find_one({"user_id": str(current_user["_id"])})
             if teacher:
-                teacher_group_ids = [ObjectId(gid) for gid in teacher.get("group_ids", [])]
+                # A stale legacy reference must not make the teacher's entire
+                # group list fail with a BSON conversion error. The canonical
+                # assignment on the group remains the source of truth.
+                teacher_group_ids = [
+                    ObjectId(gid)
+                    for gid in teacher.get("group_ids", [])
+                    if ObjectId.is_valid(str(gid))
+                ]
                 query["$or"] = [
                     {"_id": {"$in": teacher_group_ids}},
                     {"teacher_id": str(teacher["_id"])}
@@ -241,7 +248,11 @@ async def get_groups(
         elif current_user["role"] == "student":
             student = await db.students.find_one({"user_id": str(current_user["_id"])})
             if student:
-                student_group_ids = [ObjectId(gid) for gid in student.get("group_ids", [])]
+                student_group_ids = [
+                    ObjectId(gid)
+                    for gid in student.get("group_ids", [])
+                    if ObjectId.is_valid(str(gid))
+                ]
                 query["$or"] = [
                     {"_id": {"$in": student_group_ids}},
                     {"student_ids": str(student["_id"])}
@@ -253,9 +264,13 @@ async def get_groups(
             if not parent:
                 return []
 
-            children = await db.students.find(
-                {"_id": {"$in": [ObjectId(sid) for sid in parent.get("student_ids", [])]}}
-            ).to_list(100)
+            children = await db.students.find({
+                "_id": {"$in": [
+                    ObjectId(sid)
+                    for sid in parent.get("student_ids", [])
+                    if ObjectId.is_valid(str(sid))
+                ]},
+            }).to_list(100)
             group_ids = {
                 group_id
                 for child in children
@@ -263,7 +278,11 @@ async def get_groups(
             }
             child_ids = [str(child["_id"]) for child in children]
             query["$or"] = [
-                {"_id": {"$in": [ObjectId(gid) for gid in group_ids]}},
+                {"_id": {"$in": [
+                    ObjectId(gid)
+                    for gid in group_ids
+                    if ObjectId.is_valid(str(gid))
+                ]}},
                 {"student_ids": {"$in": child_ids}}
             ]
         

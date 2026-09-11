@@ -216,10 +216,21 @@ async def _request_code(
         generic["retry_after_seconds"] = result.retry_after_seconds
     except OtpRateLimitError as error:
         generic["retry_after_seconds"] = error.retry_after_seconds
-    except OtpDeliveryError:
-        # Keep the response enumeration-safe. Delivery failures are retained on
-        # the challenge and visible to administrators through account status.
-        pass
+    except OtpDeliveryError as error:
+        # Do not tell a real account holder that a code was sent when the
+        # provider rejected it. Failed challenges contain no usable plaintext
+        # code and remain visible to administrators for diagnosis.
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": error.code,
+                "message": (
+                    "Telegram could not send the verification code. "
+                    "Open @nuriksacademy_bot, make sure it is not blocked, and try again. "
+                    "If it still fails, ask an administrator to check Telegram delivery."
+                ),
+            },
+        ) from error
     return generic
 
 

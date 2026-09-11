@@ -87,9 +87,34 @@ def _message(language: str, key: str) -> str:
             "uz": "Bu Nurik's Academy havolasi noto‘g‘ri, muddati tugagan yoki ishlatilgan. Administratordan yangi havola so‘rang.",
         },
         "start": {
-            "en": "Welcome to the Nurik's Academy security bot. Open the personal link provided by your administrator to connect your account.",
-            "ru": "Добро пожаловать в бот безопасности Nurik's Academy. Откройте персональную ссылку от администратора, чтобы подключить аккаунт.",
-            "uz": "Nurik's Academy xavfsizlik botiga xush kelibsiz. Akkauntni ulash uchun administrator bergan shaxsiy havolani oching.",
+            "en": "Welcome to the Nurik's Academy security bot. Open the personal link provided by your administrator to connect your account. After connecting, use /code whenever you need an access or password-reset code.",
+            "ru": "Добро пожаловать в бот безопасности Nurik's Academy. Откройте персональную ссылку от администратора, чтобы подключить аккаунт. После подключения используйте /code, когда нужен код доступа или сброса пароля.",
+            "uz": "Nurik's Academy xavfsizlik botiga xush kelibsiz. Akkauntni ulash uchun administrator bergan shaxsiy havolani oching. Ulangandan keyin kirish yoki parolni tiklash kodi uchun /code buyrug‘idan foydalaning.",
+        },
+        "help": {
+            "en": "Nurik's Academy security bot\n\n/code — send my access or password-reset code\n/status — check my connection\n/help — show these instructions\n\nCodes are sent only in this private chat. Academy staff will never ask you to forward a code.",
+            "ru": "Бот безопасности Nurik's Academy\n\n/code — отправить мой код доступа или сброса пароля\n/status — проверить подключение\n/help — показать эту инструкцию\n\nКоды отправляются только в этот личный чат. Сотрудники академии никогда не попросят переслать код.",
+            "uz": "Nurik's Academy xavfsizlik boti\n\n/code — kirish yoki parolni tiklash kodini yuborish\n/status — ulanishni tekshirish\n/help — yo‘riqnomani ko‘rsatish\n\nKodlar faqat shu shaxsiy chatga yuboriladi. Akademiya xodimlari kodni yuborishingizni hech qachon so‘ramaydi.",
+        },
+        "status_linked": {
+            "en": "Connected. This Telegram account can receive Nurik's Academy security codes.",
+            "ru": "Подключено. Этот Telegram-аккаунт может получать коды безопасности Nurik's Academy.",
+            "uz": "Ulangan. Ushbu Telegram akkaunti Nurik's Academy xavfsizlik kodlarini olishi mumkin.",
+        },
+        "status_not_linked": {
+            "en": "Not connected. Open the personal Telegram link provided by an administrator, then press Start.",
+            "ru": "Не подключено. Откройте персональную Telegram-ссылку от администратора и нажмите Start.",
+            "uz": "Ulanmagan. Administrator bergan shaxsiy Telegram havolasini oching va Start tugmasini bosing.",
+        },
+        "code_rate_limited": {
+            "en": "A code was requested recently. Wait a minute, then use /code again.",
+            "ru": "Код уже запрашивался недавно. Подождите минуту и снова используйте /code.",
+            "uz": "Kod yaqinda so‘ralgan. Bir daqiqa kutib, /code buyrug‘ini yana yuboring.",
+        },
+        "code_unavailable": {
+            "en": "No active or pending Nurik's Academy account is connected to this Telegram. Ask an administrator for a new personal link.",
+            "ru": "К этому Telegram не подключён активный или ожидающий активации аккаунт Nurik's Academy. Попросите администратора создать новую персональную ссылку.",
+            "uz": "Ushbu Telegramga faol yoki faollashtirilishi kutilayotgan Nurik's Academy akkaunti ulanmagan. Administratordan yangi shaxsiy havola so‘rang.",
         },
         "delivery_failed": {
             "en": "Your Telegram account was connected, but the code could not be created. Request another code in the Nurik's Academy app.",
@@ -243,12 +268,58 @@ async def process_telegram_start(db, update: dict) -> Optional[TelegramLinkConsu
     sender = message.get("from")
     if not isinstance(text, str) or not isinstance(chat, dict) or not isinstance(sender, dict):
         return None
-    if not text.startswith("/start"):
-        return None
     sender_language = str(sender.get("language_code", "en")).split("-", 1)[0].lower()
     if sender_language not in {"en", "ru", "uz"}:
         sender_language = "en"
+    if chat.get("type") != "private" or sender.get("id") != chat.get("id"):
+        return None
     parts = text.split(maxsplit=1)
+    command = parts[0].split("@", 1)[0].lower()
+
+    if command == "/help":
+        await send_telegram_message(int(chat["id"]), _message(sender_language, "help"))
+        return None
+
+    linked_user = await db.users.find_one({
+        "telegram_user_id": int(sender["id"]),
+        "telegram_chat_id": int(chat["id"]),
+        "telegram_link_status": "linked",
+    })
+    if command == "/status":
+        await send_telegram_message(
+            int(chat["id"]),
+            _message(sender_language, "status_linked" if linked_user else "status_not_linked"),
+        )
+        return None
+
+    if command == "/code":
+        if not linked_user or linked_user.get("account_status") not in {"active", "pending_invite"}:
+            await send_telegram_message(int(chat["id"]), _message(sender_language, "code_unavailable"))
+            return None
+        from phone_auth import OtpDeliveryError, OtpRateLimitError, issue_otp
+
+        purpose = "invite" if linked_user.get("account_status") == "pending_invite" else "password_reset"
+        try:
+            await issue_otp(
+                db,
+                user=linked_user,
+                purpose=purpose,
+                requested_by=str(linked_user["_id"]),
+                request_ip="telegram_command",
+            )
+        except OtpRateLimitError:
+            await send_telegram_message(int(chat["id"]), _message(sender_language, "code_rate_limited"))
+        except OtpDeliveryError:
+            # The provider failure is already persisted on the challenge. If
+            # Telegram itself is unavailable, an additional reply cannot be
+            # delivered reliably and should not create a retry loop.
+            return None
+        return None
+
+    if command != "/start":
+        await send_telegram_message(int(chat["id"]), _message(sender_language, "help"))
+        return None
+
     if len(parts) == 1:
         await send_telegram_message(int(chat["id"]), _message(sender_language, "start"))
         return None
