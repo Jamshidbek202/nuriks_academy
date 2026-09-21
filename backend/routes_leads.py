@@ -6,8 +6,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from bson import ObjectId
 from typing import List, Optional, Literal
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import date, datetime, time
+from pydantic import BaseModel, Field, field_validator
 from auth import get_current_user
 from phone_auth import (
     OtpDeliveryError, OtpRateLimitError, PhoneValidationError,
@@ -41,7 +41,7 @@ class LeadCreate(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100)
     last_name: str = Field(..., min_length=1, max_length=100)
     phone: str = Field(..., min_length=5, max_length=30)
-    age: Optional[int] = Field(None, ge=1, le=100)
+    date_of_birth: date
     parent_name: Optional[str] = Field(None, max_length=200)
     parent_phone: Optional[str] = Field(None, min_length=5, max_length=30)
     account_access_mode: Optional[Literal["student_only", "parent_only", "separate"]] = None
@@ -51,11 +51,21 @@ class LeadCreate(BaseModel):
     branch_id: Optional[str] = None
     referred_by_student_id: Optional[str] = None
 
+    @field_validator("date_of_birth")
+    @classmethod
+    def validate_date_of_birth(cls, value: date) -> date:
+        today = date.today()
+        if value > today:
+            raise ValueError("Date of birth cannot be in the future")
+        if (today - value).days > 120 * 366:
+            raise ValueError("Date of birth is outside the supported range")
+        return value
+
 class LeadUpdate(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone: Optional[str] = None
-    age: Optional[int] = Field(None, ge=1, le=100)
+    date_of_birth: Optional[date] = None
     parent_name: Optional[str] = None
     parent_phone: Optional[str] = None
     account_access_mode: Optional[Literal["student_only", "parent_only", "separate"]] = None
@@ -166,7 +176,7 @@ async def create_lead(
             "first_name": lead_data.first_name,
             "last_name": lead_data.last_name,
             "phone": contact_phone,
-            "age": lead_data.age,
+            "date_of_birth": datetime.combine(lead_data.date_of_birth, time.min),
             "parent_name": lead_data.parent_name,
             "parent_phone": parent_phone,
             "account_access_mode": account_access_mode,
@@ -302,7 +312,9 @@ async def update_lead(
         require_lead_access(current_user, existing)
         
         # Build update dict from non-None values
-        update_data = {k: v for k, v in lead_data.dict().items() if v is not None}
+        update_data = {k: v for k, v in lead_data.model_dump().items() if v is not None}
+        if "date_of_birth" in update_data:
+            update_data["date_of_birth"] = datetime.combine(update_data["date_of_birth"], time.min)
         if update_data.get("status") == "enrolled" and not existing.get("converted_to_student_id"):
             raise HTTPException(status_code=409, detail="Use Convert to Student before marking a lead enrolled")
         if update_data.get("referred_by_student_id"):
@@ -422,6 +434,11 @@ async def convert_lead_to_student(
                 require_lead_access(current_user, lead)
                 if lead.get("converted_to_student_id"):
                     raise HTTPException(status_code=409, detail="Lead already converted")
+                if not lead.get("date_of_birth"):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="Add the student's full date of birth before conversion",
+                    )
 
                 existing_conversion = await db.students.find_one(
                     {"source_lead_id": lead_id}, session=session
@@ -546,7 +563,7 @@ async def convert_lead_to_student(
                     "parent_id": parent_id,
                     "first_name": lead["first_name"],
                     "last_name": lead["last_name"],
-                    "date_of_birth": None,
+                    "date_of_birth": lead["date_of_birth"],
                     "phone": student_login_phone,
                     "email": None,
                     "photo": None,

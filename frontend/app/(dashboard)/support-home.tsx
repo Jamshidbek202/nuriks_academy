@@ -45,6 +45,7 @@ interface Booking {
   status: string;
   notes?: string;
   session_notes?: string;
+  cancellation_reason?: string;
   participant_count?: number;
   capacity?: number;
   participant_names?: string[];
@@ -70,6 +71,10 @@ export default function SupportHomeScreen() {
   const [detailModalVisible, setDetailModalVisible] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [sessionNotes, setSessionNotes] = useState('');
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancellationReason, setCancellationReason] = useState('');
+  const [cancellationError, setCancellationError] = useState('');
+  const [cancelling, setCancelling] = useState(false);
   const { isCompact } = useAdaptiveLayout();
 
   const today = new Date().toISOString().split('T')[0];
@@ -118,23 +123,34 @@ export default function SupportHomeScreen() {
     }
   };
 
-  const handleRejectBooking = async (bookingId: string) => {
-    Alert.alert('Reject Booking', 'Are you sure you want to cancel this booking?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Reject',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await api.put(`/support-bookings/${bookingId}/cancel`);
-            Alert.alert('Success', 'Booking cancelled');
-            loadSupportData();
-          } catch (error: any) {
-            Alert.alert('Error', error.response?.data?.detail || 'Failed to cancel booking');
-          }
-        },
-      },
-    ]);
+  const openCancellationModal = (booking: Booking) => {
+    setSelectedBooking(booking);
+    setCancellationReason('');
+    setCancellationError('');
+    setDetailModalVisible(false);
+    setCancelModalVisible(true);
+  };
+
+  const handleRejectBooking = async () => {
+    if (!selectedBooking || cancelling) return;
+    const reason = cancellationReason.trim();
+    if (reason.length < 3) {
+      setCancellationError('Write a short reason so the student knows why the session was cancelled.');
+      return;
+    }
+    setCancelling(true);
+    setCancellationError('');
+    try {
+      await api.put(`/support-bookings/${selectedBooking.id}/cancel`, { reason });
+      setCancelModalVisible(false);
+      setCancellationReason('');
+      Alert.alert('Success', 'Booking cancelled');
+      await loadSupportData();
+    } catch (error: any) {
+      setCancellationError(error.response?.data?.detail || 'Failed to cancel booking');
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const handleSaveNotes = async () => {
@@ -321,7 +337,7 @@ export default function SupportHomeScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.actionBtn, styles.rejectBtn]}
-                    onPress={() => handleRejectBooking(booking.id)}
+                    onPress={() => openCancellationModal(booking)}
                   >
                     <Ionicons name="close" size={18} color={COLORS.error} />
                     <Text style={[styles.actionBtnText, { color: COLORS.error }]}>Reject</Text>
@@ -330,13 +346,22 @@ export default function SupportHomeScreen() {
               )}
 
               {booking.status === 'confirmed' && (
-                <TouchableOpacity
-                  style={styles.notesButton}
-                  onPress={() => openNotesModal(booking)}
-                >
-                  <Ionicons name="create" size={18} color={COLORS.gold} />
-                  <Text style={styles.notesButtonText}>Add Session Notes</Text>
-                </TouchableOpacity>
+                <View style={styles.confirmedActions}>
+                  <TouchableOpacity
+                    style={[styles.notesButton, styles.confirmedAction]}
+                    onPress={() => openNotesModal(booking)}
+                  >
+                    <Ionicons name="create" size={18} color={COLORS.gold} />
+                    <Text style={styles.notesButtonText}>Add Session Notes</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.notesButton, styles.confirmedAction, styles.cancelBookingButton]}
+                    onPress={() => openCancellationModal(booking)}
+                  >
+                    <Ionicons name="close-circle-outline" size={18} color={COLORS.error} />
+                    <Text style={[styles.notesButtonText, { color: COLORS.error }]}>Cancel session</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </MotionTouchableOpacity>
             </MotionListItem>
@@ -413,7 +438,14 @@ export default function SupportHomeScreen() {
                   </View>
                 )}
 
-                {selectedBooking.status === 'pending' && (
+                {!!selectedBooking.cancellation_reason && (
+                  <View style={styles.detailBlock}>
+                    <Text style={styles.detailLabel}>Cancellation reason</Text>
+                    <Text style={styles.detailValue}>{selectedBooking.cancellation_reason}</Text>
+                  </View>
+                )}
+
+                {['pending', 'scheduled'].includes(selectedBooking.status) && (
                   <View style={styles.modalActionRow}>
                     <TouchableOpacity
                       style={[styles.modalActionButton, styles.acceptBtn]}
@@ -427,8 +459,7 @@ export default function SupportHomeScreen() {
                     <TouchableOpacity
                       style={[styles.modalActionButton, styles.rejectBtn]}
                       onPress={() => {
-                        setDetailModalVisible(false);
-                        handleRejectBooking(selectedBooking.id);
+                        openCancellationModal(selectedBooking);
                       }}
                     >
                       <Text style={[styles.actionBtnText, { color: COLORS.error }]}>Reject</Text>
@@ -437,10 +468,64 @@ export default function SupportHomeScreen() {
                 )}
 
                 {selectedBooking.status === 'confirmed' && (
-                  <Button title="Add Session Notes" onPress={() => openNotesModal(selectedBooking)} style={{ marginTop: SIZES.lg }} />
+                  <View style={styles.cancelActions}>
+                    <Button title="Add Session Notes" onPress={() => openNotesModal(selectedBooking)} style={styles.cancelSecondaryButton} />
+                    <Button title="Cancel session" onPress={() => openCancellationModal(selectedBooking)} style={styles.cancelPrimaryButton} />
+                  </View>
                 )}
               </View>
             )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* A support-teacher cancellation is an operational decision, so the
+          written reason is collected before the destructive action. */}
+      <Modal visible={cancelModalVisible} animationType={isCompact ? 'slide' : 'fade'} transparent onRequestClose={() => !cancelling && setCancelModalVisible(false)}>
+        <View style={[styles.modalOverlay, !isCompact && styles.modalOverlayWide]}>
+          <View style={[styles.modalContent, !isCompact && styles.modalContentWide]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Cancel support session</Text>
+              <TouchableOpacity disabled={cancelling} onPress={() => setCancelModalVisible(false)} accessibilityLabel="Close cancellation form">
+                <Ionicons name="close" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalForm}>
+              {selectedBooking && (
+                <Text style={styles.cancelContext}>
+                  {getBookingStudentName(selectedBooking)} · {formatDate(selectedBooking.booking_date)} · {selectedBooking.start_time}
+                </Text>
+              )}
+              <Input
+                testID="support-cancellation-reason"
+                label="Cancellation reason *"
+                value={cancellationReason}
+                onChangeText={(value) => {
+                  setCancellationReason(value);
+                  if (cancellationError) setCancellationError('');
+                }}
+                placeholder="Explain why this session cannot take place"
+                multiline
+                numberOfLines={4}
+                maxLength={1000}
+                error={cancellationError}
+              />
+              <View style={styles.cancelActions}>
+                <Button
+                  title="Keep booking"
+                  onPress={() => setCancelModalVisible(false)}
+                  disabled={cancelling}
+                  style={styles.cancelSecondaryButton}
+                />
+                <Button
+                  testID="support-confirm-cancellation"
+                  title={cancelling ? 'Cancelling…' : 'Cancel session'}
+                  onPress={() => void handleRejectBooking()}
+                  disabled={cancelling}
+                  style={styles.cancelPrimaryButton}
+                />
+              </View>
+            </View>
           </View>
         </View>
       </Modal>
@@ -532,6 +617,13 @@ const styles = StyleSheet.create({
   detailBlock: { backgroundColor: COLORS.backgroundLight, borderRadius: SIZES.radiusMd, padding: SIZES.md, marginTop: SIZES.md },
   detailLabel: { fontSize: SIZES.fontXs, fontWeight: '700', color: COLORS.textTertiary, textTransform: 'uppercase', marginBottom: SIZES.xs },
   detailValue: { fontSize: SIZES.fontMd, color: COLORS.textPrimary, lineHeight: 22 },
+  cancelContext: { color: COLORS.textSecondary, fontSize: SIZES.fontSm, lineHeight: 21, marginBottom: SIZES.lg },
+  cancelActions: { flexDirection: 'row', gap: SIZES.sm, marginTop: SIZES.sm },
+  cancelSecondaryButton: { flex: 1, backgroundColor: COLORS.backgroundLight, borderWidth: 1, borderColor: COLORS.border },
+  cancelPrimaryButton: { flex: 1, backgroundColor: COLORS.error },
+  confirmedActions: { flexDirection: 'row', gap: SIZES.sm },
+  confirmedAction: { flex: 1 },
+  cancelBookingButton: { borderColor: COLORS.error + '55' },
   modalActionRow: { flexDirection: 'row', gap: SIZES.sm, marginTop: SIZES.lg },
   modalActionButton: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: SIZES.md, borderRadius: SIZES.radiusMd },
 });

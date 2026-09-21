@@ -19,6 +19,8 @@ import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { useAuth } from '../../src/contexts/AuthContext';
 import TelegramInviteModal, { TelegramInviteItem } from '../../src/components/TelegramInviteModal';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { ageFromDateOfBirth, todayDateString } from '../../src/utils/dates';
 
 // Cross-platform alert helper
 const showAlert = (title: string, message: string, onOk?: () => void) => {
@@ -90,7 +92,7 @@ export default function LeadsScreen() {
     first_name: '',
     last_name: '',
     phone: '',
-    age: '',
+    date_of_birth: '',
     parent_name: '',
     parent_phone: '',
     account_access_mode: 'student_only' as AccountAccessMode,
@@ -129,7 +131,7 @@ export default function LeadsScreen() {
   );
 
   const handleCreateLead = async () => {
-    if (!formData.first_name || !formData.last_name || !formData.phone) {
+    if (!formData.first_name || !formData.last_name || !formData.phone || !formData.date_of_birth) {
       showAlert('Error', 'Please fill in required fields');
       return;
     }
@@ -150,18 +152,11 @@ export default function LeadsScreen() {
       return;
     }
 
-    const age = formData.age ? Number(formData.age) : null;
-    if (age !== null && (!Number.isInteger(age) || age < 1 || age > 100)) {
-      showAlert('Invalid age', 'Age must be a whole number between 1 and 100.');
-      return;
-    }
-
     try {
       await api.post('/leads', {
         ...formData,
         parent_name: formData.account_access_mode === 'student_only' ? null : formData.parent_name.trim(),
         parent_phone: formData.account_access_mode === 'separate' ? formData.parent_phone.trim() : null,
-        age,
       });
       showAlert('Success', 'Lead created successfully');
       setModalVisible(false);
@@ -174,6 +169,11 @@ export default function LeadsScreen() {
 
   // Show confirmation modal for conversion
   const handleConvertToStudent = (lead: any) => {
+    if (!lead.date_of_birth) {
+      showAlert('Date of birth required', 'Add the student’s full date of birth before conversion.');
+      setSelectedLead(lead);
+      return;
+    }
     setLeadToConvert(lead);
     setConfirmModalVisible(true);
   };
@@ -215,6 +215,16 @@ export default function LeadsScreen() {
     }
   };
 
+  const handleUpdateBirthDate = async (leadId: string, dateOfBirth: string) => {
+    try {
+      const response = await api.put(`/leads/${leadId}`, { date_of_birth: dateOfBirth });
+      setSelectedLead(response.data);
+      setLeads((current) => current.map((lead) => lead.id === leadId ? response.data : lead));
+    } catch (error: any) {
+      showAlert('Error', error.response?.data?.detail || 'Failed to update date of birth');
+    }
+  };
+
   const deleteLead = async (lead: any) => {
     try {
       await api.delete(`/leads/${lead.id}`);
@@ -247,7 +257,7 @@ export default function LeadsScreen() {
       first_name: '',
       last_name: '',
       phone: '',
-      age: '',
+      date_of_birth: '',
       parent_name: '',
       parent_phone: '',
       account_access_mode: 'student_only',
@@ -450,15 +460,15 @@ export default function LeadsScreen() {
               </View>
 
               <View style={styles.formGroup}>
-                <Text style={styles.label}>Age</Text>
-                <TextInput
-                  style={styles.input}
-                  value={formData.age}
-                  onChangeText={(text) => setFormData({ ...formData, age: text })}
-                  placeholder="Enter age"
-                  placeholderTextColor={COLORS.textTertiary}
-                  keyboardType="numeric"
+                <CalendarDatePicker
+                  testID="lead-date-of-birth"
+                  label="Date of birth *"
+                  value={formData.date_of_birth}
+                  onChange={(date_of_birth) => setFormData({ ...formData, date_of_birth })}
+                  maximumDate={todayDateString()}
+                  placeholder="Select full date of birth"
                 />
+                <Text style={styles.fieldHint}>Age is calculated automatically.</Text>
               </View>
 
               {formData.account_access_mode !== 'student_only' && (
@@ -578,7 +588,22 @@ export default function LeadsScreen() {
                 </Text>
                 {selectedLead.parent_name ? <Text style={styles.leadDetailValue}>Parent: {selectedLead.parent_name}</Text> : null}
                 {selectedLead.parent_phone ? <Text style={styles.leadDetailValue}>Parent phone: {selectedLead.parent_phone}</Text> : null}
-                {selectedLead.age ? <Text style={styles.leadDetailValue}>Age: {selectedLead.age}</Text> : null}
+                {selectedLead.date_of_birth ? (
+                  <Text style={styles.leadDetailValue}>
+                    Date of birth: {String(selectedLead.date_of_birth).slice(0, 10)} · Age: {ageFromDateOfBirth(selectedLead.date_of_birth)}
+                  </Text>
+                ) : (
+                  <View style={styles.formGroup}>
+                    <CalendarDatePicker
+                      testID="lead-detail-date-of-birth"
+                      label="Date of birth *"
+                      value=""
+                      onChange={(value) => void handleUpdateBirthDate(selectedLead.id, value)}
+                      maximumDate={todayDateString()}
+                      placeholder="Add date before conversion"
+                    />
+                  </View>
+                )}
                 <Text style={styles.leadDetailValue}>Source: {selectedLead.source?.replace('_', ' ')}</Text>
                 {selectedLead.notes ? <Text style={styles.leadDetailNotes}>{selectedLead.notes}</Text> : null}
 

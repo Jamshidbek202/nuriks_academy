@@ -35,3 +35,45 @@ export function dateStringWithOffset(days: number) {
   date.setUTCDate(date.getUTCDate() + days);
   return toUtcCalendarDateString(date);
 }
+
+const SCHEDULE_WEEKDAYS = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
+
+/**
+ * Return the canonical weekday used by group schedules.
+ *
+ * Schedule values are stored in English regardless of the user's interface
+ * language. Deriving this through a localized formatter made Russian and
+ * Uzbek attendance screens compare translated labels against `monday`, etc.
+ */
+export function scheduleWeekdayFromDateString(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return '';
+  const [, year, month, day] = match;
+  const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (
+    date.getUTCFullYear() !== Number(year)
+    || date.getUTCMonth() !== Number(month) - 1
+    || date.getUTCDate() !== Number(day)
+  ) return '';
+  return SCHEDULE_WEEKDAYS[date.getUTCDay()];
+}
+
+/** Calculate a person's current age from a calendar date without timezone drift. */
+export function ageFromDateOfBirth(value?: string | null, todayValue = todayDateString()) {
+  const birthMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(value || '');
+  const todayMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(todayValue);
+  if (!birthMatch || !todayMatch) return null;
+  const [, birthYear, birthMonth, birthDay] = birthMatch.map(Number);
+  const [, todayYear, todayMonth, todayDay] = todayMatch.map(Number);
+  let age = todayYear - birthYear;
+  if (todayMonth < birthMonth || (todayMonth === birthMonth && todayDay < birthDay)) age -= 1;
+  return age >= 0 && age <= 120 ? age : null;
+}

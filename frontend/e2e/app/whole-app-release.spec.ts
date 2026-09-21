@@ -905,6 +905,7 @@ test('student creation has one canonical identity and permanent deletion leaves 
     await apiCall(request, superToken, 'post', '/students', {
       first_name: 'Canonical',
       last_name: `Student${suffix}`,
+      date_of_birth: '2010-05-12T00:00:00',
       phone,
       courses: [],
     }),
@@ -916,6 +917,7 @@ test('student creation has one canonical identity and permanent deletion leaves 
   const duplicate = await apiCall(request, superToken, 'post', '/students', {
     first_name: 'Duplicate',
     last_name: `Student${suffix}`,
+    date_of_birth: '2010-05-12T00:00:00',
     phone,
     courses: [],
   });
@@ -948,6 +950,7 @@ test('student creation has one canonical identity and permanent deletion leaves 
     await apiCall(request, superToken, 'post', '/students', {
       first_name: 'Reused',
       last_name: `Student${suffix}`,
+      date_of_birth: '2010-05-12T00:00:00',
       phone,
       courses: [],
     }),
@@ -1260,7 +1263,7 @@ test('management lifecycles work and managers cannot cross branch boundaries', a
   );
   const studentPayload = {
     first_name: 'Branch', last_name: `Student${suffix}`, phone: `+99893${suffix}`,
-    email: `student-${suffix}@qa.invalid`, address: 'Disposable QA', courses: [], branch_id: branchBId,
+    date_of_birth: '2010-05-12T00:00:00', email: `student-${suffix}@qa.invalid`, address: 'Disposable QA', courses: [], branch_id: branchBId,
   };
   const student = await expectApiOk(
     await apiCall(request, superToken, 'post', '/students', studentPayload),
@@ -1466,6 +1469,8 @@ test('lead detail, status, conversion, and student list synchronize across activ
     await reception.page.getByTestId('lead-access-parent_only').click();
     await reception.page.getByTestId('lead-primary-phone').fill(`+99891${unique}`);
     await reception.page.getByTestId('lead-parent-name').fill('QA Parent Contact');
+    await reception.page.getByTestId('lead-date-of-birth').click();
+    await reception.page.getByTestId(`lead-date-of-birth-option-${localDate()}`).click();
     await reception.page.getByText('Create Lead', { exact: true }).click();
     await expect(reception.page.getByText(`Live${unique} Prospect`, { exact: true })).toBeVisible();
     await expect(manager.page.getByText(`Live${unique} Prospect`, { exact: true })).toBeVisible({ timeout: 5_000 });
@@ -1530,6 +1535,7 @@ test('student and parent access creates distinct accounts and rejects a shared l
     first_name: `Separate${unique}`,
     last_name: 'Student',
     phone: studentPhone,
+    date_of_birth: '2010-05-12',
     parent_name: 'Separate Parent',
     parent_phone: parentPhone,
     account_access_mode: 'separate',
@@ -1566,6 +1572,7 @@ test('student and parent access creates distinct accounts and rejects a shared l
     first_name: `Shared${unique}`,
     last_name: 'Rejected',
     phone: studentPhone.replace('90', '94'),
+    date_of_birth: '2010-05-12',
     parent_name: 'Shared Parent',
     parent_phone: studentPhone.replace('90', '94'),
     account_access_mode: 'separate',

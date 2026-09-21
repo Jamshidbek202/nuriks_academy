@@ -23,6 +23,8 @@ import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 import { ConcourseAtmosphere, ConcourseGlassLayer } from '../../src/components/ConcourseAtmosphere';
 import { MotionListItem, MotionTouchableOpacity } from '../../src/components/Motion';
 import TelegramInviteModal, { TelegramInviteItem, telegramInviteFromResponse } from '../../src/components/TelegramInviteModal';
+import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
+import { ageFromDateOfBirth, todayDateString } from '../../src/utils/dates';
 
 export default function StudentsScreen() {
   const { user } = useAuth();
@@ -41,6 +43,7 @@ export default function StudentsScreen() {
   const [formData, setFormData] = useState({
     first_name: '',
     last_name: '',
+    date_of_birth: '',
     phone: '',
     email: '',
     address: '',
@@ -70,6 +73,10 @@ export default function StudentsScreen() {
 
   const handleUpdateStudent = async () => {
     if (!selectedStudent) return;
+    if (!formData.date_of_birth) {
+      Alert.alert('Date of birth required', 'Select the student’s full date of birth.');
+      return;
+    }
     
     try {
       await api.put(`/students/${selectedStudent.id}`, formData);
@@ -223,6 +230,7 @@ export default function StudentsScreen() {
     setFormData({
       first_name: student.first_name,
       last_name: student.last_name,
+      date_of_birth: student.date_of_birth ? String(student.date_of_birth).slice(0, 10) : '',
       phone: student.phone || '',
       email: student.email || '',
       address: student.address || '',
@@ -236,6 +244,7 @@ export default function StudentsScreen() {
     setFormData({
       first_name: '',
       last_name: '',
+      date_of_birth: '',
       phone: '',
       email: '',
       address: '',
@@ -512,6 +521,20 @@ export default function StudentsScreen() {
                 onChangeText={(text) => setFormData({ ...formData, last_name: text })}
                 placeholder="Enter last name"
               />
+
+              <CalendarDatePicker
+                testID="student-date-of-birth"
+                label="Date of birth *"
+                value={formData.date_of_birth}
+                onChange={(date_of_birth) => setFormData({ ...formData, date_of_birth })}
+                maximumDate={todayDateString()}
+                placeholder="Select full date of birth"
+              />
+              {ageFromDateOfBirth(formData.date_of_birth) !== null && (
+                <Text style={{ color: COLORS.textSecondary, marginTop: -SIZES.sm, marginBottom: SIZES.md }}>
+                  Age: {ageFromDateOfBirth(formData.date_of_birth)}
+                </Text>
+              )}
 
               <Input
                 label="Phone *"

@@ -21,7 +21,12 @@ import { COLORS, SIZES } from '../../src/constants/theme';
 import { ConcourseAtmosphere } from '../../src/components/ConcourseAtmosphere';
 import { Button } from '../../src/components/Button';
 import { CalendarDatePicker } from '../../src/components/CalendarDatePicker';
-import { dateStringWithOffset, todayDateString, toLocalDateString } from '../../src/utils/dates';
+import {
+  dateStringWithOffset,
+  scheduleWeekdayFromDateString,
+  todayDateString,
+  toLocalDateString,
+} from '../../src/utils/dates';
 import { useLiveRefresh } from '../../src/hooks/use-live-refresh';
 
 interface AttendanceRecord {
@@ -379,8 +384,7 @@ export default function AttendanceScreen() {
   };
 
   const getSelectedDateDay = () => {
-    const date = new Date(`${selectedDate}T00:00:00`);
-    return date.toLocaleDateString(getActiveLocale(), { weekday: 'long' });
+    return scheduleWeekdayFromDateString(selectedDate);
   };
 
   const hasClassOnSelectedDate = () => {

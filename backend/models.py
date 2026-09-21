@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, EmailStr
+from pydantic import BaseModel, Field, EmailStr, field_validator
 from typing import List, Optional, Dict, Any, Literal
 from datetime import date, datetime
 from enum import Enum
@@ -133,9 +133,21 @@ class StudentBase(BaseModel):
     branch_id: Optional[str] = None
 
 class StudentCreate(StudentBase):
+    date_of_birth: datetime
     parent_phone: Optional[str] = None
     parent_name: Optional[str] = None
     courses: Optional[List[str]] = []
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def validate_date_of_birth(cls, value: datetime) -> datetime:
+        today = datetime.utcnow().date()
+        birth_date = value.date()
+        if birth_date > today:
+            raise ValueError("Date of birth cannot be in the future")
+        if (today - birth_date).days > 120 * 366:
+            raise ValueError("Date of birth is outside the supported range")
+        return value
 
 class Student(StudentBase):
     id: str

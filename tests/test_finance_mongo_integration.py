@@ -414,6 +414,52 @@ class FinanceMongoIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(second_cancel.status_code, 409, second_cancel.text)
 
+    async def test_support_teacher_must_explain_a_booking_cancellation(self):
+        browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
+        student_headers = await self.login(QA_USERS["student_a"])
+        support_headers = await self.login(QA_USERS["support_a"])
+        booking = await self.http.post(
+            "/api/support-bookings",
+            headers=student_headers,
+            json={
+                "support_staff_id": browser_fixture["support_staff_id"],
+                "booking_date": (date.today() + timedelta(days=1)).isoformat(),
+                "start_time": "13:00",
+                "duration_minutes": 40,
+                "topic": "Written cancellation reason QA",
+            },
+        )
+        self.assertEqual(booking.status_code, 200, booking.text)
+        booking_id = booking.json()["id"]
+
+        confirmed = await self.http.put(
+            f"/api/support-bookings/{booking_id}/confirm",
+            headers=support_headers,
+        )
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        self.assertEqual(confirmed.json()["status"], "confirmed")
+
+        missing_reason = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel",
+            headers=support_headers,
+        )
+        self.assertEqual(missing_reason.status_code, 422, missing_reason.text)
+
+        cancelled = await self.http.put(
+            f"/api/support-bookings/{booking_id}/cancel",
+            headers=support_headers,
+            json={"reason": "The support teacher is unavailable."},
+        )
+        self.assertEqual(cancelled.status_code, 200, cancelled.text)
+        self.assertEqual(cancelled.json()["status"], "cancelled")
+        self.assertEqual(
+            cancelled.json()["cancellation_reason"],
+            "The support teacher is unavailable.",
+        )
+        stored = await self.db.support_bookings.find_one({"_id": ObjectId(booking_id)})
+        self.assertEqual(stored["cancelled_by_role"], "support")
+        self.assertEqual(stored["cancellation_reason"], "The support teacher is unavailable.")
+
     async def test_students_can_discover_join_and_leave_shared_support_session(self):
         browser_fixture = await seed_finance_browser_fixture(self.db, self.fixture)
         student_a_headers = await self.login(QA_USERS["student_a"])

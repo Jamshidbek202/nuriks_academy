@@ -30,6 +30,10 @@ class SupportBookingCreate(BaseModel):
 class SessionNotesUpdate(BaseModel):
     session_notes: str
 
+
+class BookingCancellation(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
 async def get_current_user_dep(credentials: HTTPAuthorizationCredentials = Depends(security)):
     from server import db
     return await get_current_user(credentials, db)
@@ -691,6 +695,7 @@ async def confirm_booking(
 async def cancel_booking(
     booking_id: str,
     request: Request,
+    cancellation: Optional[BookingCancellation] = None,
     current_user: dict = Depends(get_current_user_dep)
 ):
     """Cancel a booking"""
@@ -704,6 +709,9 @@ async def cancel_booking(
             raise HTTPException(status_code=409, detail="Only an upcoming booking can be cancelled")
         booking = await ensure_booking_participants(db, booking)
         
+        cancellation_reason = (cancellation.reason if cancellation else "") or ""
+        cancellation_reason = cancellation_reason.strip()
+
         # Check permissions
         if current_user["role"] == "student":
             current_user_id = str(current_user["_id"])
@@ -757,6 +765,11 @@ async def cancel_booking(
                 return _safe_joinable_session(updated, None)
         elif current_user["role"] == "support":
             await require_booking_staff_access(db, current_user, booking)
+            if len(cancellation_reason) < 3:
+                raise HTTPException(
+                    status_code=422,
+                    detail="A written cancellation reason is required",
+                )
         elif current_user["role"] not in ["super_admin", "manager"]:
             raise HTTPException(status_code=403, detail="Insufficient permissions")
         else:
@@ -766,7 +779,14 @@ async def cancel_booking(
         # complete session.
         await db.support_bookings.update_one(
             {"_id": ObjectId(booking_id)},
-            {"$set": {"status": "cancelled", "updated_at": datetime.utcnow()}}
+            {"$set": {
+                "status": "cancelled",
+                "cancellation_reason": cancellation_reason or None,
+                "cancelled_by": str(current_user["_id"]),
+                "cancelled_by_role": current_user["role"],
+                "cancelled_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }}
         )
         
         await create_audit_log(
@@ -774,7 +794,10 @@ async def cancel_booking(
             "cancel",
             "support_booking",
             booking_id,
-            None,
+            {
+                "reason": cancellation_reason or None,
+                "cancelled_by_role": current_user["role"],
+            },
             request.client.host if request.client else None
         )
         
